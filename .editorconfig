@@ -1,0 +1,43 @@
+root = true
+
+[*]
+end_of_line = lf
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+charset = utf-8-bom
+
+# ── 私有字段: _camelCase ──────────────────────────────
+dotnet_naming_rule.private_fields.symbols   = private_fields
+dotnet_naming_rule.private_fields.style     = underscore_camel_case
+dotnet_naming_rule.private_fields.severity  = warning
+
+dotnet_naming_symbols.private_fields.applicable_kinds            = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities  = private, private_protected
+
+dotnet_naming_style.underscore_camel_case.required_prefix  = _
+dotnet_naming_style.underscore_camel_case.capitalization   = camel_case
+
+# ── 接口: IXxx ────────────────────────────────────────
+dotnet_naming_rule.interfaces.symbols   = interfaces
+dotnet_naming_rule.interfaces.style     = i_pascal_case
+dotnet_naming_rule.interfaces.severity  = warning
+
+dotnet_naming_symbols.interfaces.applicable_kinds           = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+dotnet_naming_style.i_pascal_case.required_prefix  = I
+dotnet_naming_style.i_pascal_case.capitalization   = pascal_case
+
+# ── 公开成员: PascalCase ──────────────────────────────
+dotnet_naming_rule.public_members.symbols   = public_members
+dotnet_naming_rule.public_members.style     = pascal_case_style
+dotnet_naming_rule.public_members.severity  = warning
+
+dotnet_naming_symbols.public_members.applicable_kinds            = property, method, event, delegate, class, struct, enum
+dotnet_naming_symbols.public_members.applicable_accessibilities  = public, internal, protected, protected_internal
+
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
