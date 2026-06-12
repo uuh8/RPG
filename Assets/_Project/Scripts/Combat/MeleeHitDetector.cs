@@ -15,9 +15,11 @@ namespace Game.Combat
         [SerializeField] private AttackDefinition _attack;
         [SerializeField] private Transform _weaponPivot;          // 命中体积中心；为空时退回本 Transform
         [SerializeField] private Transform _ownerRoot;            // 攻击者根，用于 AttackerId
+        [Tooltip("必须与攻击者自身 HealthComponent.TeamId 一致；命中判定据此跳过同阵营（含自身）。")]
         [SerializeField] private byte _attackerTeam = 0;
         [SerializeField] private LayerMask _hitMask = ~0;
 
+        // 单帧 OverlapBox 命中上限。重叠 collider 超过此数时多余者被静默丢弃；如需更多请调大。
         private const int MaxHitsPerFrame = 16;
         private readonly Collider[] _buf = new Collider[MaxHitsPerFrame];
         private readonly HashSet<int> _hitSet = new HashSet<int>(); // per-swing 去重，预分配复用
@@ -67,7 +69,10 @@ namespace Game.Combat
                 if (!_hitSet.Add(id)) continue;                   // 本次挥砍已命中 → 去重
 
                 Vector3 hitPoint = _buf[i].ClosestPoint(pivot.position);
-                Vector3 hitDir = (hitPoint - pivot.position).normalized;
+                // pivot 在目标碰撞体内部时 ClosestPoint 返回 pivot 本身，差值为零 → 退回武器朝向，
+                // 避免 HitDirection 为 (0,0,0) 污染下游受击反应/VFX。
+                Vector3 toHit = hitPoint - pivot.position;
+                Vector3 hitDir = toHit.sqrMagnitude > 1e-6f ? toHit.normalized : pivot.forward;
 
                 var req = new DamageRequest(
                     _attackerId, _attackerTeam, _attack.BaseAmount,
