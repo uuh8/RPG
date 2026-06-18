@@ -1,7 +1,7 @@
 namespace Game.Combat
 {
     /// <summary>
-    /// "可受伤害"统一契约，由 HealthComponent 实现。
+    /// 约定"任何能挨打的东西"必须提供 TeamId、IsAlive、ReceiveHit 这三样，由 HealthComponent 实现。
     /// 命中判定方通过 ReceiveHit 提交攻击意图，实现方用自身防御档案结算。
     /// </summary>
     public interface IDamageable

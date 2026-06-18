@@ -1,4 +1,5 @@
 using UnityEngine;
+using Game.Combat;
 
 namespace Game.Character
 {
@@ -29,6 +30,10 @@ namespace Game.Character
         [SerializeField] private float _pitchMin = -30f;       // 最低俯角（抬头看天的限制）
         [SerializeField] private float _pitchMax = 70f;        // 最高俯角（低头看地的限制）
 
+        [Header("Combat")]
+        [SerializeField] private MeleeHitDetector _meleeHitDetector; // 在Inspector里拖入武器上的组件
+        [SerializeField] private float _attackBufferTime = 0.15f;    // 攻击缓冲时间，和跳跃同理
+
         // 组件引用
         private CharacterController _characterController;
         private Animator _animator;
@@ -44,6 +49,7 @@ namespace Game.Character
         private PlayerGroundedState _groundedState;
         private PlayerAirborneState _airborneState;
         private PlayerSlidingState _slidingState;
+        private PlayerAttackState _attackState;
 
         // 运行时数据
         private Vector2 _moveInput;
@@ -76,11 +82,15 @@ namespace Game.Character
         public float SlideSpeed => _slideSpeed;
         public float CoyoteTimeCounter { get; set; }
         public float JumpBufferCounter { get; set; }
+
         public PlayerStateMachine StateMachine => _stateMachine;
         public PlayerGroundedState GroundedState => _groundedState;
         public PlayerAirborneState AirborneState => _airborneState;
         public PlayerSlidingState SlidingState => _slidingState;
-
+        public PlayerAttackState AttackState => _attackState;
+        public float AttackBufferCounter { get; set; }
+        public float AttackBufferTime => _attackBufferTime;
+        public MeleeHitDetector MeleeHitDetector => _meleeHitDetector;
 
         private void Awake()
         {
@@ -97,6 +107,7 @@ namespace Game.Character
             _groundedState = new PlayerGroundedState(this);
             _airborneState = new PlayerAirborneState(this);
             _slidingState = new PlayerSlidingState(this);
+            _attackState = new PlayerAttackState(this);
         }
 
         private void Start()
@@ -112,10 +123,12 @@ namespace Game.Character
         {
             _inputActions.Player.Enable();
             _inputActions.Player.Jump.performed += OnJumpPerformed; // 注册 Jump 回调
+            _inputActions.Player.Attack.performed += OnAttackPerformed;
         }
         private void OnDisable()
         {
             _inputActions.Player.Jump.performed -= OnJumpPerformed;
+            _inputActions.Player.Attack.performed -= OnAttackPerformed;
             _inputActions.Player.Disable();
         }
 
@@ -135,8 +148,9 @@ namespace Game.Character
             // 两个计时器统一在 Controller 里递减，放在这里而不是 State 里，原因：
             // 计时器是全局数据，无论当前是哪个 State 都应该持续倒计时
             // State 只负责读取计时器的值来做判断，不负责维护它
-            if (JumpBufferCounter > 0f) JumpBufferCounter -= Time.deltaTime;
-            if (CoyoteTimeCounter > 0f) CoyoteTimeCounter -= Time.deltaTime;
+            if (JumpBufferCounter  > 0f) JumpBufferCounter  -= Time.deltaTime;
+            if (CoyoteTimeCounter  > 0f) CoyoteTimeCounter  -= Time.deltaTime;
+            if (AttackBufferCounter > 0f) AttackBufferCounter -= Time.deltaTime;
 
             // ① 先驱动状态机：状态机可能在本帧改变 VerticalVelocity（如起跳设为 JumpForce）
             _stateMachine.Update();
@@ -241,6 +255,11 @@ namespace Game.Character
             _cameraRoot.rotation = Quaternion.Euler(_cameraPitch, _cameraYaw, 0f);
         }
 
-
+        private void OnAttackPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
+        {
+            // 不在这里执行攻击，只记录"有一个待消耗的攻击输入"
+            // 由 GroundedState 在合适时机消耗（和 JumpBuffer 同理）
+            AttackBufferCounter = _attackBufferTime;
+        }
     }
 }

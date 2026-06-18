@@ -8,11 +8,15 @@ namespace Game.Combat.Tests
         private static DamageRequest MakeRequest(float amount, DamageType type)
         {
             return new DamageRequest(
-                attackerId: 1, attackerTeam: 0,
-                baseAmount: amount, type: type,
-                hitPoint: Vector3.zero, hitDirection: Vector3.forward);
+                attackerId: 1,
+                attackerTeam: 0,
+                baseAmount: amount,
+                type: type,
+                hitPoint: Vector3.zero,
+                hitDirection: Vector3.forward);
         }
 
+        // [Test] 特性：标记一个方法是测试用例
         [Test]
         public void True_IgnoresDefense_ReturnsBaseAmount()
         {
@@ -21,6 +25,7 @@ namespace Game.Combat.Tests
 
             DamageResult result = DamagePipeline.Resolve(in req, in def);
 
+            // 这行代码的作用是判断计算出的最终伤害值是否等于预期的 50f，如果相等则测试通过，否则测试失败。
             Assert.That(result.Final, Is.EqualTo(50f));
         }
 

@@ -17,7 +17,8 @@ namespace Game.Combat
         [Header("命中体积 (OverlapBox 半尺寸)")]
         public Vector3 HalfExtents = new Vector3(0.5f, 0.5f, 0.5f);
 
-        [Header("激活窗口 (归一化动画时间 0~1，供 Character 侧驱动)")]
+        [Header("激活窗口 (攻击判定的有效时间区间)")]
+        // 0.30 到 0.55 意味着当攻击动画播放到 30% 到 55% 的进度时，才会开启伤害判定
         [Range(0f, 1f)] public float ActiveStart = 0.30f;
         [Range(0f, 1f)] public float ActiveEnd   = 0.55f;
     }

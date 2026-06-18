@@ -14,7 +14,6 @@ namespace Game.Combat
             EventBus<DamageReceivedEvent>.Subscribe(OnDamage);
             EventBus<DeathEvent>.Subscribe(OnDeath);
         }
-
         private void OnDisable()
         {
             EventBus<DamageReceivedEvent>.Unsubscribe(OnDamage);
@@ -23,9 +22,9 @@ namespace Game.Combat
 
         private void OnDamage(DamageReceivedEvent e)
         {
-            GameLog.Info(
-                $"Target {e.TargetId} took {e.Amount} {e.Type} dmg from {e.AttackerId}, HP left {e.RemainingHp}",
-                "Combat");
+            GameLog.Info($"Target {e.TargetId} took " +
+                         $"{e.Amount} {e.Type} dmg from {e.AttackerId}, " +
+                         $"HP left {e.RemainingHp}", "Combat");
         }
 
         private void OnDeath(DeathEvent e)

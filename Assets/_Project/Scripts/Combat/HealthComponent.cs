@@ -5,7 +5,8 @@ namespace Game.Combat
 {
     /// <summary>
     /// 生命值管理 + IDamageable 实现。封装自身防御档案，受击时调用纯函数
-    /// DamagePipeline.Resolve，扣血后同帧经 EventBus 派发 DamageReceived / Death。
+    /// 实现了一个挂在"能挨打的 GameObject"上的 MonoBehaviour，它是 IDamageable 的具体实现
+    /// 负责：持有血量/阵营/防御档案 → 受击时调 DamagePipeline 算账 → 扣血 → 同帧发受击事件 → 血量归零再发死亡事件。
     /// </summary>
     public class HealthComponent : MonoBehaviour, IDamageable
     {
@@ -29,12 +30,14 @@ namespace Game.Combat
 
         public void ReceiveHit(in DamageRequest req)
         {
-            if (!IsAlive) return;
+            if (!IsAlive) return;   // 死亡时不再受击
 
+            // 算出最终伤害
             DamageResult result = DamagePipeline.Resolve(in req, in _defenseProfile);
             _currentHp -= result.Final;
-            if (_currentHp < 0f) _currentHp = 0f;
+            if (_currentHp < 0f) _currentHp = 0f;   // 扣血钳制到 ≥0
 
+            // 同帧 Publish 受击事件
             EventBus<DamageReceivedEvent>.Publish(new DamageReceivedEvent
             {
                 TargetId     = _id,
@@ -46,6 +49,7 @@ namespace Game.Combat
                 RemainingHp  = _currentHp,
             });
 
+            // 若血量 ≤0，同帧 Publish 死亡事件
             if (_currentHp <= 0f)
             {
                 EventBus<DeathEvent>.Publish(new DeathEvent

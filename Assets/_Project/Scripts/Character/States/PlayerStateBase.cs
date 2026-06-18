@@ -16,7 +16,8 @@ namespace Game.Character
         // JumpHash 保留在这里：jump 是"事件型"Trigger，由 State 在起跳时主动触发
         // SpeedHash / IsGroundedHash 已移至 PlayerController.SyncAnimatorParameters()
         // 原因：它们是持续状态型参数，由 Controller 每帧统一同步，State 不再负责维护
-        protected static readonly int JumpHash = Animator.StringToHash("jump");
+		protected static readonly int JumpHash   = Animator.StringToHash("jump");
+		protected static readonly int AttackHash = Animator.StringToHash("attack");
 
         // 构造函数：创建 State 时必须传入 PlayerController
         // 这是依赖注入，State 自己不找组件，由外部传进来

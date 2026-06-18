@@ -10,7 +10,7 @@ namespace Game.Combat
     {
         public readonly int AttackerId;
         public readonly byte AttackerTeam;
-        public readonly float BaseAmount;
+        public readonly float BaseAmount;   // 基础伤害
         public readonly DamageType Type;
         public readonly Vector3 HitPoint;
         public readonly Vector3 HitDirection;

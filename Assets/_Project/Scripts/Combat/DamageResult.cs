@@ -5,7 +5,7 @@ namespace Game.Combat
     {
         public readonly float Final;
         public readonly DamageType Type;
-        public readonly bool WasMitigated;
+        public readonly bool WasMitigated;  // 是否被减伤
 
         public DamageResult(float final, DamageType type, bool wasMitigated)
         {

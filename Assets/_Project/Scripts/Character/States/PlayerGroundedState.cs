@@ -50,6 +50,13 @@ namespace Game.Character
 
         private void CheckTransition()
         {
+            // 攻击输入（优先于跳跃检测）
+            if (_player.AttackBufferCounter > 0f)
+            {
+                _player.StateMachine.ChangeState(_player.AttackState);
+                return;
+            }
+
             // 在地面上检测到有跳跃输入（JumpBufferCounter > 0）→ 执行起跳
             if (_player.JumpBufferCounter > 0f)
             {
