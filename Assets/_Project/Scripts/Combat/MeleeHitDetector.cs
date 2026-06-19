@@ -31,6 +31,16 @@ namespace Game.Combat
         public AttackDefinition Attack => _attack;
 
         /// <summary>
+        /// 切换当前生效的攻击定义（连段换段时由 Character 侧调用）。
+        /// 不主动清空去重集；换段方应配合 CloseHitWindow，使新段窗口在 ActiveStart
+        /// 重新 OpenHitWindow 时（幂等 open 会 Clear）自然得到一次干净的 per-swing 去重。
+        /// </summary>
+        public void SetAttack(AttackDefinition attack)
+        {
+            _attack = attack;
+        }
+
+        /// <summary>
         /// 开启攻击激活窗口。幂等：窗口已开时不重复清空去重集,
         /// 以便 Character 侧每帧调用 EnsureOpen 语义。</summary>
         /// <summary>
