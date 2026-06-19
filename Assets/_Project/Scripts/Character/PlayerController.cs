@@ -1,5 +1,6 @@
 using UnityEngine;
 using Game.Combat;
+using Game.Core;
 
 namespace Game.Character
 {
@@ -33,6 +34,7 @@ namespace Game.Character
         [Header("Combat")]
         [SerializeField] private MeleeHitDetector _meleeHitDetector; // 在Inspector里拖入武器上的组件
         [SerializeField] private float _attackBufferTime = 0.15f;    // 攻击缓冲时间
+        [SerializeField] private ComboDefinition _combo;             // 当前武器的连段表（拖入 SingleTwoHandSword）
 
         // 组件引用
         private CharacterController _characterController;
@@ -57,6 +59,9 @@ namespace Game.Character
         private Vector2 _lookInput;
         private float _cameraYaw;    // 累积的水平角
         private float _cameraPitch;  // 累积的俯仰角
+
+        // 连段各段 Animator 状态名的预 hash 结果（Awake 算一次，避免每次切段 StringToHash）
+        private int[] _comboStateHashes;
 
         // ── Animator Parameter Hashes ──────────────────────────────────────
         // 集中定义在 Controller 里，原因：
@@ -91,6 +96,15 @@ namespace Game.Character
         public float AttackBufferCounter { get; set; }
         public float AttackBufferTime => _attackBufferTime;
         public MeleeHitDetector MeleeHitDetector => _meleeHitDetector;
+        public ComboDefinition Combo => _combo;
+
+        /// <summary>取第 index 段的 Animator 状态 hash；越界或未配置返回 0。</summary>
+        public int GetComboStateHash(int index)
+        {
+            if (_comboStateHashes == null || index < 0 || index >= _comboStateHashes.Length)
+                return 0;
+            return _comboStateHashes[index];
+        }
 
         private void Awake()
         {
@@ -108,6 +122,32 @@ namespace Game.Character
             _airborneState = new PlayerAirborneState(this);
             _slidingState = new PlayerSlidingState(this);
             _attackState = new PlayerAttackState(this);
+
+            BuildComboStateHashes();
+        }
+
+        /// <summary>
+        /// 把连段表各段的 AnimationStateName 预 hash 成 int[]，运行期切段直接用 hash CrossFade，
+        /// 不做每帧/每次切段的 StringToHash。状态名为空时记 0 并告警（CrossFade 0 不会切动画）。
+        /// </summary>
+        private void BuildComboStateHashes()
+        {
+            int count = _combo != null ? _combo.SegmentCount : 0;
+            _comboStateHashes = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                AttackDefinition seg = _combo.Segments[i];
+                string stateName = seg != null ? seg.AnimationStateName : null;
+                if (string.IsNullOrEmpty(stateName))
+                {
+                    _comboStateHashes[i] = 0;
+                    GameLog.Warn($"连段第 {i} 段 AnimationStateName 为空，CrossFade 将无法切换动画", "Combat");
+                }
+                else
+                {
+                    _comboStateHashes[i] = Animator.StringToHash(stateName);
+                }
+            }
         }
 
         private void Start()
