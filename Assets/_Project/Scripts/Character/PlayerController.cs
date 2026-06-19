@@ -32,7 +32,7 @@ namespace Game.Character
 
         [Header("Combat")]
         [SerializeField] private MeleeHitDetector _meleeHitDetector; // 在Inspector里拖入武器上的组件
-        [SerializeField] private float _attackBufferTime = 0.15f;    // 攻击缓冲时间，和跳跃同理
+        [SerializeField] private float _attackBufferTime = 0.15f;    // 攻击缓冲时间
 
         // 组件引用
         private CharacterController _characterController;
@@ -208,14 +208,6 @@ namespace Game.Character
             return (cameraForward * _moveInput.y + cameraRight * _moveInput.x).normalized;
         }
 
-        // 按下跳跃键的那一帧触发一次
-        // 不在这里执行跳跃，只记录"有一个待消耗的跳跃输入"
-        // 由 State 在合适的时机去消耗（接地时：立刻跳；Coyote 期间：也能跳）
-        private void OnJumpPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
-        {
-            JumpBufferCounter = _jumpBufferTime;
-        }
-
         private void OnControllerColliderHit(ControllerColliderHit hit)
         {
             Rigidbody rb = hit.rigidbody;
@@ -255,6 +247,13 @@ namespace Game.Character
             _cameraRoot.rotation = Quaternion.Euler(_cameraPitch, _cameraYaw, 0f);
         }
 
+        private void OnJumpPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
+        {
+            // 按下跳跃键的那一帧触发一次
+            // 不在这里执行跳跃，只记录"有一个待消耗的跳跃输入"
+            // 由 State 在合适的时机去消耗（接地时：立刻跳；Coyote 期间：也能跳）
+            JumpBufferCounter = _jumpBufferTime;
+        }
         private void OnAttackPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
         {
             // 不在这里执行攻击，只记录"有一个待消耗的攻击输入"

@@ -10,9 +10,6 @@ namespace Game.Character
         // 当前正在运行的状态，外部只读
         public PlayerStateBase CurrentState { get; private set; }
 
-        /// <summary>
-        /// 切换到新状态。先 Exit 旧的，再进入新的。
-        /// </summary>
         public void ChangeState(PlayerStateBase newState)
         {
             // ?. 是空条件运算符，CurrentState 为 null（初始化时）时不调用 Exit

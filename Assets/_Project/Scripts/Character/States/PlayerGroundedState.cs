@@ -46,8 +46,6 @@ namespace Game.Character
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }
 
-
-
         private void CheckTransition()
         {
             // 攻击输入（优先于跳跃检测）

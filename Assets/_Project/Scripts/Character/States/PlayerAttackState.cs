@@ -63,7 +63,7 @@ namespace Game.Character
             AttackDefinition def = _player.MeleeHitDetector.Attack;
             if (def == null) return;
 
-            // 判断当前动画是否处于过渡期（即两个动画混合的淡入淡出阶段）。如果是，强制关闭判定窗口并返回。
+            // 判断当前动画是否处于过渡期（即两个动画混合的淡入淡出阶段）。如果是，强制关闭伤害判定窗口并返回。
             // 原因：过渡时 normalizedTime 读到的是源状态的值，不代表攻击动画的进度
             if (_player.Animator.IsInTransition(0))
             {
@@ -72,8 +72,9 @@ namespace Game.Character
             }
 
             // 获取第 0 层动画的归一化时间 normalizedTime。
-            // normalizedTime % 1f：得到当前动画循环内的进度（0=开始，1=结束）
-            // % 1f 是为了处理 normalizedTime > 1 的情况（动画循环时会超过1）
+            // AnimatorStateInfo.normalizedTime:动画的归一化时间。当动画播放到起点时为 0，播放到终点时为 1。
+            // 特殊情况：如果动画状态被设置为循环，那么播放第二圈时 normalizedTime 会变成 1 到 2 之间的值，第三圈为 2 到 3，以此类推
+            // normalizedTime % 1f：即只保留小数部分，得到当前动画循环内的进度（0=开始，1=结束）
             float t = _player.Animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
 
             // 在激活帧区间内开窗，否则关窗
