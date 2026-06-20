@@ -298,6 +298,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 1794654448817165715, guid: 4c7ba2ea9f3fa0f49aa365d470754f6b, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1306350076}
+    - targetCorrespondingSourceObject: {fileID: 1794654448817165715, guid: 4c7ba2ea9f3fa0f49aa365d470754f6b, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1306350077}
   m_SourcePrefab: {fileID: 100100000, guid: 4c7ba2ea9f3fa0f49aa365d470754f6b, type: 3}
 --- !u!4 &111554809 stripped
 Transform:
@@ -367,7 +370,8 @@ MonoBehaviour:
   _pitchMin: -30
   _pitchMax: 90
   _meleeHitDetector: {fileID: 1306350076}
-  _attackBufferTime: 0.15
+  _attackBufferTime: 0.38
+  _combo: {fileID: 11400000, guid: 389bf03b39398784f9284a5987e98238, type: 2}
 --- !u!143 &219889889
 CharacterController:
   m_ObjectHideFlags: 0
@@ -1290,6 +1294,27 @@ MonoBehaviour:
   _hitMask:
     serializedVersion: 2
     m_Bits: 4294967295
+--- !u!65 &1306350077
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1306350074}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 0.59330416, y: 1.575512, z: 0.22497697}
+  m_Center: {x: 0.026857615, y: -1.0167387, z: 0.026857309}
 --- !u!1 &1361984446
 GameObject:
   m_ObjectHideFlags: 0
