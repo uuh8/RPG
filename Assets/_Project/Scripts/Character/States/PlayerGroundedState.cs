@@ -8,7 +8,9 @@ namespace Game.Character
     /// </summary>
     public class PlayerGroundedState : PlayerStateBase
     {
-        public PlayerGroundedState(PlayerController player) : base(player) { }
+        public PlayerGroundedState(PlayerController player) : base(player)
+        {
+        }
 
         public override void Enter()
         {
@@ -17,17 +19,23 @@ namespace Game.Character
             // 进入接地状态时，重置垂直速度为 -2f
             _player.VerticalVelocity = -2f;
             if (_player.JumpBufferCounter > 0f)
-                ExecuteJump();  // Jump Buffer：如果空中按了跳跃键、buffer 还没过期，落地立刻起跳
+                ExecuteJump(); // Jump Buffer：如果空中按了跳跃键、buffer 还没过期，落地立刻起跳
         }
+
         public override void Update()
         {
             // 顺序固定：
-            HandleGravity();    // 1. 先算重力（更新垂直速度）
-            HandleMovement();   // 2. 再移动（把垂直速度打包进 Move）
-            base.HandleRotation();   // 3. 再转向（不影响位移计算）
-            CheckTransition();  // 4. 最后检测是否要切状态
+            HandleGravity(); // 1. 先算重力（更新垂直速度）
+            HandleMovement(); // 2. 再移动（把垂直速度打包进 Move）
+            base.HandleRotation(); // 3. 再转向（不影响位移计算）
+            CheckTransition(); // 4. 最后检测是否要切状态
         }
-        public override void Exit() { }
+
+        public override void Exit()
+        {
+        }
+
+        #region 处理流程函数
 
         private void HandleGravity()
         {
@@ -70,12 +78,18 @@ namespace Game.Character
                 _player.StateMachine.ChangeState(_player.AirborneState);
                 return;
             }
+
             // 站上超坡 → 进入滑落状态
             if (_player.GroundChecker.GroundAngle > _player.CharacterController.slopeLimit)
             {
                 _player.StateMachine.ChangeState(_player.SlidingState);
             }
         }
+
+        #endregion
+
+        #region 功能函数
+
         private void ExecuteJump()
         {
             _player.Animator.SetTrigger(JumpHash);
@@ -84,9 +98,10 @@ namespace Game.Character
             // 消耗掉这次跳跃输入，防止重复触发
             _player.JumpBufferCounter = 0f;
             // 跳跃是主动起跳，不给 Coyote Time
-            // （Coyote 是"走出边缘后的宽限"，主动跳跃不需要）
             _player.CoyoteTimeCounter = 0f;
             _player.StateMachine.ChangeState(_player.AirborneState);
         }
+
+        #endregion
     }
 }

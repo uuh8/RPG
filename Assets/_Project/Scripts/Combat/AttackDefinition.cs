@@ -18,8 +18,8 @@ namespace Game.Combat
         public Vector3 HalfExtents = new Vector3(0.5f, 0.5f, 0.5f);
 
         [Header("激活窗口 (归一化动画时间 0~1，供 Character 侧驱动)")]
-        [Range(0f, 1f)] public float ActiveStart = 0.30f;
-        [Range(0f, 1f)] public float ActiveEnd   = 0.55f;
+        [Range(0f, 1f)] public float HitActiveStart = 0.30f;
+        [Range(0f, 1f)] public float HitActiveEnd   = 0.55f;
 
         [Header("连段输入窗口 (归一化动画时间 0~1，此区间内按攻击键可接下一段)")]
         [Range(0f, 1f)] public float ComboInputStart = 0.40f;
