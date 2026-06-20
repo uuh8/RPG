@@ -31,6 +31,11 @@ namespace Game.Character
         [SerializeField] private float _attackBufferTime = 0.15f; // 攻击缓冲时间
         [SerializeField] private ComboDefinition _combo; // 当前武器的连段表（拖入 SingleTwoHandSword）
 
+        [Header("Dash")] [SerializeField] private float _dashSpeed = 14f;      // 冲刺水平速度
+        [SerializeField] private float _dashDuration = 0.2f;                    // 冲刺持续时间（秒）
+        [SerializeField] private float _dashCooldown = 1f;                      // 冲刺冷却（从 Exit 起算）
+        [SerializeField] private float _dashBufferTime = 0.15f;                 // 冲刺输入缓冲（与攻击/跳跃同惯例）
+
         // 组件引用
         private CharacterController _characterController;
         private Animator _animator;
@@ -94,6 +99,13 @@ namespace Game.Character
         public MeleeHitDetector MeleeHitDetector => _meleeHitDetector;
         public ComboDefinition Combo => _combo;
 
+        public float DashSpeed => _dashSpeed;
+        public float DashDuration => _dashDuration;
+        public float DashCooldown => _dashCooldown;
+        public float DashBufferTime => _dashBufferTime;
+        public float DashCooldownCounter { get; set; }
+        public float DashBufferCounter { get; set; }
+
         #region Unity事件函数
 
         private void Awake()
@@ -132,12 +144,14 @@ namespace Game.Character
             _inputActions.Player.Enable();
             _inputActions.Player.Jump.performed += OnJumpPerformed; // 注册 Jump 回调
             _inputActions.Player.Attack.performed += OnAttackPerformed;
+            _inputActions.Player.Dash.performed += OnDashPerformed;
         }
 
         private void OnDisable()
         {
             _inputActions.Player.Jump.performed -= OnJumpPerformed;
             _inputActions.Player.Attack.performed -= OnAttackPerformed;
+            _inputActions.Player.Dash.performed -= OnDashPerformed;
             _inputActions.Player.Disable();
         }
 
@@ -160,6 +174,8 @@ namespace Game.Character
             if (JumpBufferCounter > 0f) JumpBufferCounter -= Time.deltaTime;
             if (CoyoteTimeCounter > 0f) CoyoteTimeCounter -= Time.deltaTime;
             if (AttackBufferCounter > 0f) AttackBufferCounter -= Time.deltaTime;
+            if (DashCooldownCounter > 0f) DashCooldownCounter -= Time.deltaTime;
+            if (DashBufferCounter > 0f) DashBufferCounter -= Time.deltaTime;
 
             // ① 先驱动状态机：状态机可能在本帧改变 VerticalVelocity（如起跳设为 JumpForce）
             _stateMachine.Update();
@@ -305,6 +321,13 @@ namespace Game.Character
             // 不在这里执行攻击，只记录"有一个待消耗的攻击输入"
             // 由 GroundedState 在合适时机消耗（和 JumpBuffer 同理）
             AttackBufferCounter = _attackBufferTime;
+        }
+
+        private void OnDashPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
+        {
+            // 与 Jump/Attack 同惯例：只记录"有一个待消耗的冲刺输入"，由 GroundedState 在闸门处消费。
+            // 冷却与缓冲正交：本回调只管缓冲；能力锁由 GroundedState 用 DashCooldownCounter 单独把关。
+            DashBufferCounter = _dashBufferTime;
         }
     }
 }
