@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 666e50011be343840847ac8cc5cd4857, type: 3}
+  m_Name: Combo_SingleTwoHandSword
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.ComboDefinition
+  Segments:
+  - {fileID: 11400000, guid: f81e3de9c396b494894cc8a5d73c0506, type: 2}
+  - {fileID: 11400000, guid: 3ab1dbd77a93dc2478cd4e178a93a5cd, type: 2}
+  - {fileID: 11400000, guid: 818784139d4f97d43b7c5b3a2db18092, type: 2}
+  - {fileID: 11400000, guid: 8e792e111adf8934d93bbbf0cca1e520, type: 2}
+  - {fileID: 11400000, guid: 1dcd96451799c9e4b8f20659b869e430, type: 2}
