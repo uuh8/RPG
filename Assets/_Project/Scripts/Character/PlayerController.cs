@@ -53,6 +53,7 @@ namespace Game.Character
         private PlayerAirborneState _airborneState;
         private PlayerSlidingState _slidingState;
         private PlayerAttackState _attackState;
+        private PlayerDashState _dashState;
 
         // 运行时数据
         private Vector2 _moveInput;
@@ -94,6 +95,7 @@ namespace Game.Character
         public PlayerAirborneState AirborneState => _airborneState;
         public PlayerSlidingState SlidingState => _slidingState;
         public PlayerAttackState AttackState => _attackState;
+        public PlayerDashState DashState => _dashState;
         public float AttackBufferCounter { get; set; }
         public float AttackBufferTime => _attackBufferTime;
         public MeleeHitDetector MeleeHitDetector => _meleeHitDetector;
@@ -125,6 +127,7 @@ namespace Game.Character
             _airborneState = new PlayerAirborneState(this);
             _slidingState = new PlayerSlidingState(this);
             _attackState = new PlayerAttackState(this);
+            _dashState = new PlayerDashState(this);
 
             // 把连段表各段的 AnimationStateName 预 hash 成 int[]
             BuildComboStateHashes();

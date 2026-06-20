@@ -56,6 +56,14 @@ namespace Game.Character
 
         private void CheckTransition()
         {
+            // 冲刺输入（最高优先级：Dash → Attack → Jump）。
+            // 缓冲与冷却正交：DashBufferCounter 给亚帧容错；DashCooldownCounter 把关能力锁。
+            if (_player.DashBufferCounter > 0f && _player.DashCooldownCounter <= 0f)
+            {
+                _player.StateMachine.ChangeState(_player.DashState);
+                return;
+            }
+
             // 攻击输入（优先于跳跃检测）
             if (_player.AttackBufferCounter > 0f)
             {
