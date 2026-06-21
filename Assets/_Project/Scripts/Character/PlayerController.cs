@@ -31,10 +31,12 @@ namespace Game.Character
         [SerializeField] private float _attackBufferTime = 0.15f; // 攻击缓冲时间
         [SerializeField] private ComboDefinition _combo; // 当前武器的连段表（拖入 SingleTwoHandSword）
 
-        [Header("Dash")] [SerializeField] private float _dashSpeed = 14f;      // 冲刺水平速度
+        [Header("Dash")] [SerializeField] private float _dashSpeed = 20f;      // 冲刺水平速度
         [SerializeField] private float _dashDuration = 0.2f;                    // 冲刺持续时间（秒）
         [SerializeField] private float _dashCooldown = 1f;                      // 冲刺冷却（从 Exit 起算）
         [SerializeField] private float _dashBufferTime = 0.15f;                 // 冲刺输入缓冲（与攻击/跳跃同惯例）
+
+        [Header("VFX")] [SerializeField] private TrailRenderer _bladeTrail;     // 剑刃拖尾，挂在 VFX_BladeTip 上；由 PlayerAttackState 控制 emitting
 
         // 组件引用
         private CharacterController _characterController;
@@ -107,6 +109,8 @@ namespace Game.Character
         public float DashBufferTime => _dashBufferTime;
         public float DashCooldownCounter { get; set; }
         public float DashBufferCounter { get; set; }
+
+        public TrailRenderer BladeTrail => _bladeTrail; // 暴露给 PlayerAttackState 控制挥砍拖尾的开关（与 MeleeHitDetector 同惯例）
 
         #region Unity事件函数
 

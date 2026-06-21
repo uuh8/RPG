@@ -181,6 +181,33 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""SwitchClass1"",
+                    ""type"": ""Button"",
+                    ""id"": ""cf51792b-ce26-4d38-ae89-8632869aae38"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""SwitchClass2"",
+                    ""type"": ""Button"",
+                    ""id"": ""c10cc3cf-c3bc-4f9d-9df6-af3d3a613a89"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""SwitchClass3"",
+                    ""type"": ""Button"",
+                    ""id"": ""a03b8595-2dd0-4d0e-87f7-69a4ff487a17"",
+                    ""expectedControlType"": """",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -577,6 +604,39 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""groups"": "";Keyboard&Mouse"",
                     ""action"": ""Dash"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""dc0f9857-637d-405a-af90-7fddb9cc8bab"",
+                    ""path"": ""<Keyboard>/1"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": "";Keyboard&Mouse"",
+                    ""action"": ""SwitchClass1"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""83e02ee5-f721-473b-94e9-7067ed2a24bf"",
+                    ""path"": ""<Keyboard>/2"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": "";Keyboard&Mouse"",
+                    ""action"": ""SwitchClass2"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""4ee3e3cf-fe1f-4e22-bac7-716ac023e458"",
+                    ""path"": ""<Keyboard>/3"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": "";Keyboard&Mouse"",
+                    ""action"": ""SwitchClass3"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }
@@ -1174,6 +1234,9 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
         m_Player_Previous = m_Player.FindAction("Previous", throwIfNotFound: true);
         m_Player_Next = m_Player.FindAction("Next", throwIfNotFound: true);
         m_Player_Sprint = m_Player.FindAction("Sprint", throwIfNotFound: true);
+        m_Player_SwitchClass1 = m_Player.FindAction("SwitchClass1", throwIfNotFound: true);
+        m_Player_SwitchClass2 = m_Player.FindAction("SwitchClass2", throwIfNotFound: true);
+        m_Player_SwitchClass3 = m_Player.FindAction("SwitchClass3", throwIfNotFound: true);
         // UI
         m_UI = asset.FindActionMap("UI", throwIfNotFound: true);
         m_UI_Navigate = m_UI.FindAction("Navigate", throwIfNotFound: true);
@@ -1277,6 +1340,9 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
     private readonly InputAction m_Player_Previous;
     private readonly InputAction m_Player_Next;
     private readonly InputAction m_Player_Sprint;
+    private readonly InputAction m_Player_SwitchClass1;
+    private readonly InputAction m_Player_SwitchClass2;
+    private readonly InputAction m_Player_SwitchClass3;
     /// <summary>
     /// Provides access to input actions defined in input action map "Player".
     /// </summary>
@@ -1328,6 +1394,18 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
         /// Provides access to the underlying input action "Player/Sprint".
         /// </summary>
         public InputAction @Sprint => m_Wrapper.m_Player_Sprint;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/SwitchClass1".
+        /// </summary>
+        public InputAction @SwitchClass1 => m_Wrapper.m_Player_SwitchClass1;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/SwitchClass2".
+        /// </summary>
+        public InputAction @SwitchClass2 => m_Wrapper.m_Player_SwitchClass2;
+        /// <summary>
+        /// Provides access to the underlying input action "Player/SwitchClass3".
+        /// </summary>
+        public InputAction @SwitchClass3 => m_Wrapper.m_Player_SwitchClass3;
         /// <summary>
         /// Provides access to the underlying input action map instance.
         /// </summary>
@@ -1384,6 +1462,15 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
             @Sprint.started += instance.OnSprint;
             @Sprint.performed += instance.OnSprint;
             @Sprint.canceled += instance.OnSprint;
+            @SwitchClass1.started += instance.OnSwitchClass1;
+            @SwitchClass1.performed += instance.OnSwitchClass1;
+            @SwitchClass1.canceled += instance.OnSwitchClass1;
+            @SwitchClass2.started += instance.OnSwitchClass2;
+            @SwitchClass2.performed += instance.OnSwitchClass2;
+            @SwitchClass2.canceled += instance.OnSwitchClass2;
+            @SwitchClass3.started += instance.OnSwitchClass3;
+            @SwitchClass3.performed += instance.OnSwitchClass3;
+            @SwitchClass3.canceled += instance.OnSwitchClass3;
         }
 
         /// <summary>
@@ -1425,6 +1512,15 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
             @Sprint.started -= instance.OnSprint;
             @Sprint.performed -= instance.OnSprint;
             @Sprint.canceled -= instance.OnSprint;
+            @SwitchClass1.started -= instance.OnSwitchClass1;
+            @SwitchClass1.performed -= instance.OnSwitchClass1;
+            @SwitchClass1.canceled -= instance.OnSwitchClass1;
+            @SwitchClass2.started -= instance.OnSwitchClass2;
+            @SwitchClass2.performed -= instance.OnSwitchClass2;
+            @SwitchClass2.canceled -= instance.OnSwitchClass2;
+            @SwitchClass3.started -= instance.OnSwitchClass3;
+            @SwitchClass3.performed -= instance.OnSwitchClass3;
+            @SwitchClass3.canceled -= instance.OnSwitchClass3;
         }
 
         /// <summary>
@@ -1795,6 +1891,27 @@ public partial class @InputSystem_Actions: IInputActionCollection2, IDisposable
         /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
         /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
         void OnSprint(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "SwitchClass1" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnSwitchClass1(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "SwitchClass2" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnSwitchClass2(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "SwitchClass3" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnSwitchClass3(InputAction.CallbackContext context);
     }
     /// <summary>
     /// Interface to implement callback methods for all input action callbacks associated with input actions defined by "UI" which allows adding and removing callbacks.

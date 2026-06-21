@@ -15,8 +15,10 @@ MonoBehaviour:
   BaseAmount: 25
   Type: 0
   HalfExtents: {x: 0.17, y: 0.83, z: 0.12}
-  HitActiveStart: 0.3
-  HitActiveEnd: 0.55
+  HitActiveStart: 0.1
+  HitActiveEnd: 0.8
+  TrailActiveStart: 0
+  TrailActiveEnd: 0
   ComboInputStart: 0.45
   ComboInputEnd: 1
   AnimationStateName: Combo03_SingleTwohandSword
