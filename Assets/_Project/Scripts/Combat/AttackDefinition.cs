@@ -31,6 +31,9 @@ namespace Game.Combat
         [Range(0f, 1f)] public float ComboInputStart = 0.40f;
         [Range(0f, 1f)] public float ComboInputEnd   = 0.70f;
 
+        [Header("远程箭矢生成 (归一化动画时间 0~1，单点：normalizedTime 越过此值的那一刻生成一次箭矢；近战不用此字段)")]
+        [Range(0f, 1f)] public float ArrowSpawnTime = 0.4f;
+
         [Header("动画")]
         [Tooltip("本段对应的 Animator 状态名，必须与 Animator Controller 中的 state 名完全一致；" +
                  "Character 侧在 Awake 预 hash，本字段是纯字符串，不引用 Animator。")]
