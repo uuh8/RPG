@@ -14,6 +14,10 @@ namespace Game.Combat
     {
         [SerializeField] private float _maxLifetime = 5f; // 超时自毁，防漏网箭矢累积
 
+        // 模型"箭尖"轴向修正：LookRotation 把 +Z 对到飞行方向（Unity 约定），但本箭模型箭尖沿 +Y，
+        // 故默认 +90°X 把 +Y 转到飞行方向。换了箭尖朝向不同的模型时在 Inspector 改这里（如指向反了改 -90）。
+        [SerializeField] private Vector3 _modelForwardOffsetEuler = new Vector3(90f, 0f, 0f);
+
         private Rigidbody _rb;
         private Collider _collider;
 
@@ -51,7 +55,7 @@ namespace Game.Combat
 
             _rb.linearVelocity = velocity; // Unity 6：Rigidbody.velocity → linearVelocity
             if (velocity.sqrMagnitude > 1e-6f)
-                transform.rotation = Quaternion.LookRotation(velocity);
+                transform.rotation = Quaternion.LookRotation(velocity) * Quaternion.Euler(_modelForwardOffsetEuler);
 
             Destroy(gameObject, _maxLifetime);
         }
