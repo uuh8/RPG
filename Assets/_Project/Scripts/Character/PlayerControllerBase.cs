@@ -102,6 +102,8 @@ namespace Game.Character
         public float DashBufferCounter { get; set; }
         public int DashStateHash => _dashStateHash;
 
+        public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed(); // 攻击键当前是否按住（Phase 4 蓄力轮询用）
+
         /// <summary>
         /// 攻击触发 seam：共享的 GroundedState 在攻击优先级位调用本钩子。
         /// 基类默认不攻击（返回 false）；具体角色在子类重写：消耗攻击输入并切到自己的攻击状态，
