@@ -71,7 +71,7 @@ namespace Game.Character
         // 在 Scene 视图中可视化检测范围（只在选中 Player 时显示）
         // 绿色 = 接地，红色 = 悬空
         // 这不影响任何游戏逻辑，只是 Debug 用的辅助线
-        private void OnDrawGizmosSelected()
+        private void OnDrawGizmos()
         {
             Gizmos.color = IsGrounded ? Color.green : Color.red;
 
