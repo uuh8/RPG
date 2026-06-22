@@ -31,6 +31,10 @@ namespace Game.Combat
         [Header("放箭生成 (归一化动画时间 0~1，RepeatFire 越过此值生成一次蓄力箭)")]
         [Range(0f, 1f)] public float ArrowSpawnTime = 0.3f;
 
+        [Header("瞄准 (蓄力精确命中)")]
+        [Tooltip("屏幕中心射线最大距离；未命中任何碰撞体时取此距离的远点作为目标")]
+        public float AimMaxDistance = 100f;
+
         [Header("伤害类型")]
         public DamageType Type = DamageType.Physical;
     }

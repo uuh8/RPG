@@ -39,7 +39,7 @@ namespace Game.Combat
         /// 攻击方在生成瞬间调用：注入伤害快照与初速度，忽略与射手自身碰撞，定向、计时。
         /// </summary>
         public void Init(byte attackerTeam, int attackerId, float damage, DamageType type,
-                         Vector3 velocity, Collider shooterCollider)
+                         Vector3 velocity, Collider shooterCollider, bool useGravity = true)
         {
             _attackerTeam = attackerTeam;
             _attackerId = attackerId;
@@ -53,6 +53,7 @@ namespace Game.Combat
             if (shooterCollider != null && _collider != null)
                 Physics.IgnoreCollision(_collider, shooterCollider);
 
+            _rb.useGravity = useGravity; // 瞄准直射(false)：关重力走直线命中准心；普通箭(true)：保留抛物线
             _rb.linearVelocity = velocity; // Unity 6：Rigidbody.velocity → linearVelocity
             if (velocity.sqrMagnitude > 1e-6f)
                 transform.rotation = Quaternion.LookRotation(velocity) * Quaternion.Euler(_modelForwardOffsetEuler);
