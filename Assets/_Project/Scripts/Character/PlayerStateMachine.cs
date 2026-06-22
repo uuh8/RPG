@@ -2,7 +2,7 @@ namespace Game.Character
 {
     /// <summary>
     /// 状态机调度员。普通 C# 类，不是 MonoBehaviour。
-    /// 由 PlayerController 持有，PlayerController.Update() 手动驱动它。
+    /// 由 PlayerControllerBase 持有，PlayerControllerBase.Update() 手动驱动它。
     /// 只负责"持有当前状态"和"切换状态"，不含游戏逻辑。
     /// </summary>
     public class PlayerStateMachine
@@ -19,7 +19,7 @@ namespace Game.Character
         }
 
         /// <summary>
-        /// 每帧推进当前状态，由 PlayerController.Update() 调用。
+        /// 每帧推进当前状态，由 PlayerControllerBase.Update() 调用。
         /// 状态机自己不知道 Unity 的生命周期，需要外部手动驱动。
         /// </summary>
         public void Update()

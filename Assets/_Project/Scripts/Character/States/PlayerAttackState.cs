@@ -29,9 +29,9 @@ namespace Game.Character
 
         // _player（基类引用）只能拿到共享成员；Warrior 专属的 Combo / MeleeHitDetector / 连段 hash / 刀光
         // 需要具体子类引用，这里另存一份 typed 的 _warrior（与 _player 指向同一对象，只是类型更具体）。
-        private readonly PlayerController _warrior;
+        private readonly WarriorController _warrior;
 
-        public PlayerAttackState(PlayerController player) : base(player)
+        public PlayerAttackState(WarriorController player) : base(player)
         {
             _warrior = player;
         }

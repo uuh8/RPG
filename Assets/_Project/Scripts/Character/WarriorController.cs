@@ -7,10 +7,9 @@ namespace Game.Character
     /// <summary>
     /// 战士控制器：在 PlayerControllerBase 的共享能力之上，叠加连段近战攻击专属逻辑
     /// （MeleeHitDetector / ComboDefinition / 刀光拖尾 / PlayerAttackState / 连段 hash 缓存）。
-    /// 注意：本阶段类名仍为 PlayerController；Task 3 会连同 .meta 一起重命名为 WarriorController，
-    /// 以保住预制体按 GUID 引用本脚本的链接（届时序列化字段全部自动保留）。
+    /// 本类由 PlayerController 连同 .meta 重命名而来，GUID 不变——故 Player 预制体的组件引用与序列化字段全部保留。
     /// </summary>
-    public class PlayerController : PlayerControllerBase
+    public class WarriorController : PlayerControllerBase
     {
         [Header("Combat")] [SerializeField] private MeleeHitDetector _meleeHitDetector; // 拖入武器上的命中判定组件
         [SerializeField] private ComboDefinition _combo; // 当前武器的连段表
