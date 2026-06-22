@@ -45,6 +45,7 @@ namespace Game.Character
 
             // CrossFade 拉弓；之后 拉弓→满弓保持 由 Animator HasExitTime 过渡自动流转
             _player.Animator.CrossFadeInFixedTime(_archer.ChargeDrawHash, CrossFadeDuration, 0);
+            EventBus<AimStateChangedEvent>.Publish(new AimStateChangedEvent { Active = true }); // 显示准心
         }
 
         public override void Update()
@@ -58,6 +59,8 @@ namespace Game.Character
                 float max = _archer.ChargeData.MaxChargeTime;
                 _chargeElapsed += Time.deltaTime;
                 if (_chargeElapsed > max) _chargeElapsed = max;
+
+                HandleAimRotation(); // 蓄力期间角色转向相机水平朝向
 
                 // 松开 → 放箭
                 if (!_player.IsAttackHeld)
@@ -82,6 +85,7 @@ namespace Game.Character
         public override void Exit()
         {
             _player.AttackBufferCounter = 0f;
+            EventBus<AimStateChangedEvent>.Publish(new AimStateChangedEvent { Active = false }); // 隐藏准心
         }
 
         #endregion
@@ -104,12 +108,29 @@ namespace Game.Character
                 return;
             }
 
-            Vector3 dir = _player.transform.forward;
-            dir.y = 0f;
+            Transform sp = _archer.ArrowSpawnPoint;
+
+            // 屏幕中心发射线求命中点：命中 → 该点；未命中 → 相机朝向 AimMaxDistance 远点
+            Camera cam = _player.MainCamera;
+            Vector3 targetPoint;
+            if (cam != null)
+            {
+                Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+                targetPoint = Physics.Raycast(ray, out RaycastHit hit, data.AimMaxDistance,
+                                              _archer.AimMask, QueryTriggerInteraction.Ignore)
+                    ? hit.point
+                    : ray.GetPoint(data.AimMaxDistance);
+            }
+            else
+            {
+                targetPoint = sp.position + _player.transform.forward * data.AimMaxDistance;
+            }
+
+            // 从生成点直线指向目标点（含俯仰）；退化兜底用角色前向
+            Vector3 dir = targetPoint - sp.position;
             if (dir.sqrMagnitude < 1e-6f) dir = _player.transform.forward;
             dir.Normalize();
 
-            Transform sp = _archer.ArrowSpawnPoint;
             GameObject go = Object.Instantiate(_archer.ArrowPrefab, sp.position, Quaternion.LookRotation(dir));
             Arrow arrow = go.GetComponent<Arrow>();
             if (arrow == null)
@@ -122,7 +143,21 @@ namespace Game.Character
             float speed = Mathf.Lerp(data.MinSpeed, data.MaxSpeed, _ratio);
             byte team = _archer.Health != null ? _archer.Health.TeamId : (byte)0;
             int attackerId = _player.gameObject.GetInstanceID();
-            arrow.Init(team, attackerId, damage, data.Type, dir * speed, _player.CharacterController);
+            // 瞄准直射：关重力，直线命中准心点
+            arrow.Init(team, attackerId, damage, data.Type, dir * speed, _player.CharacterController, false);
+        }
+
+        /// <summary>蓄力期间把角色平滑转向相机的水平朝向（只 yaw；箭的实际方向另在松开时按射线算，含俯仰）。</summary>
+        private void HandleAimRotation()
+        {
+            Camera cam = _player.MainCamera;
+            if (cam == null) return;
+            Vector3 f = cam.transform.forward;
+            f.y = 0f;
+            if (f.sqrMagnitude < 1e-6f) return;
+            Quaternion target = Quaternion.LookRotation(f);
+            _player.transform.rotation = Quaternion.Slerp(
+                _player.transform.rotation, target, _player.RotationSpeed * Time.deltaTime);
         }
 
         private void HandleGravity()

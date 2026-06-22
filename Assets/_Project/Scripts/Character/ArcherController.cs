@@ -17,6 +17,7 @@ namespace Game.Character
         [SerializeField] private float _projectileSpeed = 20f; // 普通攻击箭矢初速度
 
         [Header("Charge Attack")] [SerializeField] private ChargeAttackDefinition _chargeData; // 蓄力重击数据 SO
+        [SerializeField] private LayerMask _aimMask = ~0; // 瞄准射线可命中层（务必排除 Player 层，免射到自己）
 
         private PlayerBowAttackState _bowAttackState;
         private PlayerChargeAttackState _chargeAttackState;
@@ -36,6 +37,7 @@ namespace Game.Character
         public PlayerBowAttackState BowAttackState => _bowAttackState;
 
         public ChargeAttackDefinition ChargeData => _chargeData;
+        public LayerMask AimMask => _aimMask;
         public PlayerChargeAttackState ChargeAttackState => _chargeAttackState;
         public int ChargeDrawHash => _chargeDrawHash;
         public int ChargeLooseHash => _chargeLooseHash;
