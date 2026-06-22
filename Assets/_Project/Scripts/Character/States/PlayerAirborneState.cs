@@ -9,7 +9,7 @@ namespace Game.Character
     /// </summary>
     public class PlayerAirborneState : PlayerStateBase
     {
-        public PlayerAirborneState(PlayerController player) : base(player) { }
+        public PlayerAirborneState(PlayerControllerBase player) : base(player) { }
 
         public override void Enter() { }
         public override void Update()

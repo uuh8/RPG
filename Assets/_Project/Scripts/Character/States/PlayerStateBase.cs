@@ -11,16 +11,18 @@ namespace Game.Character
     {
         // Context：所有 State 通过这个引用访问角色数据
         // protected = 子类可访问，外部不能访问
-        protected readonly PlayerController _player;
+        // 类型是基类 PlayerControllerBase：共享状态（Grounded/Airborne/Sliding/Dash）只需基类成员，
+        // 角色专属状态（如 Warrior 的 PlayerAttackState）另存一份 typed 子类引用拿专属成员。
+        protected readonly PlayerControllerBase _player;
 
         // JumpHash 保留在这里：jump 是"事件型"Trigger，由 State 在起跳时主动触发
-        // SpeedHash / IsGroundedHash 已移至 PlayerController.SyncAnimatorParameters()
+        // SpeedHash / IsGroundedHash 已移至 PlayerControllerBase.SyncAnimatorParameters()
         // 原因：它们是持续状态型参数，由 Controller 每帧统一同步，State 不再负责维护
 		protected static readonly int JumpHash   = Animator.StringToHash("jump");
 
-        // 构造函数：创建 State 时必须传入 PlayerController
+        // 构造函数：创建 State 时必须传入 PlayerControllerBase
         // 这是依赖注入，State 自己不找组件，由外部传进来
-        protected PlayerStateBase(PlayerController player)
+        protected PlayerStateBase(PlayerControllerBase player)
         {
             _player = player;
         }

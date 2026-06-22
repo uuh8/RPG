@@ -11,17 +11,15 @@ namespace Game.Character
     /// </summary>
     public class PlayerDashState : PlayerStateBase
     {
-        // 冲刺"动画状态(state)"名的预 hash：仿 JumpHash 的 static readonly 模式，类型加载时算一次，
-        // 绝不每帧/每次触发 StringToHash。供 CrossFadeInFixedTime 使用，
-        // 字符串须与 Animator Controller 里的状态节点名精确一致。
-        private static readonly int DashStateHash = Animator.StringToHash("DashForward_SingleTwohandSword");
-
+        // 冲刺目标"动画状态(state)"名已数据驱动：由 PlayerControllerBase._dashStateName 序列化、
+        // Awake 预 hash 成 DashStateHash 暴露出来（仿 AttackDefinition.AnimationStateName）。
+        // 各角色在自己的 Inspector 填自己 Animator Controller 里的实际节点名，不再硬编码双手剑专属名。
         private const float CrossFadeDuration = 0.1f; // 进入冲刺的 CrossFade 固定时长（秒）
 
         private Vector3 _dashDirection; // 进入瞬间锁定的世界空间冲刺方向（已去 y、归一化）
         private float _elapsed;         // 本次冲刺已过时间（秒）
 
-        public PlayerDashState(PlayerController player) : base(player) { }
+        public PlayerDashState(PlayerControllerBase player) : base(player) { }
 
         #region 状态机函数
 
@@ -36,7 +34,7 @@ namespace Game.Character
             _player.DashBufferCounter = 0f; // 消耗起手输入，防冲刺中/同帧重复触发
 
             // CrossFade 进入冲刺动画：代码直接点名目标状态，Animator 侧无需进入连线
-            _player.Animator.CrossFadeInFixedTime(DashStateHash, CrossFadeDuration, 0);
+            _player.Animator.CrossFadeInFixedTime(_player.DashStateHash, CrossFadeDuration, 0);
         }
 
         public override void Update()

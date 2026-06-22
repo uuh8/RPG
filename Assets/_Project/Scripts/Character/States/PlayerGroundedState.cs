@@ -8,7 +8,7 @@ namespace Game.Character
     /// </summary>
     public class PlayerGroundedState : PlayerStateBase
     {
-        public PlayerGroundedState(PlayerController player) : base(player)
+        public PlayerGroundedState(PlayerControllerBase player) : base(player)
         {
         }
 
@@ -64,12 +64,10 @@ namespace Game.Character
                 return;
             }
 
-            // 攻击输入（优先于跳跃检测）
-            if (_player.AttackBufferCounter > 0f)
-            {
-                _player.StateMachine.ChangeState(_player.AttackState);
+            // 攻击输入（优先于跳跃检测）。具体攻击逻辑由角色子类经 TryStartAttack() 决定——
+            // 共享 GroundedState 不知道也不关心是连段近战还是弓箭，只负责保留 Dash→Attack→Jump 优先级。
+            if (_player.TryStartAttack())
                 return;
-            }
 
             // 在地面上检测到有跳跃输入（JumpBufferCounter > 0）→ 执行起跳
             if (_player.JumpBufferCounter > 0f)

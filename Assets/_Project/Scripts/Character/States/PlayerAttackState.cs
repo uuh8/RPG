@@ -27,8 +27,13 @@ namespace Game.Character
         // 用它的 normalizedTime 去比任何 AttackDefinition 的窗口都没有意义，必须强制当作"没有旧段"处理。
         private AttackDefinition _prevTrailDef;
 
+        // _player（基类引用）只能拿到共享成员；Warrior 专属的 Combo / MeleeHitDetector / 连段 hash / 刀光
+        // 需要具体子类引用，这里另存一份 typed 的 _warrior（与 _player 指向同一对象，只是类型更具体）。
+        private readonly PlayerController _warrior;
+
         public PlayerAttackState(PlayerController player) : base(player)
         {
+            _warrior = player;
         }
 
         #region 状态机函数
@@ -40,7 +45,7 @@ namespace Game.Character
             _prevTrailDef = null; // [新增] 见字段声明处注释：起手第一段没有"旧攻击段"可言，强制清空
 
             // _combo 未配置或无段落时安全退出，避免 StartSegment→Combo.Segments[0] 直接 NRE
-            if (_player.Combo == null || _player.Combo.SegmentCount == 0)
+            if (_warrior.Combo == null || _warrior.Combo.SegmentCount == 0)
             {
                 GameLog.Warn("ComboDefinition 未配置或无段落，无法攻击", "Combat");
                 TransitionToMovement();
@@ -52,7 +57,7 @@ namespace Game.Character
             // emitting 现在交给每帧的 HandleTrailWindow() 按动画进度判定开关（同 HandleAttackWindow 的窗口模式）。
             // Clear() 仍然留在这里：新一次攻击起手时清掉上次残留的尾点，防止上次尾点和这次新点连成一条突兀的直线
             // ——这条防御跟 emitting 怎么开没关系，单独保留，用 ?. 是因为 Clear() 是方法调用而非属性赋值，可以这样写。
-            _player.BladeTrail?.Clear();
+            _warrior.BladeTrail?.Clear();
 
             StartSegment(0);
         }
@@ -76,13 +81,13 @@ namespace Game.Character
         {
             _comboIndex = 0; // 归零（唯一责任点）
             _player.AttackBufferCounter = 0f; // 清残留，防连段结束后误触发新普攻
-            _player.MeleeHitDetector?.CloseHitWindow(); // 关窗，防残留
+            _warrior.MeleeHitDetector?.CloseHitWindow(); // 关窗，防残留
 
             // [注释更新，逻辑不变] 关闭剑刃拖尾，刻意不 Clear——已生成的尾点按 Trail Renderer 的 Time 自然淡出。
             // HandleTrailWindow() 平时就会在窗口外把它关掉；这里是 Exit 作为"唯一退出口"的最后一道保险——
             // 不管 Update 那一帧算到什么结果，离开攻击态这一刻必须强制关闭，不依赖 Update 是否还会再跑一次。
-            if (_player.BladeTrail != null)
-                _player.BladeTrail.emitting = false;
+            if (_warrior.BladeTrail != null)
+                _warrior.BladeTrail.emitting = false;
 
             _prevTrailDef = null; // [新增] 兜底清空，避免残留引用悬挂到下一次完全不相关的攻击序列
         }
@@ -96,15 +101,15 @@ namespace Game.Character
         private void StartSegment(int index)
         {
             // 从玩家（_player）的连击配置（Combo）中，根据索引取出对应的攻击定义（AttackDefinition）。
-            AttackDefinition seg = _player.Combo.Segments[index];
+            AttackDefinition seg = _warrior.Combo.Segments[index];
 
-            if (_player.MeleeHitDetector != null)
+            if (_warrior.MeleeHitDetector != null)
             {
-                _player.MeleeHitDetector.SetAttack(seg); // 武器现在"知道"自己这一下打多少伤害、命中盒多大
-                _player.MeleeHitDetector.CloseHitWindow(); // 先确保命中窗口是关着的（防止上一次攻击的窗口状态残留）
+                _warrior.MeleeHitDetector.SetAttack(seg); // 武器现在"知道"自己这一下打多少伤害、命中盒多大
+                _warrior.MeleeHitDetector.CloseHitWindow(); // 先确保命中窗口是关着的（防止上一次攻击的窗口状态残留）
             }
 
-            int hash = _player.GetComboStateHash(index); // 获取该连击段落对应的动画状态机的哈希值
+            int hash = _warrior.GetComboStateHash(index); // 获取该连击段落对应的动画状态机的哈希值
             // CrossFadeInFixedTime 保证过渡时间严格固定为你指定的秒数，不受动画播放速度影响。
             // 在连击系统中，这非常重要，因为它确保了无论当前攻击动画的播放速度如何，连招的衔接手感（过渡时间）始终稳定一致
             _player.Animator.CrossFadeInFixedTime(hash, CrossFadeDuration, 0);
@@ -128,15 +133,15 @@ namespace Game.Character
         /// </summary>
         private void HandleAttackWindow()
         {
-            if (_player.MeleeHitDetector == null) return;
-            AttackDefinition def = _player.MeleeHitDetector.Attack;
+            if (_warrior.MeleeHitDetector == null) return;
+            AttackDefinition def = _warrior.MeleeHitDetector.Attack;
             if (def == null) return;
 
             // 过渡期：normalizedTime 读到的是源状态的值，不代表当前段进度 → 强制关窗
             // 检查动画是否处于过渡状态，如果是则关闭攻击窗口
             if (_player.Animator.IsInTransition(0))
             {
-                _player.MeleeHitDetector.CloseHitWindow();
+                _warrior.MeleeHitDetector.CloseHitWindow();
                 return;
             }
 
@@ -145,9 +150,9 @@ namespace Game.Character
 
             // 检查当前时间是否在攻击判定窗口的激活范围内
             if (t >= def.HitActiveStart && t <= def.HitActiveEnd)
-                _player.MeleeHitDetector.OpenHitWindow();
+                _warrior.MeleeHitDetector.OpenHitWindow();
             else
-                _player.MeleeHitDetector.CloseHitWindow();
+                _warrior.MeleeHitDetector.CloseHitWindow();
         }
 
         /// <summary>
@@ -170,7 +175,7 @@ namespace Game.Character
         /// </summary>
         private void HandleTrailWindow()
         {
-            TrailRenderer trail = _player.BladeTrail;
+            TrailRenderer trail = _warrior.BladeTrail;
             if (trail == null) return;
 
             if (_player.Animator.IsInTransition(0))
@@ -182,7 +187,7 @@ namespace Game.Character
                 // [新增] 新段：Attack 在 Advance 那一刻就已经被 SetAttack 切过来了，过渡期里直接拿来用即可；
                 // 用 GetNextAnimatorStateInfo 查目标状态自己的进度——新段在过渡期内也在悄悄往前播，
                 // 哪怕这几帧 IsInTransition 还是 true，新段自己的 TrailActiveStart 也可能已经被越过了。
-                AttackDefinition newDef = _player.MeleeHitDetector?.Attack;
+                AttackDefinition newDef = _warrior.MeleeHitDetector?.Attack;
                 float newT = _player.Animator.GetNextAnimatorStateInfo(0).normalizedTime % 1f;
                 bool newAlreadyActive = newDef != null && InTrailWindow(newT, newDef);
 
@@ -191,8 +196,8 @@ namespace Game.Character
                 return;
             }
 
-            if (_player.MeleeHitDetector == null) return;
-            AttackDefinition def = _player.MeleeHitDetector.Attack;
+            if (_warrior.MeleeHitDetector == null) return;
+            AttackDefinition def = _warrior.MeleeHitDetector.Attack;
             if (def == null) return;
 
             float t = _player.Animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
@@ -211,7 +216,7 @@ namespace Game.Character
             // 过渡期不做连段判定：normalizedTime 还是上一段的值（也防同帧切段后立刻又判一次）
             if (_player.Animator.IsInTransition(0)) return;
 
-            AttackDefinition seg = _player.Combo.Segments[_comboIndex];
+            AttackDefinition seg = _warrior.Combo.Segments[_comboIndex];
             // Inspector 里 Segments 该格未赋值时 seg 为 null，安全退出而不是每帧 NRE
             if (seg == null)
             {
@@ -228,7 +233,7 @@ namespace Game.Character
             // 使用连段解析器决定连段状态
             ComboDecision decision = ComboResolver.Resolve(
                 _comboIndex,
-                _player.Combo.SegmentCount,
+                _warrior.Combo.SegmentCount,
                 t,
                 hasBuffer,
                 seg.ComboInputStart,
@@ -245,7 +250,7 @@ namespace Game.Character
                     _player.AttackBufferCounter = 0f; // 消耗输入：防同帧重复推进 + 防泄漏
                     // [新增] 必须在 StartSegment（内部会 SetAttack 覆盖 Attack）之前捕获"即将被替换的旧段"，
                     // 供过渡期的 HandleTrailWindow() 用旧段窗口给旧段拖尾收尾——这是这次要修的 bug 的关键一行。
-                    _prevTrailDef = _player.MeleeHitDetector != null ? _player.MeleeHitDetector.Attack : null;
+                    _prevTrailDef = _warrior.MeleeHitDetector != null ? _warrior.MeleeHitDetector.Attack : null;
                     StartSegment(_comboIndex);
                     break;
                 case ComboDecision.End:

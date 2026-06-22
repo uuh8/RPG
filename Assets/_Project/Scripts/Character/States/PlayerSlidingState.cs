@@ -8,7 +8,7 @@ namespace Game.Character
     /// </summary>
     public class PlayerSlidingState : PlayerStateBase
     {
-        public PlayerSlidingState(PlayerController player) : base(player) { }
+        public PlayerSlidingState(PlayerControllerBase player) : base(player) { }
 
         public override void Enter()
         {

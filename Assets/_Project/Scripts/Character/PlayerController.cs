@@ -32,6 +32,17 @@ namespace Game.Character
             BuildComboStateHashes();
         }
 
+        /// <summary>攻击 seam 实现：有缓冲攻击输入则切到连段攻击态。保留 Dash→Attack→Jump 优先级。</summary>
+        public override bool TryStartAttack()
+        {
+            if (AttackBufferCounter > 0f)
+            {
+                StateMachine.ChangeState(_attackState);
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>取第 index 段的 Animator 状态 hash；越界或未配置返回 0。</summary>
         public int GetComboStateHash(int index)
         {
