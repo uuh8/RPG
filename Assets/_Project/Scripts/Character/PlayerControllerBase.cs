@@ -71,6 +71,7 @@ namespace Game.Character
         public CharacterController CharacterController => _characterController;
         public GroundChecker GroundChecker => _groundChecker;
         public Animator Animator => _animator;
+        public Camera MainCamera => _mainCamera; // 暴露给瞄准（屏幕中心射线 + 转向相机朝向）
         public Vector2 MoveInput => _moveInput;
         public Vector3 MoveDirection => _moveDirection;
         public float MoveSpeed => _moveSpeed;
