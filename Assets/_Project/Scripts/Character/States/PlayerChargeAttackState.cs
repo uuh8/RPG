@@ -16,10 +16,15 @@ namespace Game.Character
 
         private readonly ArcherController _archer;
 
+        private const int MaxAimHits = 16; // 屏幕中心射线一次最多记录的命中数（预分配，零 GC）
+
         private float _chargeElapsed; // 已累计蓄力时长（拉弓+保持期间，封顶）
         private bool _released;       // 是否已松手进入放箭阶段
         private bool _arrowSpawned;   // 放箭态是否已生成过箭（单点去重）
         private float _ratio;         // 松手瞬间锁定的蓄力比例 0~1
+
+        // 瞄准射线命中缓冲（放箭时一次性用，预分配避免 GC）
+        private readonly RaycastHit[] _aimHits = new RaycastHit[MaxAimHits];
 
         public PlayerChargeAttackState(ArcherController player) : base(player)
         {
@@ -116,9 +121,8 @@ namespace Game.Character
             if (cam != null)
             {
                 Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-                targetPoint = Physics.Raycast(ray, out RaycastHit hit, data.AimMaxDistance,
-                                              _archer.AimMask, QueryTriggerInteraction.Ignore)
-                    ? hit.point
+                targetPoint = TryRaycastAim(ray, data.AimMaxDistance, out Vector3 hitPoint)
+                    ? hitPoint
                     : ray.GetPoint(data.AimMaxDistance);
             }
             else
@@ -145,6 +149,32 @@ namespace Game.Character
             int attackerId = _player.gameObject.GetInstanceID();
             // 瞄准直射：关重力，直线命中准心点
             arrow.Init(team, attackerId, damage, data.Type, dir * speed, _player.CharacterController, false);
+        }
+
+        /// <summary>
+        /// 屏幕中心射线求瞄准命中点，跳过射手自身碰撞体后取最近命中。
+        /// 轨道相机在角色身后，射线会先穿过角色自身——若不剔除，命中点落在角色身上（位于弓弦生成点之后），
+        /// 会让箭方向反向。用 RaycastNonAlloc + 自身过滤，命中精度与 AimMask 配置无关（无需依赖排除 Player 层）。
+        /// </summary>
+        private bool TryRaycastAim(Ray ray, float maxDistance, out Vector3 point)
+        {
+            point = default;
+            int count = Physics.RaycastNonAlloc(ray, _aimHits, maxDistance,
+                                                _archer.AimMask, QueryTriggerInteraction.Ignore);
+            float nearest = float.MaxValue;
+            bool found = false;
+            for (int i = 0; i < count; i++)
+            {
+                // IsChildOf 含自身：射手 CharacterController 及其子节点（身体网格碰撞体）一律跳过
+                if (_aimHits[i].collider.transform.IsChildOf(_player.transform)) continue;
+                if (_aimHits[i].distance < nearest)
+                {
+                    nearest = _aimHits[i].distance;
+                    point = _aimHits[i].point;
+                    found = true;
+                }
+            }
+            return found;
         }
 
         /// <summary>蓄力期间把角色平滑转向相机的水平朝向（只 yaw；箭的实际方向另在松开时按射线算，含俯仰）。</summary>

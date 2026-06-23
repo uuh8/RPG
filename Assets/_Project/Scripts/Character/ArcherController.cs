@@ -11,12 +11,14 @@ namespace Game.Character
     /// </summary>
     public class ArcherController : PlayerControllerBase
     {
-        [Header("Bow Attack")] [SerializeField] private ComboDefinition _combo; // 单段连段表（普通攻击 1 段）
+        [Header("Bow Attack")]
+        [SerializeField] private ComboDefinition _combo; // 单段连段表（普通攻击 1 段）
         [SerializeField] private GameObject _arrowPrefab;     // 箭矢预制体（带 Rigidbody + Collider + Arrow）
         [SerializeField] private Transform _arrowSpawnPoint;  // 箭矢生成点（弓弦中点）
         [SerializeField] private float _projectileSpeed = 20f; // 普通攻击箭矢初速度
 
-        [Header("Charge Attack")] [SerializeField] private ChargeAttackDefinition _chargeData; // 蓄力重击数据 SO
+        [Header("Charge Attack")]
+        [SerializeField] private ChargeAttackDefinition _chargeData; // 蓄力重击数据 SO
         [SerializeField] private LayerMask _aimMask = ~0; // 瞄准射线可命中层（务必排除 Player 层，免射到自己）
 
         private PlayerBowAttackState _bowAttackState;
@@ -35,21 +37,22 @@ namespace Game.Character
         public float ProjectileSpeed => _projectileSpeed;
         public HealthComponent Health => _health;
         public PlayerBowAttackState BowAttackState => _bowAttackState;
+        public PlayerChargeAttackState ChargeAttackState => _chargeAttackState;
 
         public ChargeAttackDefinition ChargeData => _chargeData;
         public LayerMask AimMask => _aimMask;
-        public PlayerChargeAttackState ChargeAttackState => _chargeAttackState;
         public int ChargeDrawHash => _chargeDrawHash;
         public int ChargeLooseHash => _chargeLooseHash;
 
         protected override void Awake()
         {
-            base.Awake();
+            base.Awake();   // 基类默认的工作
+
             _health = GetComponent<HealthComponent>();
             _bowAttackState = new PlayerBowAttackState(this);
             _chargeAttackState = new PlayerChargeAttackState(this);
-            BuildComboStateHashes();
-            BuildChargeHashes();
+            BuildComboStateHashes();    // 构建所有Combo动画 Hash
+            BuildChargeHashes();        // 构建蓄力动画 Hash
         }
 
         /// <summary>
@@ -66,7 +69,7 @@ namespace Game.Character
                 {
                     _attackHeldTime = 0f;
                     AttackBufferCounter = 0f;
-                    StateMachine.ChangeState(_chargeAttackState);
+                    StateMachine.ChangeState(_chargeAttackState);   // 蓄力状态
                     return true;
                 }
                 return false; // 仍在 tap 窗口内，按住等待

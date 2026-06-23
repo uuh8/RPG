@@ -8,8 +8,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Render Pipeline**: URP (Universal Render Pipeline) v17.3.0
 - **Language**: C#
 - **Input**: Unity Input System (`InputSystem_Actions`) — never use the legacy `Input` class
-- **Camera**: Cinemachine (planned, not yet installed)
-- **Movement**: `CharacterController` — not `Rigidbody`
+- **Camera**: orbit rig — a `CameraRoot` pivot rotated by mouse in `LateUpdate`, followed by a Cinemachine virtual camera
+- **Movement**: `CharacterController` — not `Rigidbody` (projectiles use `Rigidbody`)
 
 ## Architecture
 
@@ -29,18 +29,20 @@ Game.Core          (foundation — no game dependencies)
 │   └── Game.Character (depends on Core + Combat)
 ```
 
-New code goes in the lowest assembly that satisfies its dependencies. Cross-module communication goes through EventBus events in `Game.Core`.
+New code goes in the lowest assembly that satisfies its dependencies. Cross-module communication goes through EventBus events in `Game.Core`. Presentation (e.g. UI in `Game.Rendering`) reacts to gameplay only by subscribing to EventBus events — gameplay never references presentation.
 
 ### Folder Conventions
 
 | Path | Purpose |
 |------|---------|
 | `Assets/_Project/Scripts/<Assembly>/` | C# source, one subfolder per assembly |
-| `Assets/_Project/Prefabs/` | All prefabs |
+| `Assets/_Project/Prefabs/` & `Assets/_Project/Art/Prefabs/` | Prefabs |
 | `Assets/_Project/ScriptableObjects/` | Runtime data (SO instances) |
-| `Assets/_Project/Art/` | Textures, models, audio |
+| `Assets/_Project/Art/` | Textures, models, audio, Animator Controllers |
 | `Assets/_Project/Scenes/` | Unity scene files |
 | `Assets/ThirdParty/` | Third-party packages not via Package Manager |
+| `docs/superpowers/specs/` & `docs/superpowers/plans/` | Feature design specs and implementation plans |
+| `Assets/_Project/Docs/` | In-depth design analyses (e.g. `M3_Combat_Design.md`, `Dash_System_Design.md`) |
 
 ## Code Conventions
 
@@ -61,11 +63,13 @@ The following are **forbidden** inside `Update()`, `FixedUpdate()`, or any per-f
 - LINQ queries (`Where`, `Select`, `FirstOrDefault`, etc.)
 - Boxing (casting value types to `object` or a non-generic interface)
 
-State objects are pre-instantiated in `Awake()` and reused — never allocate them at runtime. Verify zero GC Alloc in the Unity Profiler before considering a feature complete.
+State objects are pre-instantiated in `Awake()` and reused — never allocate them at runtime. One-shot allocations on discrete input (e.g. `Instantiate` an arrow on release) are fine — only per-frame allocation is the concern. Verify zero GC Alloc in the Unity Profiler before considering a feature complete.
 
 ## Workflow
 
 - **Before any cross-module or architectural change**: write a plan and confirm alignment first.
+- **Feature flow**: non-trivial features go brainstorm → design spec → implementation plan → execute, with artifacts saved under `docs/superpowers/specs/` and `docs/superpowers/plans/`. Large features ship in **phases**, each gated by the developer verifying in the Editor before the next begins.
+- **Renaming a MonoBehaviour script**: move the `.cs` **and its `.meta` together** (`git mv` both) so the script GUID survives and prefab/scene references don't break — never delete-and-recreate (that orphans the reference and resets serialized fields).
 - **Commits**: use [Conventional Commits](https://www.conventionalcommits.org/). Examples:
   - `feat(combat): add hit-stun state machine`
   - `fix(core): prevent EventBus null-ref on first-frame subscription`
@@ -123,151 +127,150 @@ EventBus<PlayerDiedEvent>.Clear(); // call for every event type used in the scen
 
 ## Character System
 
-### Overview
+`Game.Character` drives players with a hand-rolled state machine. Two architectural constraints:
 
-The character system lives in `Game.Character` and uses a state machine pattern. The key design decisions:
+- **States are plain C# objects**, not MonoBehaviours — pre-instantiated in `Awake()` and driven manually (Unity never calls their `Update`). `PlayerStateMachine.ChangeState` runs `Exit()` → swaps reference → `Enter()`, **unconditionally** — so `Exit()` is the single guaranteed place to release per-state resources (start dash cooldown, close a hit window).
+- **`CharacterController.Move()` runs in `Update()`**, never `FixedUpdate()` (Unity constraint). The camera pivot rotates in `LateUpdate()`, after all moves.
 
-- **States are plain C# objects**, not MonoBehaviours. `PlayerController` instantiates them in `Awake()` and calls their methods manually — no `Update()` is called automatically by Unity.
-- **`CharacterController.Move()` must be called in `Update()`**, never `FixedUpdate()`. This is a Unity constraint.
-- **Camera rotation runs in `LateUpdate()`** to ensure it executes after all `Update()` calls.
+### Multi-character architecture (base + subclass)
 
-### Files
+Two playable archetypes share locomotion but **not animations** — each has its own Animator Controller and clips:
+
+```
+PlayerControllerBase (abstract MonoBehaviour)   ← move / jump / dash / camera / state machine + Grounded/Airborne/Sliding/Dash
+├── WarriorController   — melee: MeleeHitDetector, ComboDefinition, BladeTrail, PlayerAttackState
+└── ArcherController    — ranged: arrow prefab/spawn, ComboDefinition, ChargeAttackDefinition, PlayerBowAttackState + PlayerChargeAttackState
+```
+
+- **`PlayerControllerBase`** owns everything shared (components, input timers, state machine, the four shared states) and exposes data to states via properties. Subclasses add only attack specifics.
+- **Attack seam**: the shared `PlayerGroundedState` never names a concrete attack state — it calls virtual `bool TryStartAttack()`. Base returns `false`; `WarriorController` enters its combo state, `ArcherController` routes tap→normal / hold→charge. This keeps the `Dash → Attack → Jump` priority in one shared place while attack semantics vary per character.
+- **State typing**: `PlayerStateBase._player` is typed `PlayerControllerBase`; shared states use only base members. Character-specific states (`PlayerAttackState`, `PlayerBowAttackState`, `PlayerChargeAttackState`) take the concrete controller in their constructor and stash a typed field (`_warrior` / `_archer`) for subclass-only members. **No generics.**
+- **`Awake` is `protected virtual`** (template method): the subclass override calls `base.Awake()`, then builds its attack state(s) and pre-hashes its animation state names.
+
+### Files (`Game.Character`)
 
 | File | Purpose |
 |------|---------|
-| `PlayerController.cs` | Orchestrator: reads input, drives the state machine, owns `CharacterController`, handles camera and animator sync |
-| `GroundChecker.cs` | `SphereCast`-based ground detection; exposes `IsGrounded`, `GroundNormal`, `GroundAngle` |
-| `PlayerStateMachine.cs` | Minimal FSM: calls `Exit()` → swaps reference → calls `Enter()` |
-| `PlayerStateBase.cs` | Abstract base; provides `_player` reference and shared `HandleRotation()` helper |
-| `PlayerGroundedState.cs` | Ground movement, slope detection, jump and attack initiation |
-| `PlayerAirborneState.cs` | Split-phase gravity, coyote time, jump buffer consumption |
-| `PlayerSlidingState.cs` | Constant-speed sliding along steep slope tangent |
-| `States/PlayerAttackState.cs` | Plays attack animation, drives the `MeleeHitDetector` hit window from animation `normalizedTime`, returns to movement at 85% |
+| `PlayerControllerBase.cs` | Abstract base: input, timers, camera, state machine, shared states, `TryStartAttack()` hook, data-driven `_dashStateName` |
+| `WarriorController.cs` | Melee subclass (combo attack + blade trail). **Was renamed from `PlayerController.cs` keeping its `.meta`/GUID** |
+| `ArcherController.cs` | Ranged subclass: normal/charge attack input routing, arrow spawn refs, aim mask |
+| `GroundChecker.cs` | `SphereCast` ground detection; `IsGrounded`, `GroundNormal`, `GroundAngle` |
+| `PlayerStateMachine.cs` | Minimal FSM: `Exit()` → swap → `Enter()` |
+| `States/PlayerStateBase.cs` | Abstract state base; `_player` (`PlayerControllerBase`) + shared `HandleRotation()` |
+| `States/PlayerGroundedState.cs` | Ground move, slope, and the transition priority chain |
+| `States/PlayerAirborneState.cs` | Split-phase gravity, coyote time, jump-buffer consumption |
+| `States/PlayerSlidingState.cs` | Constant-speed slide down steep slope |
+| `States/PlayerDashState.cs` | Locked-direction dash via CrossFade; `Exit()` starts the cooldown |
+| `States/PlayerAttackState.cs` | Warrior melee combo: per-segment hit + blade-trail windows, `ComboResolver`-driven |
+| `States/PlayerBowAttackState.cs` | Archer normal shot: 1-segment combo, spawns an `Arrow` at `ArrowSpawnTime` |
+| `States/PlayerChargeAttackState.cs` | Archer charge heavy: draw→hold→release, charge-scaled straight aimed shot, crosshair events |
 
-### State Transitions
+> `PlayerLocomotion.cs` is an empty leftover stub (no namespace) — ignore/remove, not part of the system.
+
+### Animator integration (read before touching combat/dash animations)
+
+- **Continuous params** (`speed`, `isGrounded`) are synced every frame in `PlayerControllerBase.Update()`. **Event triggers** (`jump`) are fired once by the initiating state — never synced per-frame.
+- **Code-driven entry**: attack/dash/charge states are entered with `Animator.CrossFadeInFixedTime(stateHash, …)` — code names the target state directly, so **no incoming transition line is needed** in the Controller. The target **state-name string is data-driven** and pre-hashed once via `Animator.StringToHash` in `Awake` (never per-frame): `_dashStateName` (base), `AttackDefinition.AnimationStateName` (per combo segment), the three names in `ChargeAttackDefinition`. A wrong/empty name fails **silently** (CrossFade to a nonexistent state = no anim change) — empty names log `GameLog.Warn`; a wrong name is a common bug when adding a new character.
+- **Gotcha — CrossFade-entered states still need EXIT transitions.** Entry is code-driven, but *leaving* is not: when a dash/attack ends, the code only swaps the FSM state — it does **not** CrossFade back. Each such Animator state must carry its own outgoing transitions (e.g. `Dash_Bow → Idle` with Has Exit Time) or the character freezes in that pose. The per-character Controllers (`SingleTwoHandSwordHero`, `BowHero`) wire these; C# only data-drives the *entry* name. Pure locomotion states (Idle/Run/Jump*) are driven the normal way — by `speed`/`isGrounded`/`jump` transitions in the Controller.
+
+### State transitions (shared)
 
 ```
-GroundedState ──attack buffered──────► AttackState
-GroundedState ──jump / leave ground──► AirborneState
-GroundedState ──steep slope detected──► SlidingState
-AirborneState ──land on normal slope──► GroundedState
-AirborneState ──land on steep slope──► SlidingState
-SlidingState  ──lost ground──────────► AirborneState
-SlidingState  ──slope normalizes──────► GroundedState
-AttackState   ──anim ≥ 85% (grounded)─► GroundedState
-AttackState   ──anim ≥ 85% (airborne)─► AirborneState
+Grounded ──dash buffered & off cooldown────────► Dash       (highest priority)
+Grounded ──TryStartAttack() (per character)────► Attack / Bow / Charge state
+Grounded ──jump / leave ground─────────────────► Airborne
+Grounded ──steep slope─────────────────────────► Sliding
+Airborne ──land (normal / steep slope)─────────► Grounded / Sliding
+Sliding  ──lost ground / slope normalizes──────► Airborne / Grounded
+Dash     ──duration elapsed (Exit→cooldown)────► Grounded / Airborne
+Attack*  ──anim ≥ ~85%──────────────────────────► Grounded / Airborne
 ```
 
-### Jump Mechanics
+### Input: buffers and the timer pattern
 
-- **Coyote Time**: Brief window after leaving ground where jump is still valid.
-- **Jump Buffer**: Jump input pressed while airborne is stored and consumed immediately upon landing.
-- **Split-Phase Gravity**: Uses a higher `FallGravityMultiplier` when falling vs. `GravityMultiplier` on the way up, giving snappier feel.
+A uniform **buffer-counter pattern** underlies all forgiveness windows: an input callback sets `Counter = <time>`; `PlayerControllerBase.Update()` decrements every counter each frame; the owning state treats `> 0` as "pending" and zeroes it on consume. Applied to Jump Buffer, Coyote Time, Attack Buffer, **Dash Buffer + Cooldown** (two orthogonal counters: buffer = sub-frame forgiveness, cooldown = ability lock), and the combo input window.
 
-### Movement
-
-Input (`MoveInput`) is transformed to camera-relative world space before being passed to `CharacterController.Move()`. The camera's forward/right vectors define the movement basis.
-
-### Animator Integration
-
-Two categories of Animator parameters:
-
-- **Continuous** (`speed`, `isGrounded`): synced every frame in `PlayerController.Update()`
-- **Event triggers** (`jump`, `attack`): fired on-demand by the state that initiates the action
-
-Do not sync triggers every frame — they are consumed once and should not be re-fired on the next frame.
-
-### Input Buffering
-
-Jump and attack inputs are buffered identically: `PlayerController` records a countdown (`JumpBufferCounter` / `AttackBufferCounter`) on the input callback and decrements it every frame. The owning state checks the counter and consumes it. In `PlayerGroundedState.CheckTransition()`, **attack is checked before jump** — a buffered attack wins over a buffered jump on the same frame.
+- **`PlayerGroundedState.CheckTransition` order = priority**: Dash → Attack → Jump → leave-ground → slope.
+- **Tap vs hold** (Archer charge): instead of a buffer, `ArcherController.TryStartAttack` polls `IsAttackHeld` and accumulates hold time — past `TapThreshold` → charge state; released earlier (or a sub-frame tap caught by the buffer) → normal shot. `IsAttackHeld` is exposed on the base.
+- Jump feel: **Coyote Time** (jump shortly after leaving ground), **Jump Buffer** (jump pressed airborne fires on landing), **split-phase gravity** (`FallGravityMultiplier` > `GravityMultiplier`).
 
 ---
 
 ## Combat System
 
-### Overview
-
-`Game.Combat` implements the M3 melee core loop: an attack window detects overlapping
-targets, a pure-function pipeline resolves damage, and the target's `HealthComponent`
-applies it and publishes events. Design doc: `Assets/_Project/Docs/M3_Combat_Design.md`.
-Implementation plan: `docs/superpowers/plans/2026-06-12-m3-combat-core-loop.md`.
+`Game.Combat` is data-driven and shared by both characters. Melee uses an OverlapBox hit window; ranged uses flying `Arrow` projectiles — both submit damage through the **same** `IDamageable.ReceiveHit(in DamageRequest)` path. Design doc: `Assets/_Project/Docs/M3_Combat_Design.md`.
 
 The damage flow is deliberately split so the math is testable without Unity:
 
 ```
-MeleeHitDetector (OverlapBox, per-frame while window open)
-   └─ builds DamageRequest (value snapshot of attacker) ──► target.ReceiveHit()
-        └─ HealthComponent.ReceiveHit()
-             ├─ DamagePipeline.Resolve(req, defenseProfile)  ← pure, no MonoBehaviour
-             ├─ subtract HP (clamped ≥ 0)
-             ├─ Publish DamageReceivedEvent  (same frame)
-             └─ Publish DeathEvent           (same frame, if HP ≤ 0)
+MeleeHitDetector (OverlapBox, per-frame while window open)  ─┐
+Arrow (OnCollisionEnter in flight)                          ─┤─► builds DamageRequest (value snapshot) ─► target.ReceiveHit()
+                                                                  └─ HealthComponent.ReceiveHit()
+                                                                       ├─ DamagePipeline.Resolve(req, defense)  ← pure, no MonoBehaviour
+                                                                       ├─ subtract HP (clamped ≥ 0)
+                                                                       ├─ Publish DamageReceivedEvent  (same frame)
+                                                                       └─ Publish DeathEvent           (same frame, if HP ≤ 0)
 ```
+
+### Animation-driven timing (no Animation Events)
+
+**All combat timing reads `GetCurrentAnimatorStateInfo(0).normalizedTime`** against values in the SO — there is deliberately no parallel Animation-Event mechanism. The same idea covers: melee hit window (`HitActiveStart/End`), blade-trail window (`TrailActiveStart/End`), combo-input window (`ComboInputStart/End`), and the single-point arrow spawn (`ArrowSpawnTime`). **Single-point** triggers use a `bool` "already fired this play" guard (the projectile analogue of `MeleeHitDetector`'s `HashSet` per-swing dedup), and check the current state's `shortNameHash` to avoid mis-firing during a CrossFade transition.
 
 ### Files (`Game.Combat`)
 
 | File | Purpose |
 |------|---------|
-| `IDamageable.cs` | Contract for "anything that can be hit": `TeamId`, `IsAlive`, `ReceiveHit(in DamageRequest)` |
-| `HealthComponent.cs` | `MonoBehaviour` + `IDamageable`. Holds HP/team/defense, resolves and applies damage, publishes events |
-| `DamagePipeline.cs` | `static` pure function `Resolve(in DamageRequest, in DefenseProfile) → DamageResult`. Unit-testable |
-| `DamageRequest.cs` | `readonly struct` — value snapshot of one hit (attacker id/team, base amount, type, hit point/dir) |
-| `DamageResult.cs` | `readonly struct` — pipeline output (final amount, type, mitigated flag) |
-| `DamageType.cs` | `enum : byte` — `Physical` / `Magical` / `True` |
-| `DefenseProfile.cs` | `struct` with `Armor` / `MagicResist`. **Fields reserved** — pipeline is passthrough this round |
-| `AttackDefinition.cs` | `ScriptableObject` — data-driven attack: base amount, type, `HalfExtents`, normalized `ActiveStart`/`ActiveEnd` |
-| `MeleeHitDetector.cs` | `MonoBehaviour` on the weapon. While window open, `OverlapBoxNonAlloc` each frame, filters self/ally/dead/already-hit, submits `DamageRequest` |
-| `CombatDamage.cs` | **Reserved seam** — future `Game.Skills` entry to deal damage directly, bypassing melee detection. Not wired this round |
-| `Events/DamageReceivedEvent.cs` | `IGameEvent` published on every hit (for VFX/UI/hit-reaction) |
-| `Events/DeathEvent.cs` | `IGameEvent` published when HP reaches 0 |
-| `_Debug/MeleeSwingTestDriver.cs` | **Temporary** scaffold that opens/closes the hit window on a timer; delete once verified |
-| `_Debug/CombatDebugLogger.cs` | **Temporary** — logs combat events via `GameLog`; delete once verified |
+| `IDamageable.cs` | Contract for "anything hittable": `TeamId`, `IsAlive`, `ReceiveHit(in DamageRequest)` |
+| `HealthComponent.cs` | `MonoBehaviour` + `IDamageable`. HP/team/defense, resolves & applies damage, publishes events |
+| `DamagePipeline.cs` | `static` pure `Resolve(in DamageRequest, in DefenseProfile) → DamageResult`. Unit-tested |
+| `DamageRequest.cs` / `DamageResult.cs` | `readonly struct` value snapshots (request in, result out) |
+| `DamageType.cs` / `DefenseProfile.cs` | `enum : byte` (`Physical`/`Magical`/`True`); defense struct (mitigation **reserved**, passthrough) |
+| `AttackDefinition.cs` | `ScriptableObject` for one attack/segment: base amount, type, `HalfExtents`, the normalized windows above, `ArrowSpawnTime`, `AnimationStateName` |
+| `ComboDefinition.cs` | `ScriptableObject` — ordered `AttackDefinition[]` segments (the chain); a 1-segment combo = a single attack |
+| `ComboResolver.cs` | `static` pure function → `ComboDecision` (Continue / Advance / End) from index/count, anim progress, buffered input + window |
+| `MeleeHitDetector.cs` | Weapon `MonoBehaviour`. While window open, `OverlapBoxNonAlloc` each frame, filters self/ally/dead/already-hit, submits `DamageRequest` |
+| `Arrow.cs` | Projectile `MonoBehaviour`: `Rigidbody` ballistics + `OnCollisionEnter`. `Init(...)` snapshots damage/team; same-team pass-through, gravity toggle (straight aimed shots), `IgnoreCollision` with shooter, lifetime self-destruct |
+| `ChargeAttackDefinition.cs` | `ScriptableObject` — charge tunables: 3 anim state names, tap threshold, max charge time, min/max damage & speed (linear by ratio), `ArrowSpawnTime`, `AimMaxDistance` |
+| `CombatDamage.cs` | **Reserved seam** — future `Game.Skills` direct-damage entry. Not wired |
+| `Events/DamageReceivedEvent.cs`, `Events/DeathEvent.cs` | `IGameEvent` published every hit / on death |
+| `_Debug/*` | **Temporary** scaffolds (`MeleeSwingTestDriver`, `CombatDebugLogger`) — remove when no longer needed |
 
 ### Key Decisions
 
-- **Value-snapshot damage**: `DamageRequest` captures attacker data by value, so resolution never re-queries a (possibly destroyed) attacker — avoids null-ref failure modes mid-resolve.
-- **Pure pipeline**: `DamagePipeline` is a `static` function with no Unity deps, covered by EditMode tests. Mitigation formulas are stubbed (passthrough); `DefenseProfile` fields exist as the future Buff/Debuff hook.
-- **Zero-GC hit detection**: `OverlapBoxNonAlloc` into a pre-allocated `Collider[]` (cap `MaxHitsPerFrame = 16`), with a reused `HashSet<int>` for per-swing dedup. No allocation in the hot path.
-- **Same-frame events**: `DamageReceivedEvent` and `DeathEvent` publish synchronously inside `ReceiveHit`, so presentation reacts the same frame.
-- **Data-driven window**: `PlayerAttackState` opens the hit window only while animation `normalizedTime` is within `[ActiveStart, ActiveEnd]`, so designers retune active frames in the SO without code changes.
-
-### Team Filtering
-
-`MeleeHitDetector._attackerTeam` **must match** the attacker's own `HealthComponent.TeamId`. The detector skips any target whose `TeamId` equals the attacker team, which is how self-hits and friendly fire are prevented. Keep these two serialized values in sync in the Inspector.
+- **Value-snapshot damage**: `DamageRequest` captures attacker data by value, so resolution never re-queries a (possibly destroyed) attacker.
+- **Pure pipeline / pure resolver**: `DamagePipeline` and `ComboResolver` are `static`, Unity-free, unit-testable. Mitigation is stubbed passthrough; `DefenseProfile` is the future Buff/Debuff hook.
+- **Zero-GC hit detection**: `OverlapBoxNonAlloc` into a pre-allocated `Collider[]` (`MaxHitsPerFrame = 16`) + reused `HashSet<int>` per-swing dedup.
+- **Same-frame events**: damage/death events publish synchronously inside `ReceiveHit`, so presentation reacts the same frame (e.g. `CrosshairUI`, debug logger).
+- **Team filtering**: targets whose `TeamId == attackerTeam` are skipped (prevents self/friendly hits). For melee, `MeleeHitDetector._attackerTeam` **must match** the owner's `HealthComponent.TeamId` (keep in sync in the Inspector); `Arrow` reads team from the shooter's `HealthComponent`.
 
 ### Tests
 
-EditMode tests live in `Assets/_Project/Tests/Combat/` (asmdef `Game.Combat.Tests`, NUnit).
-`DamagePipelineTests` covers the pure pipeline (True ignores defense, passthrough cases,
-negative-clamp, type preservation). Run them in the Unity Test Runner (EditMode).
+EditMode tests live in `Assets/_Project/Tests/Combat/` (asmdef `Game.Combat.Tests`, NUnit). `DamagePipelineTests` covers the pure pipeline. Run in the Unity Test Runner (EditMode).
 
 ---
 
 ## Project Status
 
-**Phase**: Character locomotion complete; M3 melee combat core loop implemented (pending in-editor verification).
+**Phase**: Warrior + Archer playable prototypes complete (locomotion + M3 melee + dash + combo + ranged + charge + aimed charge). Each feature was developer-verified in Play mode.
 
 Implemented:
-- 5 asmdef module skeletons (Core / Rendering / Combat / Skills / Character)
+- 5 asmdef modules (Core / Rendering / Combat / Skills / Character)
 - `GameLog`, `IGameEvent`, `EventBus<T>`
-- `CharacterController`-based player movement with full state machine (Grounded / Airborne / Sliding / Attack)
-- Coyote Time, Jump Buffer, Attack Buffer, split-phase gravity, slope sliding
-- Camera-relative input, camera rotation with pitch/yaw clamping
-- `GroundChecker` with `SphereCast` and gizmo visualization
-- **Combat core loop**: `IDamageable` / `HealthComponent`, pure `DamagePipeline`, `MeleeHitDetector` (OverlapBox), data-driven `AttackDefinition` SO, `DamageReceivedEvent` / `DeathEvent`
-- **EditMode tests** for `DamagePipeline` (`Game.Combat.Tests`)
-- Reserved seams: `CombatDamage` (Skills entry), `DefenseProfile` mitigation fields
+- `PlayerControllerBase` + `WarriorController` / `ArcherController`; shared state machine (Grounded / Airborne / Sliding / Dash) + per-character attack states
+- Locomotion: camera-relative move, orbit camera, jump (coyote/buffer/split-gravity), slope sliding, dash (locked-direction CrossFade, cooldown + buffer)
+- Melee combat: `IDamageable`/`HealthComponent`, pure `DamagePipeline`, `MeleeHitDetector`, `ComboDefinition`/`ComboResolver` combo, blade-trail VFX (Trail Renderer driven by SO window)
+- Archer: `BowHero` Animator, ranged normal attack + `Arrow` projectile, `ChargeAttackDefinition` charge heavy (linear damage/speed by hold), aimed charge with screen-center raycast + `CrosshairUI` (via `AimStateChangedEvent`)
+- EditMode tests for `DamagePipeline`
 
 Next (not yet built):
-- Verify combat loop in-editor, then remove `_Debug/` scaffolds (`MeleeSwingTestDriver`, `CombatDebugLogger`)
-- Real mitigation formulas in `DamagePipeline` (Physical/Magical currently passthrough)
-- Hit-reaction / hit-stun, damage VFX/UI consuming `DamageReceivedEvent`
-- Scene lifecycle manager (calls `EventBus<T>.Clear()` on unload)
-- Character data ScriptableObject (`StatDefinition`)
-- Skills system (`Game.Skills`, wires through `CombatDamage`)
+- Real mitigation formulas in `DamagePipeline` (currently passthrough)
+- Hit-reaction / hit-stun; damage VFX/UI consuming `DamageReceivedEvent`
+- Scene lifecycle manager calling `EventBus<T>.Clear()` on unload
+- Character data SO (`StatDefinition`); Skills system (`Game.Skills` via `CombatDamage`)
+- Remove `_Debug/` combat scaffolds once unused
 
 ---
 
 ## Claude's Scope
 
-Claude only edits `.cs` source files and plain-text config files (`.asmdef`, text-serialized `.asset`, `ProjectSettings/`). **Compilation and Play-mode testing are performed manually by the developer in the Unity Editor.** Do not assert that a change "works" — only that it is logically correct based on static code review.
+Claude only edits `.cs` source files and plain-text config files (`.asmdef`, text-serialized `.asset`/`.controller`, `ProjectSettings/`). **Compilation, Animator wiring, and Play-mode testing are performed manually by the developer in the Unity Editor.** Do not assert that a change "works" — only that it is logically correct based on static code review. Do not create `.meta` files for new assets (Unity generates them); the one exception is moving an existing `.meta` alongside its file during a rename.

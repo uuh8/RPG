@@ -19,7 +19,7 @@ MonoBehaviour:
   HitActiveEnd: 0.55
   TrailActiveStart: 0.2
   TrailActiveEnd: 0.65
-  ComboInputStart: 0.4
+  ComboInputStart: 0.2
   ComboInputEnd: 0.7
   ArrowSpawnTime: 0.4
   AnimationStateName: Attack01_Bow

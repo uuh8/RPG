@@ -45,9 +45,10 @@ namespace Game.Character
         public override void Update()
         {
             HandleGravity();
-            HandleMovement();   // 锁水平移动，只保留垂直速度
-            HandleArrowSpawn(); // 单点：normalizedTime 越过 ArrowSpawnTime 生成一次
-            CheckCombo();       // 1 段 → 永远走向 End
+            HandleMovement();      // 边走边射：保留完整水平移动（不锁脚）
+            base.HandleRotation(); // 随移动方向转向；箭在 ArrowSpawnTime 沿当前朝向射出
+            HandleArrowSpawn();    // 单点：normalizedTime 越过 ArrowSpawnTime 生成一次
+            CheckCombo();          // 1 段 → 永远走向 End
         }
 
         public override void Exit()
@@ -75,7 +76,9 @@ namespace Game.Character
 
         private void HandleMovement()
         {
-            Vector3 velocity = Vector3.up * _player.VerticalVelocity;
+            // 边走边射：与接地态相同的完整移动（水平 MoveDirection*MoveSpeed + 垂直 VerticalVelocity）
+            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed;
+            velocity.y = _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }
 

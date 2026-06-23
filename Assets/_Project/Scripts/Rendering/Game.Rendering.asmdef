@@ -2,7 +2,8 @@
     "name": "Game.Rendering",
     "rootNamespace": "",
     "references": [
-        "GUID:510f5541b1215f1449e6418b6638bd1c"
+        "GUID:510f5541b1215f1449e6418b6638bd1c",
+        "Unity.Cinemachine"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

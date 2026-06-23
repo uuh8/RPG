@@ -11,13 +11,16 @@ namespace Game.Character
     /// </summary>
     public class WarriorController : PlayerControllerBase
     {
-        [Header("Combat")] [SerializeField] private MeleeHitDetector _meleeHitDetector; // 拖入武器上的命中判定组件
+        [Header("Combat")]
+        [SerializeField] private MeleeHitDetector _meleeHitDetector; // 拖入武器上的命中判定组件
         [SerializeField] private ComboDefinition _combo; // 当前武器的连段表
 
-        [Header("VFX")] [SerializeField] private TrailRenderer _bladeTrail; // 剑刃拖尾，挂在 VFX_BladeTip 上
+        [Header("VFX")]
+        [SerializeField] private TrailRenderer _bladeTrail; // 剑刃拖尾，挂在 VFX_BladeTip 上
 
         private PlayerAttackState _attackState;
         private int[] _comboStateHashes; // 连段各段 Animator 状态名的预 hash（Awake 算一次）
+
 
         public MeleeHitDetector MeleeHitDetector => _meleeHitDetector;
         public ComboDefinition Combo => _combo;
@@ -26,7 +29,8 @@ namespace Game.Character
 
         protected override void Awake()
         {
-            base.Awake();
+            base.Awake();   // 基类默认的工作
+
             _attackState = new PlayerAttackState(this);
             BuildComboStateHashes();
         }

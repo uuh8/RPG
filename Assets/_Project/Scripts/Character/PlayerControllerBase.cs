@@ -24,20 +24,24 @@ namespace Game.Character
 
         [Header("Slope")] [SerializeField] private float _slideSpeed = 6f; // 滑落速度
 
-        [Header("Interaction")] [SerializeField] private float _pushForce = 3f;
+        [Header("Interaction")] [SerializeField]
+        private float _pushForce = 3f;
 
         [Header("Camera")] [SerializeField] private Transform _cameraRoot; // 相机枢轴，Inspector 里拖 CameraRoot
         [SerializeField] private float _lookSensitivity = 0.12f; // 灵敏度：度/像素
         [SerializeField] private float _pitchMin = -30f; // 最低俯角
         [SerializeField] private float _pitchMax = 70f; // 最高俯角
 
-        [Header("Attack Input")] [SerializeField] private float _attackBufferTime = 0.15f; // 攻击缓冲时间（通用：按了攻击键的缓冲）
+        [Header("Attack Input")] [SerializeField]
+        private float _attackBufferTime = 0.15f; // 攻击缓冲时间（通用：按了攻击键的缓冲）
 
-        [Header("Dash")] [SerializeField] private float _dashSpeed = 20f;      // 冲刺水平速度
-        [SerializeField] private float _dashDuration = 0.2f;                    // 冲刺持续时间（秒）
-        [SerializeField] private float _dashCooldown = 1f;                      // 冲刺冷却（从 Exit 起算）
-        [SerializeField] private float _dashBufferTime = 0.15f;                 // 冲刺输入缓冲（与攻击/跳跃同惯例）
-        [SerializeField] private string _dashStateName = "DashForward_SingleTwohandSword"; // Dash 目标 Animator 状态名（数据驱动，各角色填自己 Controller 的节点名）
+        [Header("Dash")] [SerializeField] private float _dashSpeed = 20f; // 冲刺水平速度
+        [SerializeField] private float _dashDuration = 0.2f; // 冲刺持续时间（秒）
+        [SerializeField] private float _dashCooldown = 1f; // 冲刺冷却（从 Exit 起算）
+        [SerializeField] private float _dashBufferTime = 0.15f; // 冲刺输入缓冲（与攻击/跳跃同惯例）
+
+        [SerializeField] private string
+            _dashStateName = "DashForward_SingleTwohandSword"; // Dash 目标 Animator 状态名（数据驱动，各角色填自己 Controller 的节点名）
 
         // 组件引用
         private CharacterController _characterController;
@@ -103,25 +107,25 @@ namespace Game.Character
         public float DashBufferCounter { get; set; }
         public int DashStateHash => _dashStateHash;
 
-        public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed(); // 攻击键当前是否按住（Phase 4 蓄力轮询用）
+        public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed(); // 攻击键当前是否按住（蓄力轮询用）
 
         /// <summary>
         /// 攻击触发 seam：共享的 GroundedState 在攻击优先级位调用本钩子。
         /// 基类默认不攻击（返回 false）；具体角色在子类重写：消耗攻击输入并切到自己的攻击状态，
-        /// 切了返回 true（GroundedState 据此短路 return，保留 Dash→Attack→Jump 优先级）。
         /// </summary>
-        public virtual bool TryStartAttack() => false;
+        public virtual bool TryStartAttack() => false;  // 基类：安全的空实现
 
-        #region Unity事件函数
+        #region Unity 事件函数
 
         protected virtual void Awake()
         {
             _characterController = GetComponent<CharacterController>();
-            _animator = GetComponentInChildren<Animator>(); // Animator 在子节点上，用 GetComponentInChildren
+            _animator = GetComponentInChildren<Animator>();
             _groundChecker = GetComponent<GroundChecker>();
             _inputActions = new InputSystem_Actions();
             _mainCamera = Camera.main;
 
+            // 初始化状态机（这是共有的状态，私有的状态在各自的Controller中单独初始化）
             _stateMachine = new PlayerStateMachine();
             _groundedState = new PlayerGroundedState(this);
             _airborneState = new PlayerAirborneState(this);
@@ -177,9 +181,9 @@ namespace Game.Character
             if (DashCooldownCounter > 0f) DashCooldownCounter -= Time.deltaTime;
             if (DashBufferCounter > 0f) DashBufferCounter -= Time.deltaTime;
 
-            // ① 先驱动状态机（可能改 VerticalVelocity）② 后同步 Animator（拿最终数据）——顺序不能反
-            _stateMachine.Update();
-            SyncAnimatorParameters();
+            _stateMachine.Update();     // ① 先驱动状态机（可能改 VerticalVelocity）
+
+            SyncAnimatorParameters();   // ② 后同步 Animator（拿最终数据）
         }
 
         private void LateUpdate()
@@ -188,22 +192,49 @@ namespace Game.Character
             HandleCameraRotation();
         }
 
+        /// <summary>
+        /// 当 CharacterController（角色控制器）在移动过程中与其他带有碰撞体的物体发生碰撞时，引擎会自动调用此函数
+        /// 并传入 ControllerColliderHit 类型的参数 hit，其中包含了碰撞的详细信息。
+        /// </summary>
         private void OnControllerColliderHit(ControllerColliderHit hit)
         {
             Rigidbody rb = hit.rigidbody;
-            if (rb == null) return;          // 静态物体不推
-            if (rb.isKinematic) return;      // Kinematic 不推
+            if (rb == null) return; // 静态物体不推
+            if (rb.isKinematic) return; // Kinematic 不推
             if (hit.moveDirection.y < -0.3f) return; // 踩在物件上不推
             Vector3 pushDir = new Vector3(hit.moveDirection.x, 0f, hit.moveDirection.z);
-            rb.AddForce(pushDir * _pushForce, ForceMode.VelocityChange);
+            rb.AddForce(pushDir * _pushForce, ForceMode.VelocityChange);    // ForceMode.VelocityChange 表示直接改变物体的速度，忽略其质量（即无论物体轻重，都能被推开相同的初始速度）。
+        }
+
+        #endregion
+
+
+        #region 事件回调
+
+        private void OnJumpPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
+        {
+            JumpBufferCounter = _jumpBufferTime;
+        }
+
+        private void OnAttackPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
+        {
+            AttackBufferCounter = _attackBufferTime;
+        }
+
+        private void OnDashPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
+        {
+            DashBufferCounter = _dashBufferTime;
         }
 
         #endregion
 
         private void SyncAnimatorParameters()
         {
+            // 设置速度参数，确保值在0-1之间
             _animator.SetFloat(SpeedHash, Mathf.Clamp01(_moveInput.magnitude));
+            // 检查角色是否处于地面状态且垂直速度小于等于0
             bool animIsGrounded = _groundChecker.IsGrounded && VerticalVelocity <= 0f;
+            // 更新地面状态参数
             _animator.SetBool(IsGroundedHash, animIsGrounded);
         }
 
@@ -229,19 +260,5 @@ namespace Game.Character
             _cameraRoot.rotation = Quaternion.Euler(_cameraPitch, _cameraYaw, 0f);
         }
 
-        private void OnJumpPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
-        {
-            JumpBufferCounter = _jumpBufferTime;
-        }
-
-        private void OnAttackPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
-        {
-            AttackBufferCounter = _attackBufferTime;
-        }
-
-        private void OnDashPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
-        {
-            DashBufferCounter = _dashBufferTime;
-        }
     }
 }

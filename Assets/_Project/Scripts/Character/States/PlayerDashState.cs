@@ -48,8 +48,7 @@ namespace Game.Character
 
         public override void Exit()
         {
-            // 冷却启动唯一责任点：从冲刺结束起算（决策③）。
-            // 经 ChangeState 的任何退出路径都会跑到这里，冷却必然启动。
+            // 冷却启动唯一责任点：从冲刺结束起算（决策③）。经 ChangeState 的任何退出路径都会跑到这里，冷却必然启动。
             _player.DashCooldownCounter = _player.DashCooldown;
 
             // 刻意不清 DashBufferCounter（区别于 PlayerAttackState.Exit 清 AttackBufferCounter）：
