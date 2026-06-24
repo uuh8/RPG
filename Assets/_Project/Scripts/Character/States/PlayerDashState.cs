@@ -42,7 +42,8 @@ namespace Game.Character
             HandleDashMovement();
 
             _elapsed += Time.deltaTime;
-            if (_elapsed >= _player.DashDuration)
+            // 总时长 = 启动延迟 + 位移时长：延迟段只播动画/贴地，位移段保持原距离（DashSpeed × DashDuration）
+            if (_elapsed >= _player.DashMoveDelay + _player.DashDuration)
                 TransitionToMovement();
         }
 
@@ -67,8 +68,11 @@ namespace Game.Character
             if (_player.VerticalVelocity < 0f)
                 _player.VerticalVelocity = -2f;
 
-            // 水平：锁定方向 × 冲刺速度。冲刺期间不响应移动输入、不转向（方向锁定）
-            Vector3 velocity = _dashDirection * _player.DashSpeed;
+            // 启动延迟内只贴地、不水平位移：等翻滚动画起势，避免"先闪后翻"。延迟过后才按锁定方向位移。
+            float horizontalSpeed = _elapsed >= _player.DashMoveDelay ? _player.DashSpeed : 0f;
+
+            // 水平：锁定方向 × 速度。冲刺期间不响应移动输入、不转向（方向锁定）
+            Vector3 velocity = _dashDirection * horizontalSpeed;
             velocity.y = _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }

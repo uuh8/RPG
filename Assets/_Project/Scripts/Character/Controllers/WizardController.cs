@@ -1,0 +1,138 @@
+using UnityEngine;
+using Game.Combat;
+using Game.Core;
+
+namespace Game.Character
+{
+    /// <summary>
+    /// 法师控制器：共享移动能力之上叠加远程攻击。攻击输入路由（仿 ArcherController 决策 A：代码计时 + 阈值门控）：
+    /// 点按左键 → 火球普攻（PlayerWizardAttackState）；长按左键过 TapThreshold → 陨石重击引导（PlayerWizardHeavyState）。
+    /// 发射物 Fireball / 陨石 NovaFireball 均派生自 ProjectileBase。
+    /// </summary>
+    public class WizardController : PlayerControllerBase
+    {
+        [Header("Wizard Attack (火球普攻)")]
+        [SerializeField] private ComboDefinition _combo;          // 单段连段表（普通攻击 1 段）
+        [SerializeField] private GameObject _fireballPrefab;      // 火球预制体（带 Rigidbody + Collider + Fireball）
+        [SerializeField] private Transform _fireballSpawnPoint;   // 火球生成点（法杖前端）
+        [SerializeField] private float _projectileSpeed = 20f;    // 火球初速度
+
+        [Header("Wizard Heavy (陨石重击)")]
+        [SerializeField] private MeteorAttackDefinition _meteorData;
+        [SerializeField] private GameObject _meteorPrefab;            // NovaFireball
+        [SerializeField] private GameObject _channelRingPrefab;       // NovaFireball_Skill_Start（脚下光圈）
+        [SerializeField] private GameObject _targetIndicatorPrefab;   // NovaFireball_Pre_Field（落点圆框）
+        [SerializeField] private LayerMask _aimMask = ~0;            // 引导落点射线命中层（建议只勾地面层）
+
+        private PlayerWizardAttackState _wizardAttackState;
+        private PlayerWizardHeavyState _heavyState;
+        private int[] _comboStateHashes;
+        private HealthComponent _health;       // 阵营来源（缓存）
+        private float _attackHeldTime;         // 攻击键按住累计时长（tap/hold 路由）
+
+        // 陨石引导/施法动画状态名预 hash（可空 → 0 → 不 CrossFade）
+        private int _meteorChannelHash;
+        private int _meteorReleaseHash;
+
+        public ComboDefinition Combo => _combo;
+        public GameObject FireballPrefab => _fireballPrefab;
+        public Transform FireballSpawnPoint => _fireballSpawnPoint;
+        public float ProjectileSpeed => _projectileSpeed;
+        public HealthComponent Health => _health;
+        public PlayerWizardAttackState WizardAttackState => _wizardAttackState;
+
+        public MeteorAttackDefinition MeteorData => _meteorData;
+        public GameObject MeteorPrefab => _meteorPrefab;
+        public GameObject ChannelRingPrefab => _channelRingPrefab;
+        public GameObject TargetIndicatorPrefab => _targetIndicatorPrefab;
+        public LayerMask AimMask => _aimMask;
+        public PlayerWizardHeavyState HeavyState => _heavyState;
+        public int MeteorChannelHash => _meteorChannelHash;
+        public int MeteorReleaseHash => _meteorReleaseHash;
+
+        protected override void Awake()
+        {
+            base.Awake();   // 基类：组件/输入/状态机/共享四态/Dash hash
+
+            _health = GetComponent<HealthComponent>();
+            _wizardAttackState = new PlayerWizardAttackState(this);
+            _heavyState = new PlayerWizardHeavyState(this);
+            BuildComboStateHashes();
+            BuildMeteorHashes();
+        }
+
+        /// <summary>
+        /// 攻击输入路由：长按左键过 TapThreshold → 陨石引导态；未达阈值松手(或子帧点按) → 火球普攻。
+        /// </summary>
+        public override bool TryStartAttack()
+        {
+            // 按住且有重击数据：累计时长，过阈值进引导
+            if (_meteorData != null && IsAttackHeld)
+            {
+                _attackHeldTime += Time.deltaTime;
+                if (_attackHeldTime >= _meteorData.TapThreshold)
+                {
+                    _attackHeldTime = 0f;
+                    AttackBufferCounter = 0f;
+                    StateMachine.ChangeState(_heavyState);
+                    return true;
+                }
+                return false; // 仍在 tap 窗口内，按住等待
+            }
+
+            // 已松手（或无重击数据）：曾有按下 → 火球普攻点射
+            bool hadPress = _attackHeldTime > 0f || AttackBufferCounter > 0f;
+            _attackHeldTime = 0f;
+            if (hadPress)
+            {
+                AttackBufferCounter = 0f;
+                StateMachine.ChangeState(_wizardAttackState);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>取第 index 段的 Animator 状态 hash；越界或未配置返回 0。</summary>
+        public int GetComboStateHash(int index)
+        {
+            if (_comboStateHashes == null || index < 0 || index >= _comboStateHashes.Length)
+                return 0;
+            return _comboStateHashes[index];
+        }
+
+        /// <summary>把连段表各段 AnimationStateName 预 hash 成 int[]（仿 Warrior/Archer）。</summary>
+        private void BuildComboStateHashes()
+        {
+            int count = _combo != null ? _combo.SegmentCount : 0;
+            _comboStateHashes = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                AttackDefinition seg = _combo.Segments[i];
+                string stateName = seg != null ? seg.AnimationStateName : null;
+                if (string.IsNullOrEmpty(stateName))
+                {
+                    _comboStateHashes[i] = 0;
+                    GameLog.Warn($"法师连段第 {i} 段 AnimationStateName 为空，CrossFade 将无法切换动画", "Combat");
+                }
+                else
+                {
+                    _comboStateHashes[i] = Animator.StringToHash(stateName);
+                }
+            }
+        }
+
+        /// <summary>预 hash 陨石引导/施法动画名。二者可空（引导/施法动画为可选润色）：空 → 0 → 重击态据此跳过 CrossFade，不告警。</summary>
+        private void BuildMeteorHashes()
+        {
+            if (_meteorData == null)
+            {
+                GameLog.Warn("法师 MeteorAttackDefinition 未配置，陨石重击不可用", "Combat");
+                return;
+            }
+            _meteorChannelHash = string.IsNullOrEmpty(_meteorData.ChannelStateName)
+                ? 0 : Animator.StringToHash(_meteorData.ChannelStateName);
+            _meteorReleaseHash = string.IsNullOrEmpty(_meteorData.ReleaseStateName)
+                ? 0 : Animator.StringToHash(_meteorData.ReleaseStateName);
+        }
+    }
+}

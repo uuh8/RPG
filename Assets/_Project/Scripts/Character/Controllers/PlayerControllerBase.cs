@@ -36,9 +36,11 @@ namespace Game.Character
         private float _attackBufferTime = 0.15f; // 攻击缓冲时间（通用：按了攻击键的缓冲）
 
         [Header("Dash")] [SerializeField] private float _dashSpeed = 20f; // 冲刺水平速度
-        [SerializeField] private float _dashDuration = 0.2f; // 冲刺持续时间（秒）
+        [SerializeField] private float _dashDuration = 0.2f; // 冲刺位移持续时间（秒）
         [SerializeField] private float _dashCooldown = 1f; // 冲刺冷却（从 Exit 起算）
         [SerializeField] private float _dashBufferTime = 0.15f; // 冲刺输入缓冲（与攻击/跳跃同惯例）
+
+        [SerializeField] private float _dashMoveDelay = 0.1f; // 冲刺位移启动延迟（秒）：等翻滚动画起势后再位移，避免"先闪后翻"。设 0 = 进入即位移
 
         [SerializeField] private string
             _dashStateName = "DashForward_SingleTwohandSword"; // Dash 目标 Animator 状态名（数据驱动，各角色填自己 Controller 的节点名）
@@ -103,6 +105,7 @@ namespace Game.Character
         public float DashDuration => _dashDuration;
         public float DashCooldown => _dashCooldown;
         public float DashBufferTime => _dashBufferTime;
+        public float DashMoveDelay => _dashMoveDelay;
         public float DashCooldownCounter { get; set; }
         public float DashBufferCounter { get; set; }
         public int DashStateHash => _dashStateHash;
