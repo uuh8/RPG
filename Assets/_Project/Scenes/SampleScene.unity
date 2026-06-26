@@ -368,7 +368,7 @@ MonoBehaviour:
   _dashMoveDelay: 0.1
   _dashStateName: Dash_Bow
   _combo: {fileID: 11400000, guid: 867d842d17c921d46a6893d44ff6f4f8, type: 2}
-  _arrowPrefab: {fileID: 88758380191032286, guid: d71c5bdd670bf4843b49b572c481f17b, type: 3}
+  _arrowPrefab: {fileID: 6867681437503033949, guid: 21d5b4149d3c3eb44b034951f1cc087d, type: 3}
   _arrowSpawnPoint: {fileID: 1012051213}
   _projectileSpeed: 40
   _chargeData: {fileID: 11400000, guid: 96b8e62f5e72dbc4c9abd9fd43245939, type: 2}
@@ -454,6 +454,10 @@ MonoBehaviour:
   _flashColor: {r: 1, g: 0, b: 0, a: 1}
   _flashDuration: 0.15
   _colorProperty: _BaseColor
+  _bloodHitPrefab: {fileID: 0}
+  _bloodHitLifetime: 2
+  _bloodDripPrefab: {fileID: 0}
+  _bloodDripLifetime: 3
 --- !u!1 &219889886
 GameObject:
   m_ObjectHideFlags: 0
@@ -519,10 +523,10 @@ MonoBehaviour:
   _pitchMax: 90
   _attackBufferTime: 0.38
   _dashSpeed: 20
-  _dashDuration: 0.3
+  _dashDuration: 0.4
   _dashCooldown: 0.5
   _dashBufferTime: 0.15
-  _dashMoveDelay: 0.1
+  _dashMoveDelay: 0.2
   _dashStateName: DashForward_SingleTwohandSword
   _meleeHitDetector: {fileID: 1449582253}
   _combo: {fileID: 11400000, guid: 389bf03b39398784f9284a5987e98238, type: 2}
@@ -606,6 +610,10 @@ MonoBehaviour:
   _flashColor: {r: 1, g: 0, b: 0, a: 1}
   _flashDuration: 0.15
   _colorProperty: _BaseColor
+  _bloodHitPrefab: {fileID: 0}
+  _bloodHitLifetime: 2
+  _bloodDripPrefab: {fileID: 0}
+  _bloodDripLifetime: 3
 --- !u!1 &267053044
 GameObject:
   m_ObjectHideFlags: 0
@@ -673,7 +681,7 @@ MonoBehaviour:
   m_StreamingVersion: 20241001
   m_LegacyPriority: 0
   Target:
-    TrackingTarget: {fileID: 1207530830}
+    TrackingTarget: {fileID: 1183858124}
     LookAtTarget: {fileID: 0}
     CustomLookAtTarget: 0
   Lens:
@@ -705,7 +713,7 @@ Transform:
   m_GameObject: {fileID: 267053044}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -7.48, y: 2.51, z: -12.950001}
+  m_LocalPosition: {x: -7.47, y: 2.52, z: -12.110001}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -841,7 +849,7 @@ Transform:
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -7.48, y: 2.51, z: -12.950001}
+  m_LocalPosition: {x: -7.47, y: 2.52, z: -12.110001}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -2361,6 +2369,10 @@ MonoBehaviour:
   _flashColor: {r: 1, g: 0, b: 0, a: 1}
   _flashDuration: 0.15
   _colorProperty: _BaseColor
+  _bloodHitPrefab: {fileID: 6040295698281362098, guid: dc8ea8e567d3268438f1c08de209e249, type: 3}
+  _bloodHitLifetime: 2
+  _bloodDripPrefab: {fileID: 7323871151985639507, guid: 5b4753961b655db4a8402ae014b59d2e, type: 3}
+  _bloodDripLifetime: 3
 --- !u!54 &1794759159
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -2384,7 +2396,7 @@ Rigidbody:
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
   m_UseGravity: 1
-  m_IsKinematic: 1
+  m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
@@ -2522,7 +2534,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &1907625353
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2546,6 +2558,10 @@ MonoBehaviour:
   _flashColor: {r: 1, g: 0, b: 0, a: 1}
   _flashDuration: 0.15
   _colorProperty: _BaseColor
+  _bloodHitPrefab: {fileID: 0}
+  _bloodHitLifetime: 2
+  _bloodDripPrefab: {fileID: 0}
+  _bloodDripLifetime: 3
 --- !u!114 &1907625354
 MonoBehaviour:
   m_ObjectHideFlags: 0

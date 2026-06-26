@@ -49,12 +49,19 @@ namespace Game.Character
 
             // 脚下光圈（跟随玩家，作为子物体）
             if (_wizard.ChannelRingPrefab != null)
-                _ring = Object.Instantiate(_wizard.ChannelRingPrefab,
-                    _player.transform.position, Quaternion.identity, _player.transform);
+                _ring = Object.Instantiate(
+                    _wizard.ChannelRingPrefab,
+                    _player.transform.position,
+                    Quaternion.Euler(_wizard.MeteorData.IndicatorRotationEuler),
+                    _player.transform
+                    );
             // 落点圆框（世界空间，引导期每帧移动；旋转用 SO 配置把竖直环形平铺到地面）
             if (_wizard.TargetIndicatorPrefab != null)
-                _indicator = Object.Instantiate(_wizard.TargetIndicatorPrefab, _aimPoint,
-                    Quaternion.Euler(_wizard.MeteorData.IndicatorRotationEuler));
+                _indicator = Object.Instantiate(
+                    _wizard.TargetIndicatorPrefab,
+                    _aimPoint,
+                    Quaternion.Euler(_wizard.MeteorData.IndicatorRotationEuler)
+                    );
 
             // 引导动画（可空）
             if (_wizard.MeteorChannelHash != 0)
