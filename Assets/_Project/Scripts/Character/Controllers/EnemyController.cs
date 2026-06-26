@@ -34,6 +34,10 @@ namespace Game.Character
         private EnemyChaseState _chaseState;
         private EnemyAttackState _attackState;
         private int _attackStateHash;
+        private EnemyHurtState _hurtState;
+        private int _hurtStateHash;
+        private int _id;
+        private bool _dead;
 
         private float _verticalVelocity;
 
@@ -47,6 +51,9 @@ namespace Game.Character
         public EnemyAttackState AttackState => _attackState;
         public int AttackStateHash => _attackStateHash;
         public float AttackCooldownCounter { get; set; }
+        public EnemyHurtState HurtState => _hurtState;
+        public int HurtStateHash => _hurtStateHash;
+        public bool IsDead => _dead;
         public Animator Animator => _animator;
 
         private void Awake()
@@ -65,6 +72,10 @@ namespace Game.Character
             _attackStateHash = string.IsNullOrEmpty(atkStateName) ? 0 : Animator.StringToHash(atkStateName);
             if (_attackStateHash == 0)
                 GameLog.Warn("敌人攻击动画状态名为空，攻击 CrossFade 无法切换动画", "Enemy");
+            _hurtState = new EnemyHurtState(this);
+            _hurtStateHash = (_definition != null && !string.IsNullOrEmpty(_definition.HurtStateName))
+                ? Animator.StringToHash(_definition.HurtStateName) : 0;
+            _id = gameObject.GetInstanceID();
 
             if (_definition == null)
                 GameLog.Warn("EnemyController 未配置 EnemyDefinition", "Enemy");
@@ -78,8 +89,36 @@ namespace Game.Character
             _stateMachine.ChangeState(_idleState);
         }
 
+        private void OnEnable()
+        {
+            EventBus<DamageReceivedEvent>.Subscribe(OnDamageReceived);
+            EventBus<DeathEvent>.Subscribe(OnDeath);
+        }
+
+        private void OnDisable()
+        {
+            EventBus<DamageReceivedEvent>.Unsubscribe(OnDamageReceived);
+            EventBus<DeathEvent>.Unsubscribe(OnDeath);
+        }
+
+        private void OnDamageReceived(DamageReceivedEvent e)
+        {
+            if (_dead || e.TargetId != _id) return;
+            if (e.RemainingHp <= 0f) return; // 致死那一击交给 OnDeath 处理，不进硬直
+            _stateMachine.ChangeState(_hurtState);
+        }
+
+        private void OnDeath(DeathEvent e)
+        {
+            if (_dead || e.TargetId != _id) return;
+            _dead = true;
+            if (_hitDetector != null) _hitDetector.CloseHitWindow();
+            // 死亡动画 + 延时销毁由 CharacterCombatFeedback 负责；本控制器只停 AI
+        }
+
         private void Update()
         {
+            if (_dead) return;
             if (AttackCooldownCounter > 0f) AttackCooldownCounter -= Time.deltaTime;
             _perception.Tick();
             _stateMachine.Update();
