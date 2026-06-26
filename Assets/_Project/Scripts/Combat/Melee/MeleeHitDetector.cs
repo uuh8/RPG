@@ -82,8 +82,11 @@ namespace Game.Combat
                 // 从碰撞体解析出可伤害接口
                 IDamageable target = ResolveDamageable(_buf[i]);
                 if (target == null) continue; // 跳过无法解析为可伤害对象的碰撞体
+                // 防御性：跳过攻击者自身层级，命中体绝不打到自己身体——即使阵营(_attackerTeam)配置有误也不自伤
+                Transform ownerT = _ownerRoot != null ? _ownerRoot : transform;
+                if (_buf[i].transform.IsChildOf(ownerT)) continue;
                 if (!target.IsAlive) continue; // 跳过已死亡的目标
-                if (target.TeamId == _attackerTeam) continue; // 跳过同阵营（含自身）
+                if (target.TeamId == _attackerTeam) continue; // 跳过同阵营（含队友）
 
                 // 获取目标对象的实例ID用于去重
                 Object targetObj = target as Object;
