@@ -23,7 +23,12 @@ namespace Game.Character
 
             if (p.DistanceToTarget <= _enemy.Definition.AttackRange)
             {
-                _enemy.StayGrounded(); // 到攻击距离：停下（攻击在 Task 5 接入）
+                if (_enemy.AttackCooldownCounter <= 0f)
+                {
+                    _enemy.StateMachine.ChangeState(_enemy.AttackState);
+                    return;
+                }
+                _enemy.StayGrounded(); // 在攻击距离但冷却中：停下等待
                 return;
             }
 

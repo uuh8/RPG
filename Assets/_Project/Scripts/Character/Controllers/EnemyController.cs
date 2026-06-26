@@ -32,6 +32,8 @@ namespace Game.Character
         private EnemyStateMachine _stateMachine;
         private EnemyIdleState _idleState;
         private EnemyChaseState _chaseState;
+        private EnemyAttackState _attackState;
+        private int _attackStateHash;
 
         private float _verticalVelocity;
 
@@ -42,6 +44,9 @@ namespace Game.Character
         public EnemyStateMachine StateMachine => _stateMachine;
         public EnemyIdleState IdleState => _idleState;
         public EnemyChaseState ChaseState => _chaseState;
+        public EnemyAttackState AttackState => _attackState;
+        public int AttackStateHash => _attackStateHash;
+        public float AttackCooldownCounter { get; set; }
         public Animator Animator => _animator;
 
         private void Awake()
@@ -53,6 +58,13 @@ namespace Game.Character
             _stateMachine = new EnemyStateMachine();
             _idleState = new EnemyIdleState(this);
             _chaseState = new EnemyChaseState(this);
+            _attackState = new EnemyAttackState(this);
+            // 攻击动画状态名取自攻击数据(数据驱动)；空 → 0 → CrossFade 不切动画
+            string atkStateName = (_definition != null && _definition.Attack != null)
+                ? _definition.Attack.AnimationStateName : null;
+            _attackStateHash = string.IsNullOrEmpty(atkStateName) ? 0 : Animator.StringToHash(atkStateName);
+            if (_attackStateHash == 0)
+                GameLog.Warn("敌人攻击动画状态名为空，攻击 CrossFade 无法切换动画", "Enemy");
 
             if (_definition == null)
                 GameLog.Warn("EnemyController 未配置 EnemyDefinition", "Enemy");
@@ -68,6 +80,7 @@ namespace Game.Character
 
         private void Update()
         {
+            if (AttackCooldownCounter > 0f) AttackCooldownCounter -= Time.deltaTime;
             _perception.Tick();
             _stateMachine.Update();
             SyncAnimator();
@@ -108,6 +121,19 @@ namespace Game.Character
             if (dir.sqrMagnitude < 1e-6f) return;
             Quaternion rot = Quaternion.LookRotation(dir);
             transform.rotation = Quaternion.Slerp(transform.rotation, rot, _rotationSpeed * Time.deltaTime);
+        }
+
+        /// <summary>开启近战命中窗口（攻击状态在 HitActiveStart 调用）。</summary>
+        public void OpenAttackWindow() { if (_hitDetector != null) _hitDetector.OpenHitWindow(); }
+
+        /// <summary>关闭近战命中窗口。</summary>
+        public void CloseAttackWindow() { if (_hitDetector != null) _hitDetector.CloseHitWindow(); }
+
+        /// <summary>数据驱动 CrossFade 进入指定 Animator 状态（hash 为 0 静默跳过）。</summary>
+        public void CrossFade(int stateHash)
+        {
+            if (_animator != null && stateHash != 0)
+                _animator.CrossFadeInFixedTime(stateHash, _definition.CrossFadeDuration, 0);
         }
 
         private void ApplyGravity()
