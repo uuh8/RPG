@@ -30,6 +30,8 @@ namespace Game.Character
 
         private EnemyPerception _perception;
         private EnemyStateMachine _stateMachine;
+        private EnemyIdleState _idleState;
+        private EnemyChaseState _chaseState;
 
         private float _verticalVelocity;
 
@@ -38,6 +40,8 @@ namespace Game.Character
         public EnemyDefinition Definition => _definition;
         public EnemyPerception Perception => _perception;
         public EnemyStateMachine StateMachine => _stateMachine;
+        public EnemyIdleState IdleState => _idleState;
+        public EnemyChaseState ChaseState => _chaseState;
         public Animator Animator => _animator;
 
         private void Awake()
@@ -47,12 +51,19 @@ namespace Game.Character
 
             _perception = new EnemyPerception(this);
             _stateMachine = new EnemyStateMachine();
+            _idleState = new EnemyIdleState(this);
+            _chaseState = new EnemyChaseState(this);
 
             if (_definition == null)
                 GameLog.Warn("EnemyController 未配置 EnemyDefinition", "Enemy");
             // 把 SO 的攻击数据注入命中判定器，保证两者一致
             if (_hitDetector != null && _definition != null && _definition.Attack != null)
                 _hitDetector.SetAttack(_definition.Attack);
+        }
+
+        private void Start()
+        {
+            _stateMachine.ChangeState(_idleState);
         }
 
         private void Update()
