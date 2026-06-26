@@ -59,8 +59,9 @@ namespace Game.Character
                 if (_enteredAnimState) { Finish(); return; }
             }
 
-            // 兜底：动画名配错导致始终进不去攻击态时，超时也结束，避免永久卡死
-            if (_elapsed >= MaxStateTime)
+            // 兜底：仅当"从未进入过攻击态"(动画名配错、CrossFade 静默失败)时才超时结束，避免永久卡死。
+            // 已进入过则交给上面的"离开攻击态"/EndThreshold 判定，避免误伤超过 MaxStateTime 的长动画。
+            if (!_enteredAnimState && _elapsed >= MaxStateTime)
             {
                 GameLog.Warn("敌人攻击迟迟未进入攻击动画态(检查 AttackDefinition.AnimationStateName 是否与 Animator 节点名精确一致)，超时结束", "Enemy");
                 Finish();
