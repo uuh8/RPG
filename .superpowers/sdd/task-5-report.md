@@ -71,7 +71,7 @@ None. All five insertions are precise; no other lines were touched. Verbatim mat
 | No new/LINQ/boxing on hot path | Verified |
 
 ### Commit
-See hash below.
+`27fe5f3` — fix(character): enemy attack finishes when animator leaves attack state (no freeze)
 
 ### Note on Testing
 This is a Unity Animator-timing logic change; no automated test can cover it. Developer must verify in Play mode: enemy should attack, animation plays to exit, enemy returns to chase/idle instead of freezing.
