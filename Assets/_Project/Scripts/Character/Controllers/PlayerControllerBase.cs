@@ -78,6 +78,8 @@ namespace Game.Character
         public GroundChecker GroundChecker => _groundChecker;
         public Animator Animator => _animator;
         public Camera MainCamera => _mainCamera; // 暴露给瞄准（屏幕中心射线 + 转向相机朝向）
+        /// <summary>当前启用的玩家实例（单人游戏的轻量注册表）。敌人感知据此拿玩家，免每帧 FindObjectOfType。多玩家时为最后启用者。</summary>
+        public static PlayerControllerBase Current { get; private set; }
         public Vector2 MoveInput => _moveInput;
         public Vector3 MoveDirection => _moveDirection;
         public float MoveSpeed => _moveSpeed;
@@ -162,6 +164,7 @@ namespace Game.Character
             _inputActions.Player.Jump.performed += OnJumpPerformed;
             _inputActions.Player.Attack.performed += OnAttackPerformed;
             _inputActions.Player.Dash.performed += OnDashPerformed;
+            Current = this; // 注册为当前玩家
         }
 
         private void OnDisable()
@@ -170,6 +173,7 @@ namespace Game.Character
             _inputActions.Player.Attack.performed -= OnAttackPerformed;
             _inputActions.Player.Dash.performed -= OnDashPerformed;
             _inputActions.Player.Disable();
+            if (Current == this) Current = null; // 注销（仅当自己仍是当前者）
         }
 
         // CharacterController 不走物理管线，在 Update 里 Move 才能每帧响应输入
