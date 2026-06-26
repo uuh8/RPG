@@ -38,6 +38,14 @@ namespace Game.Combat
         [Tooltip("Shader 颜色属性名；URP Lit 为 _BaseColor，旧/部分 Shader 为 _Color")]
         [SerializeField] private string _colorProperty = "_BaseColor";
 
+        [Header("流血 (命中本角色时；可空，不填则不出血——非血肉实体留空即可)")]
+        [Tooltip("击中特效：命中瞬间在命中点生成（如 BloodExplosion）")]
+        [SerializeField] private GameObject _bloodHitPrefab;
+        [SerializeField] private float _bloodHitLifetime = 2f;
+        [Tooltip("流血效果：挂在角色身上随其移动、持续一段时间（如 BloodDripping）")]
+        [SerializeField] private GameObject _bloodDripPrefab;
+        [SerializeField] private float _bloodDripLifetime = 3f;
+
         // 缓存（Awake 一次，运行时零分配）
         private int _id;                       // 与 HealthComponent 同源：gameObject.GetInstanceID()
         private int _getHitHash;
@@ -102,6 +110,7 @@ namespace Game.Combat
             if (e.TargetId != _id || _dead) return;
 
             StartFlash();
+            SpawnBlood(e.HitPoint, e.HitDirection);
 
             // 致死的那一击不播受击动画，交给死亡动画（OnDeath 同帧随后触发）
             if (e.RemainingHp > 0f && _getHitHash != 0 && _animator != null)
@@ -126,6 +135,35 @@ namespace Game.Combat
 
             // 死亡动画播完后销毁
             Destroy(gameObject, _destroyDelay);
+        }
+
+        #endregion
+
+        #region 流血
+
+        /// <summary>
+        /// 命中本角色的流血表现：命中点先放击中特效(BloodExplosion)，再在身上挂持续流血(BloodDripping)。
+        /// 由 DamageReceivedEvent 驱动，故近战/箭矢/法术任何来源命中都生效；两个 prefab 都可空（非血肉实体不出血）。
+        /// 朝向用命中方向 HitDirection（特效 +Z 朝向飞行/挥击方向）。
+        /// </summary>
+        private void SpawnBlood(Vector3 hitPoint, Vector3 hitDir)
+        {
+            if (_bloodHitPrefab == null && _bloodDripPrefab == null) return;
+
+            Quaternion rot = hitDir.sqrMagnitude > 1e-6f
+                ? Quaternion.LookRotation(hitDir) : Quaternion.identity;
+
+            if (_bloodHitPrefab != null)
+            {
+                GameObject hit = Instantiate(_bloodHitPrefab, hitPoint, rot);
+                Destroy(hit, _bloodHitLifetime);
+            }
+            if (_bloodDripPrefab != null)
+            {
+                // 挂到本角色下，随角色移动；位置取命中点
+                GameObject drip = Instantiate(_bloodDripPrefab, hitPoint, rot, transform);
+                Destroy(drip, _bloodDripLifetime);
+            }
         }
 
         #endregion
