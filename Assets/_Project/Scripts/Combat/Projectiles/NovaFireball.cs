@@ -11,12 +11,14 @@ namespace Game.Combat
         [Header("命中表现")]
         [SerializeField] private GameObject _explosionPrefab;   // NovaExplosion_Hit
         [SerializeField] private float _explosionLifetime = 2f;
+        // 爆炸特效旋转(欧拉角)。多数竖直朝向的特效填 (90,0,0) 可平铺到地面；若仍歪改这里。
+        [SerializeField] private Vector3 _explosionRotationEuler = new Vector3(90f, 0f, 0f);
 
         protected override void OnImpact(Collision collision, IDamageable target, Vector3 hitPoint, bool damaged)
         {
             if (_explosionPrefab != null)
             {
-                GameObject fx = Instantiate(_explosionPrefab, hitPoint, Quaternion.identity);
+                GameObject fx = Instantiate(_explosionPrefab, hitPoint, Quaternion.Euler(_explosionRotationEuler));
                 Destroy(fx, _explosionLifetime);
             }
         }

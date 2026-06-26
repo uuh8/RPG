@@ -16,6 +16,8 @@ namespace Game.Combat
         [SerializeField] protected float _maxLifetime = 5f; // 超时自毁，防漏网投射物累积
         // 模型朝向修正：LookRotation 把 +Z 对到飞行方向；箭尖沿 +Y 的模型填 (90,0,0)，球形特效填 0。
         [SerializeField] protected Vector3 _modelForwardOffsetEuler = Vector3.zero;
+        [Tooltip("命中后停留多久再销毁(秒)。0 = 立即消失(爆炸类)；箭矢类设 >0 可插在目标/地面上残留一小段时间。")]
+        [SerializeField] protected float _impactLingerTime = 0f;
 
         protected Rigidbody _rb;
         protected Collider _collider;
@@ -32,6 +34,18 @@ namespace Game.Combat
         {
             _rb = GetComponent<Rigidbody>();
             _collider = GetComponent<Collider>();
+        }
+
+        /// <summary>飞行中是否每帧把模型朝向对齐当前速度方向（抛物线箭矢用：机头随下坠俯冲）。默认否（直线投射物方向恒定，Init 定一次即可）。</summary>
+        protected virtual bool FaceVelocityInFlight => false;
+
+        protected virtual void FixedUpdate()
+        {
+            // 命中后(_consumed)或非抛物线投射物不更新；命中冻结(velocity≈0)时自动停止，保留命中姿态
+            if (_consumed || !FaceVelocityInFlight || _rb == null) return;
+            Vector3 v = _rb.linearVelocity;
+            if (v.sqrMagnitude > 1e-6f)
+                transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
         }
 
         /// <summary>
@@ -86,11 +100,11 @@ namespace Game.Combat
                 damaged = true;
             }
 
-            // 子类扩展点：命中敌方或环境都会走到（便于"撞地也爆炸"）
+            // 子类扩展点：命中敌方或环境都会走到（便于"撞地也爆炸"/"插在目标上残留"）
             OnImpact(collision, target, hitPoint, damaged);
 
             _consumed = true;
-            Destroy(gameObject);
+            Destroy(gameObject, _impactLingerTime); // 0=立即；箭矢类>0 可残留（OnImpact 内已冻结物理）
         }
 
         /// <summary>命中后、销毁前的子类扩展点（默认空）。target 可能为 null（命中环境）；damaged 表示本次是否结算了伤害。</summary>
