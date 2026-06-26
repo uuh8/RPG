@@ -100,6 +100,7 @@ namespace Game.Character
 
         public float AttackBufferCounter { get; set; }
         public float AttackBufferTime => _attackBufferTime;
+        public float AttackCooldownCounter { get; set; } // 攻击冷却剩余(秒)：>0 表示射速锁定中，时长来自连段数据 AttackCooldown
 
         public float DashSpeed => _dashSpeed;
         public float DashDuration => _dashDuration;
@@ -111,6 +112,7 @@ namespace Game.Character
         public int DashStateHash => _dashStateHash;
 
         public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed(); // 攻击键当前是否按住（蓄力轮询用）
+        public bool AttackPressedThisFrame => _inputActions.Player.Attack.WasPressedThisFrame(); // 攻击键本帧上升沿（tap/hold 边沿门控用）
 
         /// <summary>
         /// 攻击触发 seam：共享的 GroundedState 在攻击优先级位调用本钩子。
@@ -181,6 +183,7 @@ namespace Game.Character
             if (JumpBufferCounter > 0f) JumpBufferCounter -= Time.deltaTime;
             if (CoyoteTimeCounter > 0f) CoyoteTimeCounter -= Time.deltaTime;
             if (AttackBufferCounter > 0f) AttackBufferCounter -= Time.deltaTime;
+            if (AttackCooldownCounter > 0f) AttackCooldownCounter -= Time.deltaTime;
             if (DashCooldownCounter > 0f) DashCooldownCounter -= Time.deltaTime;
             if (DashBufferCounter > 0f) DashBufferCounter -= Time.deltaTime;
 

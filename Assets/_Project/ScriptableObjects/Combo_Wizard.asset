@@ -14,3 +14,4 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Combat::Game.Combat.ComboDefinition
   Segments:
   - {fileID: 11400000, guid: c55c4551a3c3a1c418ae5fb2eef0a2f1, type: 2}
+  AttackCooldown: 0.3

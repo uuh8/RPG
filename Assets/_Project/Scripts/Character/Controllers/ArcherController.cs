@@ -26,6 +26,7 @@ namespace Game.Character
         private int[] _comboStateHashes;
         private HealthComponent _health;       // 阵营来源（缓存）
         private float _attackHeldTime;         // 攻击键按住累计时长（tap/hold 路由）
+        private bool _attackTracking;          // 是否正在跟踪一次有效输入（仅由"本帧上升沿"开启）
 
         // 蓄力动画状态名预 hash（Awake 算一次）；满弓态由 Animator 过渡驱动，代码不 hash
         private int _chargeDrawHash;
@@ -56,35 +57,49 @@ namespace Game.Character
         }
 
         /// <summary>
-        /// 攻击输入路由（决策 A：代码计时 + 阈值门控，tap 不经拉弓）：
-        /// 按住累计时长，过 TapThreshold → 蓄力态；未达阈值松手（或子帧点按）→ 普通攻击点射。
+        /// 攻击输入路由（边沿门控，tap 不经拉弓）：仅"本帧刚按下"才开始跟踪一次输入，
+        /// 避免把上一发蓄力残留的"按住"误判为新长按。跟踪中：按住过 TapThreshold → 蓄力态；
+        /// 未达阈值松手（含亚帧点按）→ 普通攻击点射。
         /// </summary>
         public override bool TryStartAttack()
         {
-            // 按住且有蓄力数据：累计时长，过阈值进蓄力
-            if (_chargeData != null && IsAttackHeld)
+            // 仅上升沿开启跟踪：从上个动作残留下来的按住没有新边沿，不会启动新蓄力
+            if (AttackPressedThisFrame)
+            {
+                _attackTracking = true;
+                _attackHeldTime = 0f;
+            }
+            if (!_attackTracking)
+                return false; // 没有正在跟踪的有效输入
+
+            // 跟踪中且仍按住：累计时长，过阈值进蓄力
+            if (IsAttackHeld)
             {
                 _attackHeldTime += Time.deltaTime;
-                if (_attackHeldTime >= _chargeData.TapThreshold)
+                if (_chargeData != null && _attackHeldTime >= _chargeData.TapThreshold)
                 {
-                    _attackHeldTime = 0f;
-                    AttackBufferCounter = 0f;
+                    EndAttackTracking();
                     StateMachine.ChangeState(_chargeAttackState);   // 蓄力状态
                     return true;
                 }
                 return false; // 仍在 tap 窗口内，按住等待
             }
 
-            // 已松手（或无蓄力数据）：曾有按下 → 普通攻击点射
-            bool hadPress = _attackHeldTime > 0f || AttackBufferCounter > 0f;
+            // 跟踪中已松手且未达阈值 → 普通攻击点射（含亚帧点按：上升沿+同帧已松开）
+            EndAttackTracking();
+            if (AttackCooldownCounter > 0f)
+                return false; // 射速冷却中：本次点按作废，不进攻击态（蓄力重击不受此冷却限制）
+            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与动画长度解耦）
+            StateMachine.ChangeState(_bowAttackState);
+            return true;
+        }
+
+        /// <summary>结束一次输入跟踪：清跟踪标记、累计时长与攻击缓冲，防止下一发误触发。</summary>
+        private void EndAttackTracking()
+        {
+            _attackTracking = false;
             _attackHeldTime = 0f;
-            if (hadPress)
-            {
-                AttackBufferCounter = 0f;
-                StateMachine.ChangeState(_bowAttackState);
-                return true;
-            }
-            return false;
+            AttackBufferCounter = 0f;
         }
 
         /// <summary>取第 index 段的 Animator 状态 hash；越界或未配置返回 0。</summary>

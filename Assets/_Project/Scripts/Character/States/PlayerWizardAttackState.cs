@@ -47,7 +47,7 @@ namespace Game.Character
             HandleMovement();      // 边走边射：保留完整水平移动（不锁脚）
             base.HandleRotation(); // 随移动方向转向；火球在 ArrowSpawnTime 沿当前朝向射出
             HandleFireballSpawn(); // 单点：normalizedTime 越过 ArrowSpawnTime 生成一次
-            CheckCombo();          // 1 段 → 永远走向 End
+            CheckEnd();            // 射出即交还控制权（节奏交给射速冷却，与动画长度解耦）
         }
 
         public override void Exit()
@@ -128,38 +128,23 @@ namespace Game.Character
             fireball.Init(team, attackerId, seg.BaseAmount, seg.Type, velocity, _player.CharacterController, useGravity: false);
         }
 
-        private void CheckCombo()
+        /// <summary>
+        /// 提前结束：火球一旦射出就立刻交还控制权回到移动态，不再干等到动画 EndThreshold(0.85)——
+        /// 让两发的最小间隔由 WizardController 的射速冷却(AttackCooldown)决定，而非动画长度。
+        /// 动画本身仍由 Animator 的退出连线自然播完/淡出；下一发到来时 CrossFade 盖过其尾巴。
+        /// 兜底：若因配置问题始终没射出，动画接近播完(EndThreshold)也强制结束，避免卡死在攻击态。
+        /// </summary>
+        private void CheckEnd()
         {
-            if (_player.Animator.IsInTransition(0)) return;
-
-            AttackDefinition seg = _wizard.Combo.Segments[_comboIndex];
-            if (seg == null)
+            if (_fireballSpawned)
             {
-                GameLog.Warn($"法师连段第 {_comboIndex} 段未赋值，中断", "Combat");
                 TransitionToMovement();
                 return;
             }
-
+            if (_player.Animator.IsInTransition(0)) return; // 过渡期 normalizedTime 不可信
             float t = _player.Animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
-            bool hasBuffer = _player.AttackBufferCounter > 0f;
-
-            ComboDecision decision = ComboResolver.Resolve(
-                _comboIndex, _wizard.Combo.SegmentCount, t, hasBuffer,
-                seg.ComboInputStart, seg.ComboInputEnd, EndThreshold);
-
-            switch (decision)
-            {
-                case ComboDecision.Advance:
-                    // 1 段配置下 hasNext 恒 false，永不进此分支；保留以与骨架结构一致
-                    _comboIndex++;
-                    _player.AttackBufferCounter = 0f;
-                    StartSegment(_comboIndex);
-                    break;
-                case ComboDecision.End:
-                    TransitionToMovement();
-                    break;
-                // ComboDecision.Continue: 维持，无操作
-            }
+            if (t >= EndThreshold)
+                TransitionToMovement();
         }
 
         #endregion
