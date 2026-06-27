@@ -21,6 +21,7 @@ namespace Game.Combat
         public bool IsAlive => _currentHp > 0f;
         public float CurrentHp => _currentHp;
         public float MaxHp => _maxHp;
+        public int Id => _id;   // = gameObject.GetInstanceID()，与 DamageReceivedEvent.TargetId 同源，供血条/表现层按 id 过滤
 
         private void Awake()
         {
