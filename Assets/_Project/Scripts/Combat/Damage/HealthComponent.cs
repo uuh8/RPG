@@ -47,6 +47,7 @@ namespace Game.Combat
                 HitPoint     = req.HitPoint,
                 HitDirection = req.HitDirection,
                 RemainingHp  = _currentHp,
+                TriggerHitReaction = req.TriggerHitReaction,
             });
 
             // 若血量 ≤0，同帧 Publish 死亡事件

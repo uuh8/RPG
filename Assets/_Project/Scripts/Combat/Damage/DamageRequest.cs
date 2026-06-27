@@ -14,16 +14,21 @@ namespace Game.Combat
         public readonly DamageType Type;
         public readonly Vector3 HitPoint;
         public readonly Vector3 HitDirection;
+        // 是否触发"受击反应"（受击动画 + 敌人硬直）。直击=true；DoT/环境跳伤(燃烧/火场)=false：
+        // 仍正常扣血与发事件（可闪红/飘字），但不打断动作、不站桩。解决"持续伤害时角色一直播受击、无法移动"。
+        public readonly bool TriggerHitReaction;
 
         public DamageRequest(int attackerId, byte attackerTeam, float baseAmount,
-                             DamageType type, Vector3 hitPoint, Vector3 hitDirection)
+                             DamageType type, Vector3 hitPoint, Vector3 hitDirection,
+                             bool triggerHitReaction = true)
         {
-            AttackerId   = attackerId;
-            AttackerTeam = attackerTeam;
-            BaseAmount   = baseAmount;
-            Type         = type;
-            HitPoint     = hitPoint;
-            HitDirection = hitDirection;
+            AttackerId         = attackerId;
+            AttackerTeam       = attackerTeam;
+            BaseAmount         = baseAmount;
+            Type               = type;
+            HitPoint           = hitPoint;
+            HitDirection       = hitDirection;
+            TriggerHitReaction = triggerHitReaction;
         }
     }
 }

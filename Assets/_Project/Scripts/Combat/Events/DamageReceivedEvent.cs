@@ -16,5 +16,6 @@ namespace Game.Combat
         public Vector3 HitPoint;
         public Vector3 HitDirection;
         public float RemainingHp;
+        public bool TriggerHitReaction; // false = DoT/环境跳伤：表现层应跳过受击动画、敌人应跳过硬直（仍可闪红/飘字）
     }
 }
