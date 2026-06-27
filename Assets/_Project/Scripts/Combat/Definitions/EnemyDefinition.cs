@@ -33,6 +33,14 @@ namespace Game.Combat
         [Tooltip("受击动画状态名(可空则不 CrossFade)；须与敌人 Animator 节点名精确一致")]
         public string HurtStateName = "";
 
+        [Header("远程 (仅远程敌人 RangedEnemyController 使用)")]
+        [Tooltip("玩家比此距离更近时后撤；与 AttackRange 一起构成站档输出的范围带 [RetreatDistance, AttackRange]")]
+        public float RetreatDistance = 4f;
+        [Tooltip("火球飞行速度")]
+        public float ProjectileSpeed = 18f;
+        [Tooltip("发射的投射物预制体(拖 Fireball)；其上需有 Fireball 组件")]
+        public GameObject ProjectilePrefab;
+
         [Header("CrossFade")]
         public float CrossFadeDuration = 0.1f;
     }
