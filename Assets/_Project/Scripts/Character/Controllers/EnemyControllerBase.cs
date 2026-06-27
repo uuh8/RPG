@@ -72,7 +72,7 @@ namespace Game.Character
             _id = gameObject.GetInstanceID();
 
             if (_definition == null)
-                GameLog.Warn("EnemyController 未配置 EnemyDefinition", "Enemy");
+                GameLog.Warn("EnemyControllerBase 未配置 EnemyDefinition", "Enemy");
         }
 
         private void Start()
