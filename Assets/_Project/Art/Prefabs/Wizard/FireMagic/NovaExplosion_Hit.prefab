@@ -15,6 +15,7 @@ GameObject:
   - component: {fileID: 6869533302660404068}
   - component: {fileID: 3406597507795689860}
   - component: {fileID: 2063850261223322915}
+  - component: {fileID: 4095981483965190026}
   m_Layer: 0
   m_Name: NovaExplosion_Hit
   m_TagString: Untagged
@@ -5040,6 +5041,25 @@ MonoBehaviour:
   m_ShadowLayerMask: 1
   m_RenderingLayers: 1
   m_ShadowRenderingLayers: 1
+--- !u!114 &4095981483965190026
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 52697837145695908}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 36696140a1a44f84a9ed72daa51c49e6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.AreaDamage
+  _radius: 5
+  _damagePerHit: 20
+  _type: 1
+  _hitMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  _tickInterval: 0
 --- !u!1 &2584940575203193023
 GameObject:
   m_ObjectHideFlags: 0

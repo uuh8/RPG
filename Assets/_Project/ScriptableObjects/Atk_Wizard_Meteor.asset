@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 27368ff398115494f986d1fcd322beeb, type: 3}
-  m_Name: Meteor_Wizard
+  m_Name: Atk_Wizard_Meteor
   m_EditorClassIdentifier: Game.Combat::Game.Combat.MeteorAttackDefinition
   ChannelStateName: Attack02Maintain_MagicWand
   ReleaseStateName: Attack02Maintain_MagicWand
@@ -18,9 +18,10 @@ MonoBehaviour:
   AimMaxDistance: 30
   MeteorSpawnDelay: 0.3
   ReleaseDuration: 0.6
-  MeteorSpeed: 20
+  MeteorSpeed: 30
   SpawnHeight: 25
   SpawnHorizontalBack: 10
-  Damage: 60
+  Damage: 40
   Type: 1
+  IndicatorRotationEuler: {x: 90, y: 0, z: 0}
   CrossFadeDuration: 0.1
