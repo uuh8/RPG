@@ -1,0 +1,265 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &4708242254204814118
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4071917928512588635}
+  - component: {fileID: 5362811140622067657}
+  - component: {fileID: 17861927163389276}
+  - component: {fileID: 5842247336306656891}
+  - component: {fileID: 5289944598073839073}
+  - component: {fileID: 7407154770750940856}
+  m_Layer: 0
+  m_Name: BowPlayer
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &4071917928512588635
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -7.33, y: 0.6, z: -8.51}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 9033554604543479288}
+  - {fileID: 735129253379293403}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!143 &5362811140622067657
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 1.8
+  m_Radius: 0.35
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 0.9, z: 0}
+--- !u!114 &17861927163389276
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d6260d1317e52b4fb9a05435c1ce13b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.HealthComponent
+  _maxHp: 100
+  _teamId: 1
+--- !u!114 &5842247336306656891
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 48a4682cadd52674a80519c5136d3f1a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Character::Game.Character.ArcherController
+  _moveSpeed: 10
+  _rotationSpeed: 17
+  _gravityMultiplier: 3
+  _jumpForce: 15
+  _fallGravityMultiplier: 4
+  _coyoteTime: 0.15
+  _jumpBufferTime: 0.15
+  _slideSpeed: 6
+  _pushForce: 3
+  _cameraRoot: {fileID: 9033554604543479288}
+  _lookSensitivity: 0.12
+  _pitchMin: -30
+  _pitchMax: 90
+  _attackBufferTime: 0.15
+  _dashSpeed: 20
+  _dashDuration: 0.3
+  _dashCooldown: 0.5
+  _dashBufferTime: 0.15
+  _dashMoveDelay: 0.1
+  _dashStateName: Dash_Bow
+  _combo: {fileID: 11400000, guid: 867d842d17c921d46a6893d44ff6f4f8, type: 2}
+  _arrowPrefab: {fileID: 6867681437503033949, guid: 21d5b4149d3c3eb44b034951f1cc087d, type: 3}
+  _arrowSpawnPoint: {fileID: 4176686863478207298, guid: 21d5b4149d3c3eb44b034951f1cc087d, type: 3}
+  _projectileSpeed: 40
+  _chargeData: {fileID: 11400000, guid: 96b8e62f5e72dbc4c9abd9fd43245939, type: 2}
+  _aimMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &5289944598073839073
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d26357c0a6152943b69c26c7477a702, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Character::Game.Character.GroundChecker
+  _sphereRadius: 0.27
+  _groundCheckDistance: 0.17
+  _groundLayer:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &7407154770750940856
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c990e4025829fd47a92860cca18efa4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.CharacterCombatFeedback
+  _animator: {fileID: 735129253379293402}
+  _getHitStateName: GetHit_Bow
+  _getHitCrossFade: 0.05
+  _dieStateName: Die_Bow
+  _dieCrossFade: 0.1
+  _destroyDelay: 2
+  _disableOnDeath:
+  - {fileID: 9500000, guid: 3f68c6484cd868645a91d6e08607bc9c, type: 3}
+  _flashColor: {r: 1, g: 0, b: 0, a: 1}
+  _flashDuration: 0.15
+  _colorProperty: _BaseColor
+  _bloodHitPrefab: {fileID: 6040295698281362098, guid: dc8ea8e567d3268438f1c08de209e249, type: 3}
+  _bloodHitLifetime: 2
+  _bloodDripPrefab: {fileID: 7323871151985639507, guid: 5b4753961b655db4a8402ae014b59d2e, type: 3}
+  _bloodDripLifetime: 3
+--- !u!1 &7951692776455586140
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 9033554604543479288}
+  m_Layer: 0
+  m_Name: CameraRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &9033554604543479288
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7951692776455586140}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.01, y: 0.25, z: -0.05}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4071917928512588635}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &6166125021706327251
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 4071917928512588635}
+    m_Modifications:
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -0.01
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0.15
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -0.04
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6891015544319759369, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_Controller
+      value: 
+      objectReference: {fileID: 9100000, guid: 8611859216a18764480ff6c391bbe352, type: 2}
+    - target: {fileID: 6891015544319759370, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+      propertyPath: m_Name
+      value: BowHero
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+--- !u!95 &735129253379293402 stripped
+Animator:
+  m_CorrespondingSourceObject: {fileID: 6891015544319759369, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+  m_PrefabInstance: {fileID: 6166125021706327251}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &735129253379293403 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 6891015544319759368, guid: 16a1ffebaa9f008478d95bd5678d11b2, type: 3}
+  m_PrefabInstance: {fileID: 6166125021706327251}
+  m_PrefabAsset: {fileID: 0}
