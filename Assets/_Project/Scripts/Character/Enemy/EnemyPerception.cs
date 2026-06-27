@@ -11,13 +11,13 @@ namespace Game.Character
     /// </summary>
     public class EnemyPerception
     {
-        private readonly EnemyController _enemy;
+        private readonly EnemyControllerBase _enemy;
 
         public bool HasTarget { get; private set; }
         public Transform Target { get; private set; }
         public float DistanceToTarget { get; private set; }
 
-        public EnemyPerception(EnemyController enemy) { _enemy = enemy; }
+        public EnemyPerception(EnemyControllerBase enemy) { _enemy = enemy; }
 
         public void Tick()
         {

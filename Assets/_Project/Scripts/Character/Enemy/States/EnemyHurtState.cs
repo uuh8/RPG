@@ -7,7 +7,7 @@ namespace Game.Character
     {
         private float _timer;
 
-        public EnemyHurtState(EnemyController enemy) : base(enemy) { }
+        public EnemyHurtState(EnemyControllerBase enemy) : base(enemy) { }
 
         public override void Enter()
         {
@@ -22,7 +22,7 @@ namespace Game.Character
             if (_timer <= 0f)
             {
                 EnemyPerception p = _enemy.Perception;
-                _enemy.StateMachine.ChangeState(p.HasTarget ? _enemy.ChaseState : _enemy.IdleState);
+                _enemy.StateMachine.ChangeState(p.HasTarget ? _enemy.EngageState : _enemy.IdleState);
             }
         }
 
