@@ -33,24 +33,29 @@ namespace Game.Character
         public abstract void Exit();
 
         /// <summary>
-        /// 朝移动方向平滑转向。地面和空中逻辑完全一致，提到基类共享，避免重复。
-        /// 无输入时（MoveDirection ≈ 0）直接返回，不强制朝向。
+        /// 朝"锁存的目标朝向"平滑转向。地面和空中逻辑完全一致，提到基类共享。
+        /// 关键：有移动输入时把目标朝向锁存为该方向；之后**即使松开输入也继续转到位**，
+        /// 避免"按一下很短就松手 → 角色停在转身中途"的问题。无输入也只是朝最后锁存方向转完后静止。
         /// </summary>
         protected void HandleRotation()
         {
-            if (_player.MoveDirection.sqrMagnitude < 0.01f) return;
+            // 有移动输入：把目标朝向锁存为当前移动方向（水平）
+            if (_player.MoveDirection.sqrMagnitude >= 0.01f)
+                _player.TargetFacing = _player.MoveDirection;
 
-            /*Quaternion.LookRotation 是 Unity 提供的一个极其重要的 API。
-             它接收一个三维向量（MoveDirection，即玩家想要移动的方向），
-             然后计算并返回一个四元数（Quaternion）。
-             这个四元数代表了“让物体的正前方（Z轴）指向该向量所需的目标旋转角度”。*/
-            Quaternion targetRotation = Quaternion.LookRotation(_player.MoveDirection);
+            // 始终朝锁存的目标朝向转，直到对齐——这一步与"是否仍按住"无关，所以转身一定会转完
+            Vector3 facing = _player.TargetFacing;
+            facing.y = 0f;
+            if (facing.sqrMagnitude < 1e-6f) return; // 目标退化（理论上不会）才跳过
 
-            // Slerp：球面线性插值，用于在两个旋转状态之间进行平滑过渡，且帧率无关
+            // Quaternion.LookRotation：让物体 +Z 指向 facing 的目标旋转
+            Quaternion targetRotation = Quaternion.LookRotation(facing);
+
+            // Slerp：球面线性插值，平滑过渡；已对齐时本身就是无操作，不会抖
             _player.transform.rotation = Quaternion.Slerp(
-                _player.transform.rotation,                 // 当前旋转
-                targetRotation,                             // 目标旋转
-                _player.RotationSpeed * Time.deltaTime    // 插值比例
+                _player.transform.rotation,              // 当前旋转
+                targetRotation,                          // 目标旋转
+                _player.RotationSpeed * Time.deltaTime   // 插值比例
             );
         }
     }

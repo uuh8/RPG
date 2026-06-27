@@ -82,6 +82,8 @@ namespace Game.Character
         public static PlayerControllerBase Current { get; private set; }
         public Vector2 MoveInput => _moveInput;
         public Vector3 MoveDirection => _moveDirection;
+        /// <summary>锁存的目标朝向（水平）：按下方向时更新为该方向，松开后仍朝它转到位，避免"转身中途停下"。</summary>
+        public Vector3 TargetFacing { get; set; } = Vector3.forward;
         public float MoveSpeed => _moveSpeed;
         public float RotationSpeed => _rotationSpeed;
         public float VerticalVelocity { get; set; }
@@ -154,6 +156,7 @@ namespace Game.Character
         private void Start()
         {
             // Start 而非 Awake 进入初始状态：保证所有 GameObject 的 Awake 已执行完
+            TargetFacing = transform.forward; // 锁存初值=出生朝向，避免开局自转到世界 +Z
             _stateMachine.ChangeState(_groundedState);
             Cursor.lockState = CursorLockMode.Locked; // 锁定并隐藏鼠标
         }
