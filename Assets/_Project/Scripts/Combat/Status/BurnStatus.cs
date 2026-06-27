@@ -66,7 +66,8 @@ namespace Game.Combat
             {
                 _tickTimer += _interval;
                 var req = new DamageRequest(_attackerId, _attackerTeam, _damagePerTick,
-                                            _type, transform.position, Vector3.up);
+                                            _type, transform.position, Vector3.up,
+                                            triggerHitReaction: false); // DoT：不触发受击动作/硬直，仅扣血+闪红
                 _target.ReceiveHit(in req);
             }
 

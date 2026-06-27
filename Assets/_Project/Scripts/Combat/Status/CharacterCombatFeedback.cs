@@ -109,7 +109,11 @@ namespace Game.Combat
         {
             if (e.TargetId != _id || _dead) return;
 
-            StartFlash();
+            StartFlash(); // 闪红始终触发（含 DoT，作为"正在受伤"的轻量反馈）
+
+            // DoT/环境跳伤（燃烧/火场）：到此为止——不放血爆、不播受击动画，避免持续伤害把角色钉在受击姿态/无法移动
+            if (!e.TriggerHitReaction) return;
+
             SpawnBlood(e.HitPoint, e.HitDirection);
 
             // 致死的那一击不播受击动画，交给死亡动画（OnDeath 同帧随后触发）
@@ -156,13 +160,32 @@ namespace Game.Combat
             if (_bloodHitPrefab != null)
             {
                 GameObject hit = Instantiate(_bloodHitPrefab, hitPoint, rot);
+                ExcludeOwnerFromParticleCollision(hit);
                 Destroy(hit, _bloodHitLifetime);
             }
             if (_bloodDripPrefab != null)
             {
                 // 挂到本角色下，随角色移动；位置取命中点
                 GameObject drip = Instantiate(_bloodDripPrefab, hitPoint, rot, transform);
+                ExcludeOwnerFromParticleCollision(drip);
                 Destroy(drip, _bloodDripLifetime);
+            }
+        }
+
+        /// <summary>
+        /// 把本角色所在层从血液粒子的碰撞遮罩(Collision.collidesWith)中剔除：
+        /// 血滴/溅射粒子开启了 World 碰撞，若与角色自身碰撞体(同层)相撞，就会"在身上摊开"而非落到地面。
+        /// 剔除自身层后，血液穿过自己、只溅射到地面/环境。前提：角色与地面不在同一层(角色应在 Player/Enemy 等专用层)。
+        /// </summary>
+        private void ExcludeOwnerFromParticleCollision(GameObject bloodFx)
+        {
+            if (bloodFx == null) return;
+            int ownerLayerBit = 1 << gameObject.layer;
+            ParticleSystem[] systems = bloodFx.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < systems.Length; i++)
+            {
+                ParticleSystem.CollisionModule col = systems[i].collision;
+                col.collidesWith &= ~ownerLayerBit; // 移除自身层，血液不再与自己碰撞
             }
         }
 
