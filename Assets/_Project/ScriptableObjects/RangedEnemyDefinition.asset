@@ -10,14 +10,17 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 64b7ac34a6a16a24fa60235878b0c6ac, type: 3}
-  m_Name: EnemyDefinition
+  m_Name: RangedEnemyDefinition
   m_EditorClassIdentifier: Game.Combat::Game.Combat.EnemyDefinition
-  MoveSpeed: 5
-  DetectRadius: 12
+  MoveSpeed: 3.5
+  DetectRadius: 14
   LoseRadius: 16
-  AttackRange: 2.2
+  AttackRange: 12
   AttackCooldown: 1.5
-  Attack: {fileID: 11400000, guid: 4ea6f119e0cc6a84ba6f8453772be2a0, type: 2}
+  Attack: {fileID: 11400000, guid: f431cb7d1063e104cafeb10f3dc9c980, type: 2}
   HurtDuration: 0.4
   HurtStateName: GetHit_SingleTwohandSword
+  RetreatDistance: 4
+  ProjectileSpeed: 18
+  ProjectilePrefab: {fileID: 7581999627747165493, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
   CrossFadeDuration: 0.1
