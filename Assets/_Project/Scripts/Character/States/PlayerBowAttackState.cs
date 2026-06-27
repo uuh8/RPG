@@ -14,10 +14,15 @@ namespace Game.Character
         private const float EndThreshold = 0.85f;     // 动画进度达此值 → 结束（1 段永不 Advance）
         private const float CrossFadeDuration = 0.1f; // 进入攻击段 CrossFade 固定时长
 
+        private const int MaxAimHits = 16; // 屏幕中心射线一次最多记录的命中数（预分配，零 GC）
+
         private readonly ArcherController _archer; // typed 子类引用，拿弓箭手专属成员
 
         private int _comboIndex;
         private bool _arrowSpawned; // 本次播放是否已生成过箭矢（单点越阈触发一次的去重位）
+
+        // 瞄准射线命中缓冲（生成时一次性用，状态对象只在 Awake 建一次 → 零每帧 GC）
+        private readonly RaycastHit[] _aimHits = new RaycastHit[MaxAimHits];
 
         public PlayerBowAttackState(ArcherController player) : base(player)
         {
@@ -46,7 +51,7 @@ namespace Game.Character
         {
             HandleGravity();
             HandleMovement();      // 边走边射：保留完整水平移动（不锁脚）
-            base.HandleRotation(); // 随移动方向转向；箭在 ArrowSpawnTime 沿当前朝向射出
+            HandleAimRotation();   // 身体转向相机水平朝向（朝准心方向，不再随移动乱转）
             HandleArrowSpawn();    // 单点：normalizedTime 越过 ArrowSpawnTime 生成一次
             CheckEnd();            // 射出即交还控制权（节奏交给射速冷却，与动画长度解耦）
         }
@@ -106,13 +111,15 @@ namespace Game.Character
                 return;
             }
 
-            // 沿角色当前朝向发射（轨道相机风格，无准星瞄准——本阶段简化）
-            Vector3 dir = _player.transform.forward;
-            dir.y = 0f;
-            if (dir.sqrMagnitude < 1e-6f) dir = _player.transform.forward; // 退化兜底（直立角色不会发生）
+            Transform sp = _archer.ArrowSpawnPoint;
+
+            // 朝屏幕中心（轨道相机）瞄准：从生成点直线指向准心命中点（含俯仰），不再用角色朝向。
+            // 修复"出手前 0.x 秒里转身导致箭飞向转身中途朝向"的瞄准漂移。
+            Vector3 targetPoint = ResolveAimTargetPoint(_archer.AimMask, _archer.AimMaxDistance, _aimHits);
+            Vector3 dir = targetPoint - sp.position;
+            if (dir.sqrMagnitude < 1e-6f) dir = _player.transform.forward; // 退化兜底
             dir.Normalize();
 
-            Transform sp = _archer.ArrowSpawnPoint;
             GameObject go = Object.Instantiate(_archer.ArrowPrefab, sp.position, Quaternion.LookRotation(dir));
 
             Arrow arrow = go.GetComponent<Arrow>();
@@ -125,7 +132,8 @@ namespace Game.Character
             byte team = _archer.Health != null ? _archer.Health.TeamId : (byte)0;
             int attackerId = _player.gameObject.GetInstanceID();
             Vector3 velocity = dir * _archer.ProjectileSpeed;
-            arrow.Init(team, attackerId, seg.BaseAmount, seg.Type, velocity, _player.CharacterController);
+            // 瞄准直射：关重力，直线命中准心点（否则抛物线会偏离准心）
+            arrow.Init(team, attackerId, seg.BaseAmount, seg.Type, velocity, _player.CharacterController, useGravity: false);
         }
 
         /// <summary>

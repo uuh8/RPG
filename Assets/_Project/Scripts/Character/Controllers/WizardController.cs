@@ -24,6 +24,12 @@ namespace Game.Character
         [SerializeField] private GameObject _targetIndicatorPrefab;   // NovaFireball_Pre_Field（落点圆框）
         [SerializeField] private LayerMask _aimMask = ~0;            // 引导落点射线命中层（建议只勾地面层）
 
+        [Header("Aim")]
+        [Tooltip("普通火球屏幕中心瞄准的可命中层（排除 Player 层，免瞄到自己；与陨石的地面层 _aimMask 区别：这里要能瞄到敌人/环境）")]
+        [SerializeField] private LayerMask _fireballAimMask = ~0;
+        [Tooltip("普通火球屏幕中心瞄准的射线最大距离；未命中时取相机朝向该远点")]
+        [SerializeField] private float _aimMaxDistance = 100f;
+
         private PlayerWizardAttackState _wizardAttackState;
         private PlayerWizardHeavyState _heavyState;
         private int[] _comboStateHashes;
@@ -47,6 +53,8 @@ namespace Game.Character
         public GameObject ChannelRingPrefab => _channelRingPrefab;
         public GameObject TargetIndicatorPrefab => _targetIndicatorPrefab;
         public LayerMask AimMask => _aimMask;
+        public LayerMask FireballAimMask => _fireballAimMask;
+        public float AimMaxDistance => _aimMaxDistance;
         public PlayerWizardHeavyState HeavyState => _heavyState;
         public int MeteorChannelHash => _meteorChannelHash;
         public int MeteorReleaseHash => _meteorReleaseHash;
@@ -60,6 +68,26 @@ namespace Game.Character
             _heavyState = new PlayerWizardHeavyState(this);
             BuildComboStateHashes();
             BuildMeteorHashes();
+        }
+
+        // 远程角色全程常驻准心：Start 保证初始可见（越过 OnEnable 与 CrosshairUI 订阅的先后竞态），
+        // OnEnable 覆盖运行时重新启用（如复活），OnDisable（含死亡禁用控制器）隐藏。
+        protected override void Start()
+        {
+            base.Start();
+            EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = true });
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = true });
+        }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = false });
         }
 
         /// <summary>

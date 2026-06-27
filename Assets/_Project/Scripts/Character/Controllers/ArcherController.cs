@@ -21,6 +21,10 @@ namespace Game.Character
         [SerializeField] private ChargeAttackDefinition _chargeData; // 蓄力重击数据 SO
         [SerializeField] private LayerMask _aimMask = ~0; // 瞄准射线可命中层（务必排除 Player 层，免射到自己）
 
+        [Header("Aim")]
+        [Tooltip("普通箭矢屏幕中心瞄准的射线最大距离；未命中时取相机朝向该远点")]
+        [SerializeField] private float _aimMaxDistance = 100f;
+
         private PlayerBowAttackState _bowAttackState;
         private PlayerChargeAttackState _chargeAttackState;
         private int[] _comboStateHashes;
@@ -42,6 +46,7 @@ namespace Game.Character
 
         public ChargeAttackDefinition ChargeData => _chargeData;
         public LayerMask AimMask => _aimMask;
+        public float AimMaxDistance => _aimMaxDistance;
         public int ChargeDrawHash => _chargeDrawHash;
         public int ChargeLooseHash => _chargeLooseHash;
 
@@ -54,6 +59,26 @@ namespace Game.Character
             _chargeAttackState = new PlayerChargeAttackState(this);
             BuildComboStateHashes();    // 构建所有Combo动画 Hash
             BuildChargeHashes();        // 构建蓄力动画 Hash
+        }
+
+        // 远程角色全程常驻准心：Start 保证初始可见（越过 OnEnable 与 CrosshairUI 订阅的先后竞态），
+        // OnEnable 覆盖运行时重新启用（如复活），OnDisable（含死亡禁用控制器）隐藏。
+        protected override void Start()
+        {
+            base.Start();
+            EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = true });
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = true });
+        }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+            EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = false });
         }
 
         /// <summary>

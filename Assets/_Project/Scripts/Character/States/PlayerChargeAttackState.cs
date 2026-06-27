@@ -50,7 +50,7 @@ namespace Game.Character
 
             // CrossFade 拉弓；之后 拉弓→满弓保持 由 Animator HasExitTime 过渡自动流转
             _player.Animator.CrossFadeInFixedTime(_archer.ChargeDrawHash, CrossFadeDuration, 0);
-            EventBus<AimStateChangedEvent>.Publish(new AimStateChangedEvent { Active = true }); // 显示准心
+            EventBus<AimStateChangedEvent>.Publish(new AimStateChangedEvent { Active = true }); // 蓄力瞄准取景（准心已由控制器常驻）
         }
 
         public override void Update()
@@ -90,7 +90,7 @@ namespace Game.Character
         public override void Exit()
         {
             _player.AttackBufferCounter = 0f;
-            EventBus<AimStateChangedEvent>.Publish(new AimStateChangedEvent { Active = false }); // 隐藏准心
+            EventBus<AimStateChangedEvent>.Publish(new AimStateChangedEvent { Active = false }); // 退出蓄力取景，相机归位
         }
 
         #endregion
@@ -115,20 +115,8 @@ namespace Game.Character
 
             Transform sp = _archer.ArrowSpawnPoint;
 
-            // 屏幕中心发射线求命中点：命中 → 该点；未命中 → 相机朝向 AimMaxDistance 远点
-            Camera cam = _player.MainCamera;
-            Vector3 targetPoint;
-            if (cam != null)
-            {
-                Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-                targetPoint = TryRaycastAim(ray, data.AimMaxDistance, out Vector3 hitPoint)
-                    ? hitPoint
-                    : ray.GetPoint(data.AimMaxDistance);
-            }
-            else
-            {
-                targetPoint = sp.position + _player.transform.forward * data.AimMaxDistance;
-            }
+            // 屏幕中心发射线求命中点（共享 PlayerStateBase.ResolveAimTargetPoint：命中 → 该点；未命中 → 相机朝向远点）
+            Vector3 targetPoint = ResolveAimTargetPoint(_archer.AimMask, data.AimMaxDistance, _aimHits);
 
             // 从生成点直线指向目标点（含俯仰）；退化兜底用角色前向
             Vector3 dir = targetPoint - sp.position;
@@ -149,45 +137,6 @@ namespace Game.Character
             int attackerId = _player.gameObject.GetInstanceID();
             // 瞄准直射：关重力，直线命中准心点
             arrow.Init(team, attackerId, damage, data.Type, dir * speed, _player.CharacterController, false);
-        }
-
-        /// <summary>
-        /// 屏幕中心射线求瞄准命中点，跳过射手自身碰撞体后取最近命中。
-        /// 轨道相机在角色身后，射线会先穿过角色自身——若不剔除，命中点落在角色身上（位于弓弦生成点之后），
-        /// 会让箭方向反向。用 RaycastNonAlloc + 自身过滤，命中精度与 AimMask 配置无关（无需依赖排除 Player 层）。
-        /// </summary>
-        private bool TryRaycastAim(Ray ray, float maxDistance, out Vector3 point)
-        {
-            point = default;
-            int count = Physics.RaycastNonAlloc(ray, _aimHits, maxDistance,
-                                                _archer.AimMask, QueryTriggerInteraction.Ignore);
-            float nearest = float.MaxValue;
-            bool found = false;
-            for (int i = 0; i < count; i++)
-            {
-                // IsChildOf 含自身：射手 CharacterController 及其子节点（身体网格碰撞体）一律跳过
-                if (_aimHits[i].collider.transform.IsChildOf(_player.transform)) continue;
-                if (_aimHits[i].distance < nearest)
-                {
-                    nearest = _aimHits[i].distance;
-                    point = _aimHits[i].point;
-                    found = true;
-                }
-            }
-            return found;
-        }
-
-        /// <summary>蓄力期间把角色平滑转向相机的水平朝向（只 yaw；箭的实际方向另在松开时按射线算，含俯仰）。</summary>
-        private void HandleAimRotation()
-        {
-            Camera cam = _player.MainCamera;
-            if (cam == null) return;
-            Vector3 f = cam.transform.forward;
-            f.y = 0f;
-            if (f.sqrMagnitude < 1e-6f) return;
-            Quaternion target = Quaternion.LookRotation(f);
-            _player.transform.rotation = Quaternion.Slerp(
-                _player.transform.rotation, target, _player.RotationSpeed * Time.deltaTime);
         }
 
         private void HandleGravity()

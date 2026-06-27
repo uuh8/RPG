@@ -58,5 +58,49 @@ namespace Game.Character
                 _player.RotationSpeed * Time.deltaTime   // 插值比例
             );
         }
+
+        /// <summary>
+        /// 远程瞄准：求屏幕中心（轨道相机朝向）的瞄准点。
+        /// 屏幕中心发射线 → RaycastNonAlloc（跳过射手自身碰撞体，避免轨道相机穿过角色把命中点落在自己身上）→
+        /// 取最近命中；未命中则取相机朝向 maxDistance 远点。结果含俯仰，调用方据此算发射方向（瞄准点 - 生成点）。
+        /// buffer 由调用状态预分配复用（零每帧 GC）。相机缺失时退化为角色前向远点。
+        /// </summary>
+        protected Vector3 ResolveAimTargetPoint(LayerMask aimMask, float maxDistance, RaycastHit[] buffer)
+        {
+            Camera cam = _player.MainCamera;
+            if (cam == null)
+                return _player.transform.position + _player.transform.forward * maxDistance;
+
+            Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            int count = Physics.RaycastNonAlloc(ray, buffer, maxDistance, aimMask, QueryTriggerInteraction.Ignore);
+            float nearest = float.MaxValue;
+            bool found = false;
+            Vector3 point = default;
+            for (int i = 0; i < count; i++)
+            {
+                // IsChildOf 含自身：射手 CharacterController 及其子节点（身体网格碰撞体）一律跳过
+                if (buffer[i].collider.transform.IsChildOf(_player.transform)) continue;
+                if (buffer[i].distance < nearest)
+                {
+                    nearest = buffer[i].distance;
+                    point = buffer[i].point;
+                    found = true;
+                }
+            }
+            return found ? point : ray.GetPoint(maxDistance);
+        }
+
+        /// <summary>把角色平滑转向相机的水平朝向（只 yaw）。远程攻击期间用：身体朝准心方向，"朝哪瞄就朝哪打"。</summary>
+        protected void HandleAimRotation()
+        {
+            Camera cam = _player.MainCamera;
+            if (cam == null) return;
+            Vector3 f = cam.transform.forward;
+            f.y = 0f;
+            if (f.sqrMagnitude < 1e-6f) return;
+            Quaternion target = Quaternion.LookRotation(f);
+            _player.transform.rotation = Quaternion.Slerp(
+                _player.transform.rotation, target, _player.RotationSpeed * Time.deltaTime);
+        }
     }
 }

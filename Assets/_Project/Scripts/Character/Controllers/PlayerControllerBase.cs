@@ -153,7 +153,7 @@ namespace Game.Character
             }
         }
 
-        private void Start()
+        protected virtual void Start()
         {
             // Start 而非 Awake 进入初始状态：保证所有 GameObject 的 Awake 已执行完
             TargetFacing = transform.forward; // 锁存初值=出生朝向，避免开局自转到世界 +Z
@@ -161,7 +161,7 @@ namespace Game.Character
             Cursor.lockState = CursorLockMode.Locked; // 锁定并隐藏鼠标
         }
 
-        private void OnEnable()
+        protected virtual void OnEnable()
         {
             _inputActions.Player.Enable();
             _inputActions.Player.Jump.performed += OnJumpPerformed;
@@ -170,7 +170,7 @@ namespace Game.Character
             Current = this; // 注册为当前玩家
         }
 
-        private void OnDisable()
+        protected virtual void OnDisable()
         {
             _inputActions.Player.Jump.performed -= OnJumpPerformed;
             _inputActions.Player.Attack.performed -= OnAttackPerformed;
