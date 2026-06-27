@@ -16,6 +16,8 @@ namespace Game.Character
         [SerializeField] private GameObject _fireballPrefab;      // 火球预制体（带 Rigidbody + Collider + Fireball）
         [SerializeField] private Transform _fireballSpawnPoint;   // 火球生成点（法杖前端）
         [SerializeField] private float _projectileSpeed = 20f;    // 火球初速度
+        [Tooltip("空中普攻动画状态名（Animator 节点 JumpAttack_MagicWand）；空 → 0 → 空中攻击退回地面普攻动画")]
+        [SerializeField] private string _airAttackStateName = "JumpAttack_MagicWand"; // 空中火球普攻动画状态名（数据驱动）
 
         [Header("Wizard Heavy (陨石重击)")]
         [SerializeField] private MeteorAttackDefinition _meteorData;
@@ -40,6 +42,7 @@ namespace Game.Character
         // 陨石引导/施法动画状态名预 hash（可空 → 0 → 不 CrossFade）
         private int _meteorChannelHash;
         private int _meteorReleaseHash;
+        private int _airAttackStateHash;       // 空中普攻动画状态名预 hash（可空 → 0 → 退回地面普攻动画）
 
         public ComboDefinition Combo => _combo;
         public GameObject FireballPrefab => _fireballPrefab;
@@ -58,6 +61,7 @@ namespace Game.Character
         public PlayerWizardHeavyState HeavyState => _heavyState;
         public int MeteorChannelHash => _meteorChannelHash;
         public int MeteorReleaseHash => _meteorReleaseHash;
+        public int AirAttackStateHash => _airAttackStateHash;
 
         protected override void Awake()
         {
@@ -68,6 +72,10 @@ namespace Game.Character
             _heavyState = new PlayerWizardHeavyState(this);
             BuildComboStateHashes();
             BuildMeteorHashes();
+
+            // 空中普攻动画名预 hash（数据驱动；空 → 0 → 空中攻击态退回地面普攻动画，不告警——空中攻击为可选润色）
+            _airAttackStateHash = string.IsNullOrEmpty(_airAttackStateName)
+                ? 0 : Animator.StringToHash(_airAttackStateName);
         }
 
         // 远程角色全程常驻准心：Start 保证初始可见（越过 OnEnable 与 CrosshairUI 订阅的先后竞态），
@@ -124,6 +132,22 @@ namespace Game.Character
                 return false; // 射速冷却中：本次点按作废，不进攻击态（重击/蓄力不受此冷却限制）
             AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与动画长度解耦）
             StateMachine.ChangeState(_wizardAttackState);
+            return true;
+        }
+
+        /// <summary>
+        /// 空中攻击：仅支持点按火球普攻（陨石重击是地面落点技能，空中无意义，故不做长按蓄力）。
+        /// 用本帧上升沿触发，避免把跳跃前残留的"按住/缓冲"误判为空中起手；同样受射速冷却限制。
+        /// </summary>
+        public override bool TryStartAirAttack()
+        {
+            if (!AttackPressedThisFrame)
+                return false; // 空中必须本帧新按下才施放，不吃旧缓冲
+            if (AttackCooldownCounter > 0f)
+                return false; // 射速冷却中：本次点按作废
+            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与地面普攻共用）
+            AttackBufferCounter = 0f;
+            StateMachine.ChangeState(_wizardAttackState); // 复用普攻态，其 Enter 据是否接地决定播空中/地面动画
             return true;
         }
 

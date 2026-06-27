@@ -24,6 +24,11 @@ namespace Game.Character
                 return;
             }
 
+            // 空中攻击（角色子类决定是否支持，如法师空中火球普攻）。放在落地检测之前，
+            // Coyote 跳之后：保留跳跃宽限优先级，攻击则替代本帧的重力/移动/落地处理。
+            if (_player.TryStartAirAttack())
+                return;
+
             HandleGravity();
             HandleMovement();
             base.HandleRotation();

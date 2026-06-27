@@ -124,6 +124,13 @@ namespace Game.Character
         /// </summary>
         public virtual bool TryStartAttack() => false;  // 基类：安全的空实现
 
+        /// <summary>
+        /// 空中攻击触发 seam：共享的 AirborneState 在落地检测前调用本钩子。
+        /// 基类默认不支持空中攻击（返回 false）；具体角色在子类重写（如法师空中火球普攻）。
+        /// 与 TryStartAttack 平行：地面/空中两条入口，各角色自行决定是否实现空中分支。
+        /// </summary>
+        public virtual bool TryStartAirAttack() => false;  // 基类：安全的空实现
+
         #region Unity 事件函数
 
         protected virtual void Awake()

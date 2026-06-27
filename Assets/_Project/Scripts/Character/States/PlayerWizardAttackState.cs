@@ -19,6 +19,7 @@ namespace Game.Character
 
         private int _comboIndex;
         private bool _fireballSpawned;                // 本次播放是否已生成过火球（单点越阈触发一次的去重位）
+        private bool _airborne;                       // 本次起手是否在空中：决定播空中攻击动画 + 用真实重力（而非贴地）
 
         // 瞄准射线命中缓冲（生成时一次性用，状态对象只在 Awake 建一次 → 零每帧 GC）
         private readonly RaycastHit[] _aimHits = new RaycastHit[MaxAimHits];
@@ -35,6 +36,7 @@ namespace Game.Character
             _comboIndex = 0;
             _player.AttackBufferCounter = 0f; // 消耗起手输入
             _fireballSpawned = false;
+            _airborne = !_player.GroundChecker.IsGrounded; // 起手瞬间锁定：空中起手 → 走空中分支
 
             if (_wizard.Combo == null || _wizard.Combo.SegmentCount == 0)
             {
@@ -68,14 +70,27 @@ namespace Game.Character
         private void StartSegment(int index)
         {
             _fireballSpawned = false; // 新段重置去重位
-            int hash = _wizard.GetComboStateHash(index);
+            // 空中起手且配置了空中动画 → 播 JumpAttack_MagicWand；否则退回地面普攻段动画
+            int hash = _airborne && _wizard.AirAttackStateHash != 0
+                ? _wizard.AirAttackStateHash
+                : _wizard.GetComboStateHash(index);
             _player.Animator.CrossFadeInFixedTime(hash, CrossFadeDuration, 0);
         }
 
         private void HandleGravity()
         {
-            if (_player.VerticalVelocity < 0f)
-                _player.VerticalVelocity = -2f;
+            if (_airborne)
+            {
+                // 空中起手：继续真实分段重力下落（与 AirborneState 同款），不贴地——边落边施法
+                float multiplier = _player.VerticalVelocity < 0f
+                    ? _player.FallGravityMultiplier
+                    : _player.GravityMultiplier;
+                _player.VerticalVelocity += Physics.gravity.y * multiplier * Time.deltaTime;
+            }
+            else if (_player.VerticalVelocity < 0f)
+            {
+                _player.VerticalVelocity = -2f; // 地面起手：贴地微压
+            }
         }
 
         private void HandleMovement()
