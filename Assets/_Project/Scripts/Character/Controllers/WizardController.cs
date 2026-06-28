@@ -36,8 +36,15 @@ namespace Game.Character
         private PlayerWizardHeavyState _heavyState;
         private int[] _comboStateHashes;
         private HealthComponent _health;       // 阵营来源（缓存）
-        private float _attackHeldTime;         // 攻击键按住累计时长（tap/hold 路由）
-        private bool _attackTracking;          // 是否正在跟踪一次有效输入（仅由"本帧上升沿"开启）
+
+        // ── 攻击输入（常驻处理：点按锁存准心 + tap/hold 判定 + 点按入队，见 UpdateAttackInput）──
+        private float _attackHeldTime;         // 当前这次按下已持续时长（按下清零、按住累加、松开归零）——tap/hold 判定
+        private bool _attackPressActive;       // 当前是否有一次"按下"在进行（上升沿置真，松开/被消费置假）
+        private bool _fireballQueued;          // 是否有一发待发的点按火球（按下入队；发出/转陨石/过期时出队）
+        private float _fireballQueueTimer;     // 入队存活计时：跨过射速冷却仍能补发，过期作废避免迟发
+        private Vector3 _clickAimPoint;        // 按下那一刻锁存的准心瞄准点：消除"出手时相机/身体已变"的方向漂移
+        private bool _hasClickAim;             // 是否已锁存过有效的点按瞄准点
+        private readonly RaycastHit[] _aimHits = new RaycastHit[16]; // 点按锁存瞄准用射线缓冲（预分配，零每帧 GC）
 
         // 陨石引导/施法动画状态名预 hash（可空 → 0 → 不 CrossFade）
         private int _meteorChannelHash;
@@ -50,6 +57,8 @@ namespace Game.Character
         public float ProjectileSpeed => _projectileSpeed;
         public HealthComponent Health => _health;
         public PlayerWizardAttackState WizardAttackState => _wizardAttackState;
+        public Vector3 ClickAimPoint => _clickAimPoint; // 普攻态发射时读取：按下那一刻锁存的准心瞄准点
+        public bool HasClickAim => _hasClickAim;
 
         public MeteorAttackDefinition MeteorData => _meteorData;
         public GameObject MeteorPrefab => _meteorPrefab;
@@ -98,65 +107,97 @@ namespace Game.Character
             EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = false });
         }
 
+        // 点按入队的存活时长：覆盖一次射速冷却 + 通用攻击缓冲，确保冷却期内/攻击播放中按下的下一发能可靠补发而非被丢弃。
+        private float FireballQueueLifetime =>
+            (_combo != null ? _combo.AttackCooldown : 0f) + AttackBufferTime;
+
         /// <summary>
-        /// 攻击输入路由（边沿门控）：仅"本帧刚按下"才开始跟踪一次输入，避免把上一发重击残留的"按住"误判为新长按。
-        /// 跟踪中：按住过 TapThreshold → 陨石引导态；未达阈值松手(含亚帧点按) → 火球普攻。
+        /// 每帧攻击输入常驻处理（由基类 Update 调用，始终运行，不被攻击状态打断轮询）：
+        /// ① 上升沿 → 锁存"点按那一刻"的准心瞄准点（消除出手时相机/身体已转动导致的方向漂移）+ 入队一发火球 + 重置按住计时；
+        /// ② 按住 → 累加计时（供 tap/hold 判定）；松开 → 结束本次按下；
+        /// ③ 入队计时过期 → 作废，避免迟发。
+        /// 这样快速连点的第二下即便落在攻击动画/射速冷却内，也会被可靠记账并在冷却一过补发，而不是被吞掉。
+        /// </summary>
+        protected override void UpdateAttackInput()
+        {
+            if (AttackPressedThisFrame)
+            {
+                _clickAimPoint = ResolveAimTargetPoint(_fireballAimMask, _aimMaxDistance, _aimHits);
+                _hasClickAim = true;
+                _attackPressActive = true;
+                _attackHeldTime = 0f;
+                _fireballQueued = true;
+                _fireballQueueTimer = FireballQueueLifetime;
+            }
+
+            if (_attackPressActive)
+            {
+                if (IsAttackHeld) _attackHeldTime += Time.deltaTime;
+                else _attackPressActive = false; // 松手：本次按下结束（是否补发火球由队列决定）
+            }
+
+            if (_fireballQueueTimer > 0f)
+            {
+                _fireballQueueTimer -= Time.deltaTime;
+                if (_fireballQueueTimer <= 0f) _fireballQueued = false; // 过期作废
+            }
+        }
+
+        /// <summary>
+        /// 地面攻击路由：长按过阈值 → 陨石引导；否则有入队点按且冷却已过 → 火球普攻。
+        /// 点按在冷却内不丢弃（已入队），冷却一过自动补发——解决"快速连点第二发被吞 → 误去狂按 → 触发陨石"。
         /// </summary>
         public override bool TryStartAttack()
         {
-            // 仅上升沿开启跟踪：从上个动作残留下来的按住没有新边沿，不会启动新蓄力
-            if (AttackPressedThisFrame)
+            // 长按 → 陨石引导（仅地面）：当前按住且持续超过阈值。消费本次按下并取消待发火球。
+            if (_attackPressActive && IsAttackHeld
+                && _meteorData != null && _attackHeldTime >= _meteorData.TapThreshold)
             {
-                _attackTracking = true;
-                _attackHeldTime = 0f;
-            }
-            if (!_attackTracking)
-                return false; // 没有正在跟踪的有效输入
-
-            // 跟踪中且仍按住：累计时长，过阈值进引导
-            if (IsAttackHeld)
-            {
-                _attackHeldTime += Time.deltaTime;
-                if (_meteorData != null && _attackHeldTime >= _meteorData.TapThreshold)
-                {
-                    EndAttackTracking();
-                    StateMachine.ChangeState(_heavyState);
-                    return true;
-                }
-                return false; // 仍在 tap 窗口内，按住等待
+                _attackPressActive = false;
+                _fireballQueued = false;
+                _fireballQueueTimer = 0f;
+                StateMachine.ChangeState(_heavyState);
+                return true;
             }
 
-            // 跟踪中已松手且未达阈值 → 火球普攻点射（含亚帧点按：上升沿+同帧已松开）
-            EndAttackTracking();
-            if (AttackCooldownCounter > 0f)
-                return false; // 射速冷却中：本次点按作废，不进攻击态（重击/蓄力不受此冷却限制）
-            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与动画长度解耦）
-            StateMachine.ChangeState(_wizardAttackState);
-            return true;
+            // "未判定的长按"：仍按住且未到阈值时先等，以区分点按/长按（无陨石配置则按下即发，不等松手）。
+            bool undecidedHold = _meteorData != null && _attackPressActive && IsAttackHeld
+                                 && _attackHeldTime < _meteorData.TapThreshold;
+            if (_fireballQueued && AttackCooldownCounter <= 0f && !undecidedHold)
+            {
+                FireQueuedFireball();
+                return true;
+            }
+
+            return false;
         }
 
         /// <summary>
-        /// 空中攻击：仅支持点按火球普攻（陨石重击是地面落点技能，空中无意义，故不做长按蓄力）。
-        /// 用本帧上升沿触发，避免把跳跃前残留的"按住/缓冲"误判为空中起手；同样受射速冷却限制。
+        /// 空中攻击：仅支持点按火球（陨石是地面落点技能）。有入队点按 + 冷却过 → 直接发，不做长按判定。
+        /// 方向同样用按下锁存的 ClickAimPoint。
         /// </summary>
         public override bool TryStartAirAttack()
         {
-            if (!AttackPressedThisFrame)
-                return false; // 空中必须本帧新按下才施放，不吃旧缓冲
-            if (AttackCooldownCounter > 0f)
-                return false; // 射速冷却中：本次点按作废
-            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与地面普攻共用）
-            AttackBufferCounter = 0f;
-            StateMachine.ChangeState(_wizardAttackState); // 复用普攻态，其 Enter 据是否接地决定播空中/地面动画
-            return true;
+            if (_fireballQueued && AttackCooldownCounter <= 0f)
+            {
+                FireQueuedFireball();
+                return true;
+            }
+            return false;
         }
 
-        /// <summary>结束一次输入跟踪：清跟踪标记、累计时长与攻击缓冲，防止下一发误触发。</summary>
-        private void EndAttackTracking()
+        /// <summary>
+        /// 发射一发已入队的点按火球：出队 + 消费本次按下（一次按下只触发一个动作，防同一长按落地再触发陨石）+
+        /// 启动射速冷却 + 切到普攻态（其 Enter 据是否接地决定空中/地面动画，发射方向用 ClickAimPoint）。
+        /// </summary>
+        private void FireQueuedFireball()
         {
-            _attackTracking = false;
-            _attackHeldTime = 0f;
+            _fireballQueued = false;
+            _fireballQueueTimer = 0f;
+            _attackPressActive = false;
+            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与动画长度解耦）
             AttackBufferCounter = 0f;
+            StateMachine.ChangeState(_wizardAttackState);
         }
 
         /// <summary>取第 index 段的 Animator 状态 hash；越界或未配置返回 0。</summary>

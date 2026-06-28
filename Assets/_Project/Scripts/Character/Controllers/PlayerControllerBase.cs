@@ -131,6 +131,43 @@ namespace Game.Character
         /// </summary>
         public virtual bool TryStartAirAttack() => false;  // 基类：安全的空实现
 
+        /// <summary>
+        /// 每帧攻击输入处理钩子（始终运行，与当前状态无关）。基类空实现；
+        /// 远程角色（法师）重写以做"点按瞬间锁存准心 + tap/hold 判定 + 点按入队"，
+        /// 避免攻击逻辑被攻击状态打断轮询而丢输入/误判长按。在状态机 Update 之前调用。
+        /// </summary>
+        protected virtual void UpdateAttackInput() { }
+
+        /// <summary>
+        /// 远程瞄准：求屏幕中心（轨道相机朝向）的瞄准点。原在 PlayerStateBase，上移到此供
+        /// 状态（飞行中结算方向）与控制器（点按那一刻锁存准心）共用同一份实现。
+        /// 屏幕中心发射线 → RaycastNonAlloc（跳过射手自身碰撞体）→ 取最近命中；未命中则取相机朝向 maxDistance 远点。
+        /// buffer 由调用方预分配复用（零每帧 GC）。相机缺失时退化为角色前向远点。
+        /// </summary>
+        public Vector3 ResolveAimTargetPoint(LayerMask aimMask, float maxDistance, RaycastHit[] buffer)
+        {
+            Camera cam = _mainCamera;
+            if (cam == null)
+                return transform.position + transform.forward * maxDistance;
+
+            Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            int count = Physics.RaycastNonAlloc(ray, buffer, maxDistance, aimMask, QueryTriggerInteraction.Ignore);
+            float nearest = float.MaxValue;
+            bool found = false;
+            Vector3 point = default;
+            for (int i = 0; i < count; i++)
+            {
+                if (buffer[i].collider.transform.IsChildOf(transform)) continue; // 跳过射手自身/子节点
+                if (buffer[i].distance < nearest)
+                {
+                    nearest = buffer[i].distance;
+                    point = buffer[i].point;
+                    found = true;
+                }
+            }
+            return found ? point : ray.GetPoint(maxDistance);
+        }
+
         #region Unity 事件函数
 
         protected virtual void Awake()
@@ -201,9 +238,11 @@ namespace Game.Character
             if (DashCooldownCounter > 0f) DashCooldownCounter -= Time.deltaTime;
             if (DashBufferCounter > 0f) DashBufferCounter -= Time.deltaTime;
 
-            _stateMachine.Update();     // ① 先驱动状态机（可能改 VerticalVelocity）
+            UpdateAttackInput();        // ① 攻击输入常驻处理（点按锁存准心 / tap-hold / 入队），先于状态机
 
-            SyncAnimatorParameters();   // ② 后同步 Animator（拿最终数据）
+            _stateMachine.Update();     // ② 再驱动状态机（可能改 VerticalVelocity）
+
+            SyncAnimatorParameters();   // ③ 后同步 Animator（拿最终数据）
         }
 
         private void LateUpdate()

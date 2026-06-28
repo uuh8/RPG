@@ -13,16 +13,11 @@ namespace Game.Character
         private const float EndThreshold = 0.85f;     // 动画进度达此值 → 结束（1 段永不 Advance）
         private const float CrossFadeDuration = 0.1f; // 进入攻击段 CrossFade 固定时长
 
-        private const int MaxAimHits = 16; // 屏幕中心射线一次最多记录的命中数（预分配，零 GC）
-
         private readonly WizardController _wizard;    // typed 子类引用，拿法师专属成员
 
         private int _comboIndex;
         private bool _fireballSpawned;                // 本次播放是否已生成过火球（单点越阈触发一次的去重位）
         private bool _airborne;                       // 本次起手是否在空中：决定播空中攻击动画 + 用真实重力（而非贴地）
-
-        // 瞄准射线命中缓冲（生成时一次性用，状态对象只在 Awake 建一次 → 零每帧 GC）
-        private readonly RaycastHit[] _aimHits = new RaycastHit[MaxAimHits];
 
         public PlayerWizardAttackState(WizardController player) : base(player)
         {
@@ -37,6 +32,9 @@ namespace Game.Character
             _player.AttackBufferCounter = 0f; // 消耗起手输入
             _fireballSpawned = false;
             _airborne = !_player.GroundChecker.IsGrounded; // 起手瞬间锁定：空中起手 → 走空中分支
+
+            // 发射方向用控制器在"按下那一刻"锁存的 ClickAimPoint（见 WizardController.UpdateAttackInput）：
+            // 即便挥杖的 0.x 秒里转动轨道相机 / 身体仍在转向，火球也按点按瞬间的准心飞，不随镜头漂移。
 
             if (_wizard.Combo == null || _wizard.Combo.SegmentCount == 0)
             {
@@ -127,10 +125,11 @@ namespace Game.Character
 
             Transform sp = _wizard.FireballSpawnPoint;
 
-            // 朝屏幕中心（轨道相机）瞄准：从生成点直线指向准心命中点（含俯仰），不再用角色朝向。
-            // 修复"出手前 0.x 秒里转身导致火球飞向转身中途朝向"的瞄准漂移。
-            Vector3 targetPoint = ResolveAimTargetPoint(_wizard.FireballAimMask, _wizard.AimMaxDistance, _aimHits);
-            Vector3 dir = targetPoint - sp.position;
+            // 朝"按下那一刻"锁存的准心瞄准点发射：从（当前）生成点直线指向该点（含俯仰），不再用角色朝向，
+            // 也不在此刻重读相机——消除"出手前 0.x 秒里转动轨道相机/身体未转到位导致火球飞偏（如第二发偏左）"的瞄准漂移。
+            Vector3 dir = _wizard.HasClickAim
+                ? _wizard.ClickAimPoint - sp.position
+                : _player.transform.forward; // 未锁存（理论上不会）才退回角色前向
             if (dir.sqrMagnitude < 1e-6f) dir = _player.transform.forward; // 退化兜底
             dir.Normalize();
 
