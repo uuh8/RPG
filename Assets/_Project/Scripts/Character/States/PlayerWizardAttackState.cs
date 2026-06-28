@@ -5,19 +5,20 @@ using Game.Core;
 namespace Game.Character
 {
     /// <summary>
-    /// 法师普通攻击状态（远程）。与 PlayerBowAttackState 同骨架：CrossFade 单段 + normalizedTime 单点生成发射物 +
-    /// ComboResolver 走向 End + 边走边射；区别仅在发射物是 Fireball（命中爆炸 + 引燃）而非 Arrow。1 段、无蓄力、无刀光。
+    /// 法师施法状态：播放施法动画（来自 ComboDefinition 段 0），在 normalizedTime 越过 ArrowSpawnTime 的单点
+    /// 调 SpellCaster 运行当前法杖 → 生成对应投射物。1 段、无蓄力、边走边施。
+    /// 投射物数据来自法杖（法术编程系统）；动画/时机来自 Combo 段。
     /// </summary>
     public class PlayerWizardAttackState : PlayerStateBase
     {
-        private const float EndThreshold = 0.85f;     // 动画进度达此值 → 结束（1 段永不 Advance）
-        private const float CrossFadeDuration = 0.1f; // 进入攻击段 CrossFade 固定时长
+        private const float EndThreshold = 0.85f;     // 动画进度达此值 → 结束
+        private const float CrossFadeDuration = 0.1f; // 进入施法段 CrossFade 固定时长
 
-        private readonly WizardController _wizard;    // typed 子类引用，拿法师专属成员
+        private readonly WizardController _wizard;
 
         private int _comboIndex;
-        private bool _fireballSpawned;                // 本次播放是否已生成过火球（单点越阈触发一次的去重位）
-        private bool _airborne;                       // 本次起手是否在空中：决定播空中攻击动画 + 用真实重力（而非贴地）
+        private bool _castReleased;                    // 本次播放是否已运行过法杖（单点越阈触发一次的去重位）
+        private bool _airborne;                        // 本次起手是否在空中：决定播空中动画 + 用真实重力
 
         public PlayerWizardAttackState(WizardController player) : base(player)
         {
@@ -29,16 +30,13 @@ namespace Game.Character
         public override void Enter()
         {
             _comboIndex = 0;
-            _player.AttackBufferCounter = 0f; // 消耗起手输入
-            _fireballSpawned = false;
-            _airborne = !_player.GroundChecker.IsGrounded; // 起手瞬间锁定：空中起手 → 走空中分支
-
-            // 发射方向用控制器在"按下那一刻"锁存的 ClickAimPoint（见 WizardController.UpdateAttackInput）：
-            // 即便挥杖的 0.x 秒里转动轨道相机 / 身体仍在转向，火球也按点按瞬间的准心飞，不随镜头漂移。
+            _player.AttackBufferCounter = 0f;
+            _castReleased = false;
+            _airborne = !_player.GroundChecker.IsGrounded;
 
             if (_wizard.Combo == null || _wizard.Combo.SegmentCount == 0)
             {
-                GameLog.Warn("法师 ComboDefinition 未配置或无段落，无法攻击", "Combat");
+                GameLog.Warn("法师 ComboDefinition 未配置或无段落（施法动画/时机来自 Combo 段），无法施法", "Combat");
                 TransitionToMovement();
                 return;
             }
@@ -49,16 +47,16 @@ namespace Game.Character
         public override void Update()
         {
             HandleGravity();
-            HandleMovement();      // 边走边射：保留完整水平移动（不锁脚）
-            HandleAimRotation();   // 身体转向相机水平朝向（朝准心方向，不再随移动乱转）
-            HandleFireballSpawn(); // 单点：normalizedTime 越过 ArrowSpawnTime 生成一次
-            CheckEnd();            // 射出即交还控制权（节奏交给射速冷却，与动画长度解耦）
+            HandleMovement();      // 边走边施：保留完整水平移动
+            HandleAimRotation();   // 身体转向相机水平朝向
+            HandleCastRelease();   // 单点：normalizedTime 越过 ArrowSpawnTime 运行一次法杖
+            CheckEnd();            // 释放即交还控制权（节奏交给射速冷却）
         }
 
         public override void Exit()
         {
             _comboIndex = 0;
-            _player.AttackBufferCounter = 0f; // 清残留，防攻击结束后误触发
+            _player.AttackBufferCounter = 0f;
         }
 
         #endregion
@@ -67,8 +65,7 @@ namespace Game.Character
 
         private void StartSegment(int index)
         {
-            _fireballSpawned = false; // 新段重置去重位
-            // 空中起手且配置了空中动画 → 播 JumpAttack_MagicWand；否则退回地面普攻段动画
+            _castReleased = false;
             int hash = _airborne && _wizard.AirAttackStateHash != 0
                 ? _wizard.AirAttackStateHash
                 : _wizard.GetComboStateHash(index);
@@ -79,7 +76,6 @@ namespace Game.Character
         {
             if (_airborne)
             {
-                // 空中起手：继续真实分段重力下落（与 AirborneState 同款），不贴地——边落边施法
                 float multiplier = _player.VerticalVelocity < 0f
                     ? _player.FallGravityMultiplier
                     : _player.GravityMultiplier;
@@ -87,21 +83,20 @@ namespace Game.Character
             }
             else if (_player.VerticalVelocity < 0f)
             {
-                _player.VerticalVelocity = -2f; // 地面起手：贴地微压
+                _player.VerticalVelocity = -2f;
             }
         }
 
         private void HandleMovement()
         {
-            // 边走边射：与接地态相同的完整移动（水平 MoveDirection*MoveSpeed + 垂直 VerticalVelocity）
             Vector3 velocity = _player.MoveDirection * _player.MoveSpeed;
             velocity.y = _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }
 
-        private void HandleFireballSpawn()
+        private void HandleCastRelease()
         {
-            if (_fireballSpawned) return;
+            if (_castReleased) return;
             if (_player.Animator.IsInTransition(0)) return; // 过渡期 normalizedTime 不可信
 
             AttackDefinition seg = _wizard.Combo.Segments[_comboIndex];
@@ -110,59 +105,39 @@ namespace Game.Character
             float t = _player.Animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
             if (t >= seg.ArrowSpawnTime)
             {
-                SpawnFireball(seg);
-                _fireballSpawned = true;
+                ReleaseCast();
+                _castReleased = true;
             }
         }
 
-        private void SpawnFireball(AttackDefinition seg)
+        /// <summary>运行当前法杖：朝按下瞬间锁存的 ClickAimPoint，从法杖前端施放所有 EmitCommand（由 SpellCaster 落地）。</summary>
+        private void ReleaseCast()
         {
-            if (_wizard.FireballPrefab == null || _wizard.FireballSpawnPoint == null)
+            if (_wizard.SpellCaster == null || _wizard.FireballSpawnPoint == null)
             {
-                GameLog.Warn("法师 FireballPrefab/FireballSpawnPoint 未配置，无法生成火球", "Combat");
+                GameLog.Warn("法师 SpellCaster/FireballSpawnPoint 未配置，无法施法", "Skills");
                 return;
             }
 
-            Transform sp = _wizard.FireballSpawnPoint;
-
-            // 朝"按下那一刻"锁存的准心瞄准点发射：从（当前）生成点直线指向该点（含俯仰），不再用角色朝向，
-            // 也不在此刻重读相机——消除"出手前 0.x 秒里转动轨道相机/身体未转到位导致火球飞偏（如第二发偏左）"的瞄准漂移。
-            Vector3 dir = _wizard.HasClickAim
-                ? _wizard.ClickAimPoint - sp.position
-                : _player.transform.forward; // 未锁存（理论上不会）才退回角色前向
-            if (dir.sqrMagnitude < 1e-6f) dir = _player.transform.forward; // 退化兜底
-            dir.Normalize();
-
-            GameObject go = Object.Instantiate(_wizard.FireballPrefab, sp.position, Quaternion.LookRotation(dir));
-
-            Fireball fireball = go.GetComponent<Fireball>();
-            if (fireball == null)
-            {
-                GameLog.Warn("FireballPrefab 上没有 Fireball 组件", "Combat");
-                return;
-            }
-
+            Vector3 spawnPos = _wizard.FireballSpawnPoint.position;
+            Vector3 aimPoint = _wizard.HasClickAim
+                ? _wizard.ClickAimPoint
+                : spawnPos + _player.transform.forward * 10f; // 未锁存（理论上不会）才退回前向远点
             byte team = _wizard.Health != null ? _wizard.Health.TeamId : (byte)0;
             int attackerId = _player.gameObject.GetInstanceID();
-            Vector3 velocity = dir * _wizard.ProjectileSpeed;
-            // 直线飞行：基类 Init 默认 useGravity=true（抛物线），火球须显式关重力
-            fireball.Init(team, attackerId, seg.BaseAmount, seg.Type, velocity, _player.CharacterController, useGravity: false);
+
+            _wizard.SpellCaster.CastWand(spawnPos, aimPoint, team, attackerId, _player.CharacterController);
         }
 
-        /// <summary>
-        /// 提前结束：火球一旦射出就立刻交还控制权回到移动态，不再干等到动画 EndThreshold(0.85)——
-        /// 让两发的最小间隔由 WizardController 的射速冷却(AttackCooldown)决定，而非动画长度。
-        /// 动画本身仍由 Animator 的退出连线自然播完/淡出；下一发到来时 CrossFade 盖过其尾巴。
-        /// 兜底：若因配置问题始终没射出，动画接近播完(EndThreshold)也强制结束，避免卡死在攻击态。
-        /// </summary>
+        /// <summary>释放即结束回到移动态；兜底：动画接近播完(EndThreshold)也强制结束，避免卡死。</summary>
         private void CheckEnd()
         {
-            if (_fireballSpawned)
+            if (_castReleased)
             {
                 TransitionToMovement();
                 return;
             }
-            if (_player.Animator.IsInTransition(0)) return; // 过渡期 normalizedTime 不可信
+            if (_player.Animator.IsInTransition(0)) return;
             float t = _player.Animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
             if (t >= EndThreshold)
                 TransitionToMovement();

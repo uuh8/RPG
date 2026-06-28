@@ -5,59 +5,54 @@ using Game.Core;
 namespace Game.Character
 {
     /// <summary>
-    /// 法师控制器：共享移动能力之上叠加远程攻击。攻击输入路由（仿 ArcherController 决策 A：代码计时 + 阈值门控）：
-    /// 点按左键 → 火球普攻（PlayerWizardAttackState）；长按左键过 TapThreshold → 陨石重击引导（PlayerWizardHeavyState）。
-    /// 发射物 Fireball / 陨石 NovaFireball 均派生自 ProjectileBase。
+    /// 法师控制器：共享移动能力之上叠加远程攻击。攻击 = 运行"法杖"（法术编程系统）：
+    /// 按左键 → 求值当前法杖（SpellCaster + Game.Skills.CastEvaluator）→ 生成对应投射物。
+    /// 取代旧的"点按火球 / 长按陨石"硬编码攻击。陨石相关字段/状态暂保留为休眠（不再路由），后续作为法术重做。
     /// </summary>
     public class WizardController : PlayerControllerBase
     {
-        [Header("Wizard Attack (火球普攻)")]
-        [SerializeField] private ComboDefinition _combo;          // 单段连段表（普通攻击 1 段）
-        [SerializeField] private GameObject _fireballPrefab;      // 火球预制体（带 Rigidbody + Collider + Fireball）
-        [SerializeField] private Transform _fireballSpawnPoint;   // 火球生成点（法杖前端）
-        [SerializeField] private float _projectileSpeed = 20f;    // 火球初速度
+        [Header("Wizard Attack (法杖施放)")]
+        [SerializeField] private ComboDefinition _combo;          // 施法动画/时机驱动（1 段：动画状态名 + ArrowSpawnTime 决定何时释放法杖）
+        [SerializeField] private Transform _fireballSpawnPoint;   // 投射物生成点（法杖前端）
         [Tooltip("空中普攻动画状态名（Animator 节点 JumpAttack_MagicWand）；空 → 0 → 空中攻击退回地面普攻动画")]
-        [SerializeField] private string _airAttackStateName = "JumpAttack_MagicWand"; // 空中火球普攻动画状态名（数据驱动）
+        [SerializeField] private string _airAttackStateName = "JumpAttack_MagicWand";
 
-        [Header("Wizard Heavy (陨石重击)")]
+        [Header("Wizard Heavy (陨石重击 — 暂休眠，后续作为法术重做)")]
         [SerializeField] private MeteorAttackDefinition _meteorData;
-        [SerializeField] private GameObject _meteorPrefab;            // NovaFireball
-        [SerializeField] private GameObject _channelRingPrefab;       // NovaFireball_Skill_Start（脚下光圈）
-        [SerializeField] private GameObject _targetIndicatorPrefab;   // NovaFireball_Pre_Field（落点圆框）
-        [SerializeField] private LayerMask _aimMask = ~0;            // 引导落点射线命中层（建议只勾地面层）
+        [SerializeField] private GameObject _meteorPrefab;
+        [SerializeField] private GameObject _channelRingPrefab;
+        [SerializeField] private GameObject _targetIndicatorPrefab;
+        [SerializeField] private LayerMask _aimMask = ~0;
 
         [Header("Aim")]
-        [Tooltip("普通火球屏幕中心瞄准的可命中层（排除 Player 层，免瞄到自己；与陨石的地面层 _aimMask 区别：这里要能瞄到敌人/环境）")]
+        [Tooltip("屏幕中心瞄准的可命中层（排除 Player 层，免瞄到自己）")]
         [SerializeField] private LayerMask _fireballAimMask = ~0;
-        [Tooltip("普通火球屏幕中心瞄准的射线最大距离；未命中时取相机朝向该远点")]
+        [Tooltip("屏幕中心瞄准的射线最大距离；未命中时取相机朝向该远点")]
         [SerializeField] private float _aimMaxDistance = 100f;
 
         private PlayerWizardAttackState _wizardAttackState;
-        private PlayerWizardHeavyState _heavyState;
+        private PlayerWizardHeavyState _heavyState;   // 休眠：构造但不再进入
+        private SpellCaster _spellCaster;             // 同物体上的法术施放器（运行法杖 → 生成投射物）
         private int[] _comboStateHashes;
-        private HealthComponent _health;       // 阵营来源（缓存）
+        private HealthComponent _health;
 
-        // ── 攻击输入（常驻处理：点按锁存准心 + tap/hold 判定 + 点按入队，见 UpdateAttackInput）──
-        private float _attackHeldTime;         // 当前这次按下已持续时长（按下清零、按住累加、松开归零）——tap/hold 判定
-        private bool _attackPressActive;       // 当前是否有一次"按下"在进行（上升沿置真，松开/被消费置假）
-        private bool _fireballQueued;          // 是否有一发待发的点按火球（按下入队；发出/转陨石/过期时出队）
-        private float _fireballQueueTimer;     // 入队存活计时：跨过射速冷却仍能补发，过期作废避免迟发
-        private Vector3 _clickAimPoint;        // 按下那一刻锁存的准心瞄准点：消除"出手时相机/身体已变"的方向漂移
-        private bool _hasClickAim;             // 是否已锁存过有效的点按瞄准点
+        // ── 攻击输入（常驻处理：点按锁存准心 + 入队，见 UpdateAttackInput）──
+        private bool _castQueued;                // 是否有一次待施放（按下入队；发出/过期出队）
+        private float _castQueueTimer;           // 入队存活计时：跨过射速冷却仍能补发，过期作废
+        private Vector3 _clickAimPoint;          // 按下那一刻锁存的准心瞄准点（消除出手时相机/身体已变的方向漂移）
+        private bool _hasClickAim;
         private readonly RaycastHit[] _aimHits = new RaycastHit[16]; // 点按锁存瞄准用射线缓冲（预分配，零每帧 GC）
 
-        // 陨石引导/施法动画状态名预 hash（可空 → 0 → 不 CrossFade）
-        private int _meteorChannelHash;
-        private int _meteorReleaseHash;
-        private int _airAttackStateHash;       // 空中普攻动画状态名预 hash（可空 → 0 → 退回地面普攻动画）
+        private int _meteorChannelHash;          // 休眠
+        private int _meteorReleaseHash;          // 休眠
+        private int _airAttackStateHash;
 
         public ComboDefinition Combo => _combo;
-        public GameObject FireballPrefab => _fireballPrefab;
         public Transform FireballSpawnPoint => _fireballSpawnPoint;
-        public float ProjectileSpeed => _projectileSpeed;
         public HealthComponent Health => _health;
+        public SpellCaster SpellCaster => _spellCaster;
         public PlayerWizardAttackState WizardAttackState => _wizardAttackState;
-        public Vector3 ClickAimPoint => _clickAimPoint; // 普攻态发射时读取：按下那一刻锁存的准心瞄准点
+        public Vector3 ClickAimPoint => _clickAimPoint; // 施法态释放时读取：按下那一刻锁存的准心
         public bool HasClickAim => _hasClickAim;
 
         public MeteorAttackDefinition MeteorData => _meteorData;
@@ -77,18 +72,17 @@ namespace Game.Character
             base.Awake();   // 基类：组件/输入/状态机/共享四态/Dash hash
 
             _health = GetComponent<HealthComponent>();
+            _spellCaster = GetComponent<SpellCaster>();
             _wizardAttackState = new PlayerWizardAttackState(this);
             _heavyState = new PlayerWizardHeavyState(this);
             BuildComboStateHashes();
             BuildMeteorHashes();
 
-            // 空中普攻动画名预 hash（数据驱动；空 → 0 → 空中攻击态退回地面普攻动画，不告警——空中攻击为可选润色）
             _airAttackStateHash = string.IsNullOrEmpty(_airAttackStateName)
                 ? 0 : Animator.StringToHash(_airAttackStateName);
         }
 
-        // 远程角色全程常驻准心：Start 保证初始可见（越过 OnEnable 与 CrosshairUI 订阅的先后竞态），
-        // OnEnable 覆盖运行时重新启用（如复活），OnDisable（含死亡禁用控制器）隐藏。
+        // 远程角色全程常驻准心：Start 保证初始可见，OnEnable 覆盖重新启用，OnDisable 隐藏。
         protected override void Start()
         {
             base.Start();
@@ -107,16 +101,14 @@ namespace Game.Character
             EventBus<CrosshairVisibilityEvent>.Publish(new CrosshairVisibilityEvent { Visible = false });
         }
 
-        // 点按入队的存活时长：覆盖一次射速冷却 + 通用攻击缓冲，确保冷却期内/攻击播放中按下的下一发能可靠补发而非被丢弃。
-        private float FireballQueueLifetime =>
+        // 入队存活时长：覆盖一次射速冷却 + 通用攻击缓冲，确保冷却期内/动画播放中按下的下一次施放能可靠补发。
+        private float CastQueueLifetime =>
             (_combo != null ? _combo.AttackCooldown : 0f) + AttackBufferTime;
 
         /// <summary>
-        /// 每帧攻击输入常驻处理（由基类 Update 调用，始终运行，不被攻击状态打断轮询）：
-        /// ① 上升沿 → 锁存"点按那一刻"的准心瞄准点（消除出手时相机/身体已转动导致的方向漂移）+ 入队一发火球 + 重置按住计时；
-        /// ② 按住 → 累加计时（供 tap/hold 判定）；松开 → 结束本次按下；
-        /// ③ 入队计时过期 → 作废，避免迟发。
-        /// 这样快速连点的第二下即便落在攻击动画/射速冷却内，也会被可靠记账并在冷却一过补发，而不是被吞掉。
+        /// 每帧攻击输入常驻处理（由基类 Update 调用，始终运行，不被攻击状态打断）：
+        /// 上升沿 → 锁存"点按那一刻"的准心瞄准点 + 入队一次施放；入队计时过期 → 作废。
+        /// 这样快速连点即便落在动画/射速冷却内也不丢，冷却一过补发，方向用按下瞬间的准心。
         /// </summary>
         protected override void UpdateAttackInput()
         {
@@ -124,78 +116,45 @@ namespace Game.Character
             {
                 _clickAimPoint = ResolveAimTargetPoint(_fireballAimMask, _aimMaxDistance, _aimHits);
                 _hasClickAim = true;
-                _attackPressActive = true;
-                _attackHeldTime = 0f;
-                _fireballQueued = true;
-                _fireballQueueTimer = FireballQueueLifetime;
+                _castQueued = true;
+                _castQueueTimer = CastQueueLifetime;
             }
 
-            if (_attackPressActive)
+            if (_castQueueTimer > 0f)
             {
-                if (IsAttackHeld) _attackHeldTime += Time.deltaTime;
-                else _attackPressActive = false; // 松手：本次按下结束（是否补发火球由队列决定）
-            }
-
-            if (_fireballQueueTimer > 0f)
-            {
-                _fireballQueueTimer -= Time.deltaTime;
-                if (_fireballQueueTimer <= 0f) _fireballQueued = false; // 过期作废
+                _castQueueTimer -= Time.deltaTime;
+                if (_castQueueTimer <= 0f) _castQueued = false; // 过期作废
             }
         }
 
-        /// <summary>
-        /// 地面攻击路由：长按过阈值 → 陨石引导；否则有入队点按且冷却已过 → 火球普攻。
-        /// 点按在冷却内不丢弃（已入队），冷却一过自动补发——解决"快速连点第二发被吞 → 误去狂按 → 触发陨石"。
-        /// </summary>
+        /// <summary>地面攻击：有入队施放且射速冷却已过 → 运行法杖。（左键 = 运行当前法杖。）</summary>
         public override bool TryStartAttack()
         {
-            // 长按 → 陨石引导（仅地面）：当前按住且持续超过阈值。消费本次按下并取消待发火球。
-            if (_attackPressActive && IsAttackHeld
-                && _meteorData != null && _attackHeldTime >= _meteorData.TapThreshold)
+            if (_castQueued && AttackCooldownCounter <= 0f)
             {
-                _attackPressActive = false;
-                _fireballQueued = false;
-                _fireballQueueTimer = 0f;
-                StateMachine.ChangeState(_heavyState);
+                FireQueuedCast();
                 return true;
             }
-
-            // "未判定的长按"：仍按住且未到阈值时先等，以区分点按/长按（无陨石配置则按下即发，不等松手）。
-            bool undecidedHold = _meteorData != null && _attackPressActive && IsAttackHeld
-                                 && _attackHeldTime < _meteorData.TapThreshold;
-            if (_fireballQueued && AttackCooldownCounter <= 0f && !undecidedHold)
-            {
-                FireQueuedFireball();
-                return true;
-            }
-
             return false;
         }
 
-        /// <summary>
-        /// 空中攻击：仅支持点按火球（陨石是地面落点技能）。有入队点按 + 冷却过 → 直接发，不做长按判定。
-        /// 方向同样用按下锁存的 ClickAimPoint。
-        /// </summary>
+        /// <summary>空中攻击：同样运行法杖（方向用按下锁存的 ClickAimPoint）。</summary>
         public override bool TryStartAirAttack()
         {
-            if (_fireballQueued && AttackCooldownCounter <= 0f)
+            if (_castQueued && AttackCooldownCounter <= 0f)
             {
-                FireQueuedFireball();
+                FireQueuedCast();
                 return true;
             }
             return false;
         }
 
-        /// <summary>
-        /// 发射一发已入队的点按火球：出队 + 消费本次按下（一次按下只触发一个动作，防同一长按落地再触发陨石）+
-        /// 启动射速冷却 + 切到普攻态（其 Enter 据是否接地决定空中/地面动画，发射方向用 ClickAimPoint）。
-        /// </summary>
-        private void FireQueuedFireball()
+        /// <summary>出队 + 启动射速冷却 + 切到施法态（其 Enter 据接地决定空中/地面动画，释放点由 SpellCaster 运行法杖）。</summary>
+        private void FireQueuedCast()
         {
-            _fireballQueued = false;
-            _fireballQueueTimer = 0f;
-            _attackPressActive = false;
-            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 启动射速冷却（与动画长度解耦）
+            _castQueued = false;
+            _castQueueTimer = 0f;
+            AttackCooldownCounter = _combo != null ? _combo.AttackCooldown : 0f; // 射速冷却（与动画长度解耦）
             AttackBufferCounter = 0f;
             StateMachine.ChangeState(_wizardAttackState);
         }
@@ -208,7 +167,7 @@ namespace Game.Character
             return _comboStateHashes[index];
         }
 
-        /// <summary>把连段表各段 AnimationStateName 预 hash 成 int[]（仿 Warrior/Archer）。</summary>
+        /// <summary>把连段表各段 AnimationStateName 预 hash 成 int[]。</summary>
         private void BuildComboStateHashes()
         {
             int count = _combo != null ? _combo.SegmentCount : 0;
@@ -229,14 +188,10 @@ namespace Game.Character
             }
         }
 
-        /// <summary>预 hash 陨石引导/施法动画名。二者可空（引导/施法动画为可选润色）：空 → 0 → 重击态据此跳过 CrossFade，不告警。</summary>
+        // 休眠：陨石动画名预 hash（陨石暂不路由，后续作为法术重做时再启用）。
         private void BuildMeteorHashes()
         {
-            if (_meteorData == null)
-            {
-                GameLog.Warn("法师 MeteorAttackDefinition 未配置，陨石重击不可用", "Combat");
-                return;
-            }
+            if (_meteorData == null) return;
             _meteorChannelHash = string.IsNullOrEmpty(_meteorData.ChannelStateName)
                 ? 0 : Animator.StringToHash(_meteorData.ChannelStateName);
             _meteorReleaseHash = string.IsNullOrEmpty(_meteorData.ReleaseStateName)
