@@ -75,5 +75,35 @@ namespace Game.Skills.Tests
             Run(2, 999f, Emit(), Emit());          // 预算 2 → 两发都产出
             Assert.AreEqual(2, _out.Count);
         }
+
+        [Test]
+        public void Triple_WithThreeProjectiles_EmitsThree()
+        {
+            Run(1, 999f, Multi(2), Emit(), Emit(), Emit()); // 预算 1+2=3
+            Assert.AreEqual(3, _out.Count);
+        }
+
+        [Test]
+        public void Triple_DamageMod_AppliesToAllEmits()
+        {
+            Run(1, 999f, Multi(2), DamageMod(2f), Emit(dmg: 10f), Emit(dmg: 10f), Emit(dmg: 10f));
+            Assert.AreEqual(3, _out.Count);
+            foreach (var e in _out)
+                Assert.AreEqual(20f, e.Damage, 1e-4f); // 多重内修正一次成本、作用于全部
+        }
+
+        [Test]
+        public void Multicast_BudgetUnfilled_IsDiscarded_NoWrap()
+        {
+            Run(1, 999f, Multi(2), Emit()); // 预算 3 但只有 1 个投射物 → 产出 1（单遍不回绕，余量作废）
+            Assert.AreEqual(1, _out.Count);
+        }
+
+        [Test]
+        public void Multicast_AfterEmit_ReopensBudget()
+        {
+            Run(1, 999f, Emit(), Multi(2), Emit()); // 1→产出#1(预算0)→+2(预算2)→产出#2
+            Assert.AreEqual(2, _out.Count);
+        }
     }
 }

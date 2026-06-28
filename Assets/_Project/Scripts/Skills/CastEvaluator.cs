@@ -49,13 +49,15 @@ namespace Game.Skills
                         mods = mods.Apply(spell);
                         break;
 
+                    case SpellKind.Multicast:
+                        drawBudget += spell.ExtraDraws; // 双重 +1 / 三重 +2，扩大本次预算
+                        break;
+
                     case SpellKind.Emit:
-                        if (drawBudget <= 0) break; // 预算用尽，本发不产出
+                        if (drawBudget <= 0) break;
                         output.Add(BakeEmit(spell, mods));
                         drawBudget--;
                         break;
-
-                    // SpellKind.Multicast：在 Task 3 加入
                 }
             }
 
