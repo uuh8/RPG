@@ -132,5 +132,35 @@ namespace Game.Skills.Tests
             Assert.AreEqual(1, _out.Count);
             Assert.IsFalse(summary.Fizzled);
         }
+
+        // 通用修正构造（覆盖 增伤/加速/平铺加伤/散射 四类），用于验证 BakeEmit 端到端写入
+        private static SpellDefinition Mod(float dmgMul = 1f, float speedMul = 1f, float dmgAdd = 0f, float spread = 0f)
+        {
+            var s = ScriptableObject.CreateInstance<SpellDefinition>();
+            s.Kind = SpellKind.Modify;
+            s.ModDamageMul = dmgMul;
+            s.ModSpeedMul = speedMul;
+            s.ModDamageAddFlat = dmgAdd;
+            s.ModSpreadAddDegrees = spread;
+            return s;
+        }
+
+        [Test]
+        public void Modifiers_BakeSpeedSpreadAndFlatDamage_IntoEmit()
+        {
+            // 伤害 = (10 + 5) * 2 = 30；速度 = 20 * 1.5 = 30；散射 = 15
+            Run(1, 999f, Mod(dmgMul: 2f, speedMul: 1.5f, dmgAdd: 5f, spread: 15f), Emit(dmg: 10f, speed: 20f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(30f, _out[0].Damage, 1e-4f);
+            Assert.AreEqual(30f, _out[0].Speed, 1e-4f);
+            Assert.AreEqual(15f, _out[0].SpreadDegrees, 1e-4f);
+        }
+
+        [Test]
+        public void NullSpellEntry_IsSkipped()
+        {
+            Run(1, 999f, null, Emit(dmg: 10f));
+            Assert.AreEqual(1, _out.Count);
+        }
     }
 }
