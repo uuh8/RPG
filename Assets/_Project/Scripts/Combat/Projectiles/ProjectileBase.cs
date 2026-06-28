@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Game.Combat
@@ -29,11 +30,21 @@ namespace Game.Combat
         protected DamageType _type;
 
         private bool _consumed; // 防同一物理步多次碰撞重复结算/销毁
+        private Vector3 _launchVelocity; // Init 注入的初速度快照：同队穿过时据此恢复被弹偏的直线投射物速度
+
+        // 在场投射物注册表：新生成的投射物与所有"同阵营"已存在投射物互相 IgnoreCollision，
+        // 避免同队火球互撞（连发自撞偏移 / 同队两球相撞误爆炸）。异队不忽略 → 仍碰撞 → 各自爆炸。
+        private static readonly List<ProjectileBase> s_active = new List<ProjectileBase>(32);
 
         protected virtual void Awake()
         {
             _rb = GetComponent<Rigidbody>();
             _collider = GetComponent<Collider>();
+        }
+
+        protected virtual void OnDestroy()
+        {
+            s_active.Remove(this); // 从在场表注销（命中销毁 / 超时自毁 / 场景卸载）
         }
 
         /// <summary>飞行中是否每帧把模型朝向对齐当前速度方向（抛物线箭矢用：机头随下坠俯冲）。默认否（直线投射物方向恒定，Init 定一次即可）。</summary>
@@ -59,6 +70,7 @@ namespace Game.Combat
             _attackerId = attackerId;
             _damage = damage;
             _type = type;
+            _launchVelocity = velocity; // 直线投射物被同队物体擦碰弹偏后，据此恢复原方向
 
             if (_rb == null) _rb = GetComponent<Rigidbody>();
             if (_collider == null) _collider = GetComponent<Collider>();
@@ -66,6 +78,9 @@ namespace Game.Combat
             // 忽略与施法者自身碰撞，避免出膛瞬间撞到施法者 collider 即自毁
             if (casterCollider != null && _collider != null)
                 Physics.IgnoreCollision(_collider, casterCollider);
+
+            // 与同阵营的其它在场投射物互相忽略碰撞，并把自己登记进表
+            RegisterAndIgnoreSameTeamProjectiles();
 
             _rb.useGravity = useGravity;
             // 高速投射物防穿透：连续碰撞检测可命中薄的静态碰撞体（地面），避免快速飞行时隧穿穿地
@@ -83,9 +98,17 @@ namespace Game.Combat
 
             IDamageable target = collision.collider.GetComponentInParent<IDamageable>();
 
-            // 同阵营（施法者自身/队友）→ 穿过，不结算不销毁
+            // 同阵营（施法者自身/队友）→ 穿过，不结算不销毁。
+            // 投射物注册表只覆盖"投射物 vs 投射物"；角色（队友）在此反应式处理：
+            // 忽略后续接触 + 恢复直线初速度方向，消除火球擦过队友被物理弹偏。
             if (target != null && target.TeamId == _attackerTeam)
+            {
+                if (_collider != null)
+                    Physics.IgnoreCollision(_collider, collision.collider);
+                if (!FaceVelocityInFlight && _rb != null)
+                    _rb.linearVelocity = _launchVelocity; // 抛物线投射物速度时变，不恢复
                 return;
+            }
 
             Vector3 hitPoint = collision.GetContact(0).point;
             bool damaged = false;
@@ -109,5 +132,23 @@ namespace Game.Combat
 
         /// <summary>命中后、销毁前的子类扩展点（默认空）。target 可能为 null（命中环境）；damaged 表示本次是否结算了伤害。</summary>
         protected virtual void OnImpact(Collision collision, IDamageable target, Vector3 hitPoint, bool damaged) { }
+
+        /// <summary>
+        /// 与所有"同阵营"已在场投射物互相 IgnoreCollision，再把自己登记进表。
+        /// 解决：①快速连发自己的火球在出膛处互撞被弹偏；②同队两枚火球相撞误爆炸（它们本就不该互相作用）。
+        /// 异阵营投射物不忽略 → 仍会物理碰撞 → 各自 OnCollisionEnter 触发爆炸（保留"异队火球相撞才爆炸"）。
+        /// 在离散输入时一次性执行（非每帧热路径），遵循"按键时一次性分配可接受"。
+        /// </summary>
+        private void RegisterAndIgnoreSameTeamProjectiles()
+        {
+            for (int i = 0; i < s_active.Count; i++)
+            {
+                ProjectileBase other = s_active[i];
+                if (other == null || other == this) continue; // Unity 重载 == 可识别已销毁对象
+                if (other._attackerTeam == _attackerTeam && other._collider != null && _collider != null)
+                    Physics.IgnoreCollision(_collider, other._collider);
+            }
+            s_active.Add(this);
+        }
     }
 }
