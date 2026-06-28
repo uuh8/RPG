@@ -36,6 +36,9 @@ namespace Game.Skills
                 return new CastSummary(0f, false);
 
             int drawBudget = baseDraws;
+            float manaLeft = availableMana;
+            float manaSpent = 0f;
+            bool fizzled = false;
             CastModifierState mods = incomingMods;
 
             for (int i = 0; i < spells.Count; i++)
@@ -50,18 +53,27 @@ namespace Game.Skills
                         break;
 
                     case SpellKind.Multicast:
-                        drawBudget += spell.ExtraDraws; // 双重 +1 / 三重 +2，扩大本次预算
+                        drawBudget += spell.ExtraDraws;
                         break;
 
                     case SpellKind.Emit:
-                        if (drawBudget <= 0) break;
+                        if (drawBudget <= 0) break;          // 预算用尽：本发不产出（但继续读，后面的多重可能再开预算）
+                        if (spell.ManaCost > manaLeft)        // 法力不足：中断本次施法
+                        {
+                            fizzled = true;
+                            break;
+                        }
+                        manaLeft -= spell.ManaCost;
+                        manaSpent += spell.ManaCost;
                         output.Add(BakeEmit(spell, mods));
                         drawBudget--;
                         break;
                 }
+
+                if (fizzled) break; // 跳出整个读取循环
             }
 
-            return new CastSummary(0f, false);
+            return new CastSummary(manaSpent, fizzled);
         }
 
         /// <summary>把一个 Emit 法术按当前修正快照算出最终产出指令。伤害=(基础+平铺加)×倍率；速度=基础×倍率。</summary>

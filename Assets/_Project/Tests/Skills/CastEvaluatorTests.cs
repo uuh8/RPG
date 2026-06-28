@@ -105,5 +105,32 @@ namespace Game.Skills.Tests
             Run(1, 999f, Emit(), Multi(2), Emit()); // 1→产出#1(预算0)→+2(预算2)→产出#2
             Assert.AreEqual(2, _out.Count);
         }
+
+        [Test]
+        public void EnoughMana_EmitsAll_ReportsSpent()
+        {
+            var summary = Run(1, 100f, Multi(2), Emit(mana: 6f), Emit(mana: 6f), Emit(mana: 6f));
+            Assert.AreEqual(3, _out.Count);
+            Assert.IsFalse(summary.Fizzled);
+            Assert.AreEqual(18f, summary.ManaSpent, 1e-4f);
+        }
+
+        [Test]
+        public void InsufficientMana_FizzlesMidCast()
+        {
+            // 可用 10，每发 6：第 1 发后剩 4，第 2 发 6>4 → fizzle
+            var summary = Run(1, 10f, Multi(2), Emit(mana: 6f), Emit(mana: 6f), Emit(mana: 6f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(summary.Fizzled);
+            Assert.AreEqual(6f, summary.ManaSpent, 1e-4f);
+        }
+
+        [Test]
+        public void ZeroCostSpells_NeverFizzle()
+        {
+            var summary = Run(1, 0f, Emit(mana: 0f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsFalse(summary.Fizzled);
+        }
     }
 }
