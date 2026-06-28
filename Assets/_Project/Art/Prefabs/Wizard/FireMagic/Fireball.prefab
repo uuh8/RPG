@@ -9621,7 +9621,7 @@ Transform:
   m_GameObject: {fileID: 7581999627747165493}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -9.75, y: 2.77, z: 2.48406}
+  m_LocalPosition: {x: -9.75, y: 2.77, z: 1.651}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -14603,14 +14603,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f77a6a0a8da8a214cbd0957448f8b555, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.Fireball
+  _maxLifetime: 5
+  _modelForwardOffsetEuler: {x: 0, y: 0, z: 0}
+  _impactLingerTime: 0
   _explosionPrefab: {fileID: 1628644007216397936, guid: 3002191ea789a4847821379225afe4b3, type: 3}
   _explosionLifetime: 2
   _onFirePrefab: {fileID: 2494727312554208266, guid: 6fb63a9c354e0254798ccceb511261d4, type: 3}
   _burnDamagePerTick: 3
   _burnInterval: 0.5
   _burnDuration: 3
-  _maxLifetime: 5
-  _modelForwardOffsetEuler: {x: 0, y: 0, z: 0}
 --- !u!54 &8278182072657761699
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -14657,8 +14658,8 @@ SphereCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Radius: 0.85581106
-  m_Center: {x: 0.00000023841858, y: 0, z: 0}
+  m_Radius: 0.23346639
+  m_Center: {x: 0.00000023841858, y: -0.002345562, z: 0}
 --- !u!1 &8914606660101845406
 GameObject:
   m_ObjectHideFlags: 0

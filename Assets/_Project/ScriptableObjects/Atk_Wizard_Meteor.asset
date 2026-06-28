@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Combat::Game.Combat.MeteorAttackDefinition
   ChannelStateName: Attack02Maintain_MagicWand
   ReleaseStateName: Attack02Maintain_MagicWand
-  TapThreshold: 0.15
+  TapThreshold: 0.4
   AimMaxDistance: 30
   MeteorSpawnDelay: 0.3
   ReleaseDuration: 0.6
