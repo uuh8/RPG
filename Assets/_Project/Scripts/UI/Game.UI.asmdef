@@ -4,7 +4,9 @@
     "references": [
         "Game.Core",
         "Game.Combat",
-        "UnityEngine.UI"
+        "Game.Skills",
+        "UnityEngine.UI",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
