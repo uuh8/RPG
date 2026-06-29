@@ -2676,7 +2676,7 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 2849083668247548528, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
   m_PrefabInstance: {fileID: 6283186940027858163}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 6283186940027858164}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5d6260d1317e52b4fb9a05435c1ce13b, type: 3}
@@ -2794,6 +2794,63 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 549121315}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1001 &705351872
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -7.57
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 4.09
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -16.01
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7125117381663837244, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7581999627747165493, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
+      propertyPath: m_Name
+      value: Fireball
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -7042,8 +7099,30 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 4017091017364392535, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 6283186940027858165}
   m_SourcePrefab: {fileID: 100100000, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+--- !u!1 &6283186940027858164 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 4017091017364392535, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+  m_PrefabInstance: {fileID: 6283186940027858163}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &6283186940027858165
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6283186940027858164}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b71d53b750a96b14d8c0b91369309296, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Character::Game.Character.SpellCaster
+  _wand: {fileID: 11400000, guid: 0cf330fcb9e847a4fabbea8d9c7b65eb, type: 2}
+  _availableMana: 9999
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -7067,3 +7146,4 @@ SceneRoots:
   - {fileID: 1723914080}
   - {fileID: 1467831966}
   - {fileID: 142931130}
+  - {fileID: 705351872}
