@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6874cdccb415bbf44b4542d068bac7cf, type: 3}
+  m_Name: Spell_mdy_TripleShooting
+  m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
+  Kind: 0
+  DisplayName: 
+  Icon: {fileID: 0}
+  ManaCost: 0
+  ProjectilePrefab: {fileID: 0}
+  BaseDamage: 10
+  BaseSpeed: 20
+  DamageType: 1
+  ModDamageAddFlat: 0
+  ModDamageMul: 1
+  ModSpeedMul: 1
+  ModSpreadAddDegrees: 20
+  ExtraDraws: 2
