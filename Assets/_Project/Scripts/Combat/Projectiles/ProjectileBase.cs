@@ -32,6 +32,12 @@ namespace Game.Combat
         private bool _consumed; // 防同一物理步多次碰撞重复结算/销毁
         private Vector3 _launchVelocity; // Init 注入的初速度快照：同队穿过时据此恢复被弹偏的直线投射物速度
 
+        /// <summary>
+        /// 命中真实目标/环境的瞬间触发（命中点, 命中方向）。上层（法术触发）据此在命中点再施放载荷，
+        /// 保持 Combat 不反依赖 Skills/Character——这里只发一个通用通知。同阵营穿过不算命中、不触发；超时自毁不触发。
+        /// </summary>
+        public event System.Action<Vector3, Vector3> Impacted;
+
         // 在场投射物注册表：新生成的投射物与所有"同阵营"已存在投射物互相 IgnoreCollision，
         // 避免同队火球互撞（连发自撞偏移 / 同队两球相撞误爆炸）。异队不忽略 → 仍碰撞 → 各自爆炸。
         private static readonly List<ProjectileBase> s_active = new List<ProjectileBase>(32);
@@ -98,9 +104,7 @@ namespace Game.Combat
 
             IDamageable target = collision.collider.GetComponentInParent<IDamageable>();
 
-            // 同阵营（施法者自身/队友）→ 穿过，不结算不销毁。
-            // 投射物注册表只覆盖"投射物 vs 投射物"；角色（队友）在此反应式处理：
-            // 忽略后续接触 + 恢复直线初速度方向，消除火球擦过队友被物理弹偏。
+            // 同阵营（施法者自身/队友）→ 穿过，不结算不销毁、不算命中（不触发）。
             if (target != null && target.TeamId == _attackerTeam)
             {
                 if (_collider != null)
@@ -111,23 +115,26 @@ namespace Game.Combat
             }
 
             Vector3 hitPoint = collision.GetContact(0).point;
+            Vector3 vel = _rb != null ? _rb.linearVelocity : Vector3.zero;
+            Vector3 hitDir = vel.sqrMagnitude > 1e-6f ? vel.normalized : transform.forward;
             bool damaged = false;
 
             // 敌方且存活 → 结算一次伤害
             if (target != null && target.IsAlive)
             {
-                Vector3 vel = _rb != null ? _rb.linearVelocity : Vector3.zero;
-                Vector3 hitDir = vel.sqrMagnitude > 1e-6f ? vel.normalized : transform.forward;
                 var req = new DamageRequest(_attackerId, _attackerTeam, _damage, _type, hitPoint, hitDir);
                 target.ReceiveHit(in req);
                 damaged = true;
             }
 
-            // 子类扩展点：命中敌方或环境都会走到（便于"撞地也爆炸"/"插在目标上残留"）
+            // 子类扩展点：命中敌方或环境都会走到（撞地也爆炸/插在目标上残留）
             OnImpact(collision, target, hitPoint, damaged);
 
+            // 命中通知：法术触发据此在命中点跑载荷（普通投射物无监听者，空触发无开销）
+            Impacted?.Invoke(hitPoint, hitDir);
+
             _consumed = true;
-            Destroy(gameObject, _impactLingerTime); // 0=立即；箭矢类>0 可残留（OnImpact 内已冻结物理）
+            Destroy(gameObject, _impactLingerTime);
         }
 
         /// <summary>命中后、销毁前的子类扩展点（默认空）。target 可能为 null（命中环境）；damaged 表示本次是否结算了伤害。</summary>
