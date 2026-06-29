@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6874cdccb415bbf44b4542d068bac7cf, type: 3}
   m_Name: Spell_mdy_SpeedUp
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
-  Kind: 0
+  Kind: 1
   DisplayName: 
-  Icon: {fileID: 0}
+  Icon: {fileID: 21300000, guid: 3a6ac42e84d6ac64cac74c442ededbaa, type: 3}
   ManaCost: 0
   ProjectilePrefab: {fileID: 0}
   BaseDamage: 10
