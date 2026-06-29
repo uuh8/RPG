@@ -14,14 +14,16 @@ namespace Game.Skills
         public readonly float Speed;                 // 最终速度
         public readonly DamageType DamageType;       // 伤害类型
         public readonly float SpreadDegrees;         // 散射角度（SpellCaster 据此把多发打散成扇形）
+        public readonly AudioClip CastSfx;           // 施放音效（SpellCaster 一次施法里同一音效只播一次）
 
-        public EmitCommand(GameObject projectilePrefab, float damage, float speed, DamageType damageType, float spreadDegrees)
+        public EmitCommand(GameObject projectilePrefab, float damage, float speed, DamageType damageType, float spreadDegrees, AudioClip castSfx)
         {
             ProjectilePrefab = projectilePrefab;
             Damage = damage;
             Speed = speed;
             DamageType = damageType;
             SpreadDegrees = spreadDegrees;
+            CastSfx = castSfx;
         }
     }
 }

@@ -20,6 +20,8 @@ namespace Game.Character
 
         // 求值产出缓冲（预分配复用，求值器内 Clear()）——离散输入触发，避免每次施放新建 List
         private readonly List<EmitCommand> _emits = new List<EmitCommand>(16);
+        // 本次施法已播过的音效：去重，多重/连发的同一音效只响一次（预分配复用）
+        private readonly HashSet<AudioClip> _playedSfx = new HashSet<AudioClip>();
 
         public WandLoadout Wand => _wand;
 
@@ -37,6 +39,7 @@ namespace Game.Character
             }
 
             CastEvaluator.Evaluate(_wand.Spells, _wand.BaseDraws, _availableMana, CastModifierState.Default, _emits);
+            _playedSfx.Clear(); // 每次施法重置去重表
 
             Vector3 baseDir = aimPoint - spawnPos;
             if (baseDir.sqrMagnitude < 1e-6f) baseDir = transform.forward; // 退化兜底
@@ -46,6 +49,11 @@ namespace Game.Character
             for (int i = 0; i < count; i++)
             {
                 EmitCommand cmd = _emits[i];
+
+                // 施放音效：一次施法里同一音效只播一次（HashSet.Add 仅首次返回 true）→ 三连火球只响一声
+                if (cmd.CastSfx != null && _playedSfx.Add(cmd.CastSfx))
+                    AudioSource.PlayClipAtPoint(cmd.CastSfx, spawnPos);
+
                 if (cmd.ProjectilePrefab == null)
                 {
                     GameLog.Warn("EmitCommand.ProjectilePrefab 为空（法术未配置预制体），跳过该发", "Skills");

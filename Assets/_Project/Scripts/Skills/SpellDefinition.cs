@@ -24,6 +24,8 @@ namespace Game.Skills
         public float BaseDamage = 10f;
         public float BaseSpeed = 20f;
         public DamageType DamageType = DamageType.Magical;
+        [Tooltip("施放音效。一次施法里同一音效只播一次（多重/连发不会叠成多声）。可留空。")]
+        public AudioClip CastSfx;
 
         [Header("Modify（修正）—— 仅 Kind=Modify 用（默认值为恒等：不改变任何东西）")]
         public float ModDamageAddFlat = 0f;

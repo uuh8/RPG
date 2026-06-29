@@ -81,7 +81,7 @@ namespace Game.Skills
         {
             float damage = (spell.BaseDamage + mods.DamageAddFlat) * mods.DamageMul;
             float speed = spell.BaseSpeed * mods.SpeedMul;
-            return new EmitCommand(spell.ProjectilePrefab, damage, speed, spell.DamageType, mods.SpreadDegrees);
+            return new EmitCommand(spell.ProjectilePrefab, damage, speed, spell.DamageType, mods.SpreadDegrees, spell.CastSfx);
         }
     }
 }

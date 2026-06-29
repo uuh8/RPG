@@ -226,6 +226,10 @@ namespace Game.Character
         // CharacterController 不走物理管线，在 Update 里 Move 才能每帧响应输入
         private void Update()
         {
+            // 暂停时（如打开法杖编程界面 Time.timeScale=0）玩家完全惰性：不读输入、不跑状态机、不入队攻击。
+            // 否则在 UI 里左键拖拽会被误读为"按下攻击"，关面板恢复时间瞬间凭空放一发。
+            if (Time.timeScale == 0f) return;
+
             _moveInput = _inputActions.Player.Move.ReadValue<Vector2>();
             _lookInput = _inputActions.Player.Look.ReadValue<Vector2>();
             _moveDirection = CalculateMoveDirection();
@@ -247,6 +251,9 @@ namespace Game.Character
 
         private void LateUpdate()
         {
+            // 暂停时不转轨道相机：打开编程界面解锁鼠标后，晃鼠标不应让镜头乱晃。
+            if (Time.timeScale == 0f) return;
+
             // 在 LateUpdate 旋转相机枢轴：发生在所有 Update（角色移动）之后
             HandleCameraRotation();
         }
