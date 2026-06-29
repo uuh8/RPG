@@ -26,6 +26,8 @@ namespace Game.Skills
         public DamageType DamageType = DamageType.Magical;
         [Tooltip("施放音效。一次施法里同一音效只播一次（多重/连发不会叠成多声）。可留空。")]
         public AudioClip CastSfx;
+        [Tooltip("是否触发投射物：命中时在命中点再施放它之后的法术(载荷)；下一个若也是触发则继续链。仅 Kind=Emit 有意义。")]
+        public bool IsTrigger = false;
 
         [Header("Modify（修正）—— 仅 Kind=Modify 用（默认值为恒等：不改变任何东西）")]
         public float ModDamageAddFlat = 0f;

@@ -11,11 +11,12 @@ namespace Game.Skills.Tests
         private readonly List<EmitCommand> _out = new List<EmitCommand>();
 
         // ── 构造测试用法术 ──
-        private static SpellDefinition Emit(float dmg = 10f, float speed = 20f, float mana = 0f)
+        private static SpellDefinition Emit(float dmg = 10f, float speed = 20f, float mana = 0f, bool trigger = false)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
             s.Kind = SpellKind.Emit;
             s.BaseDamage = dmg; s.BaseSpeed = speed; s.DamageType = DamageType.Magical; s.ManaCost = mana;
+            s.IsTrigger = trigger;
             return s;
         }
         private static SpellDefinition DamageMod(float mul)
@@ -161,6 +162,43 @@ namespace Game.Skills.Tests
         {
             Run(1, 999f, null, Emit(dmg: 10f));
             Assert.AreEqual(1, _out.Count);
+        }
+
+        [Test]
+        public void NonTrigger_HasNoPayload()
+        {
+            Run(1, 999f, Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsFalse(_out[0].HasPayload);
+        }
+
+        [Test]
+        public void Trigger_CapturesSuffixAsPayload_AndEndsCast()
+        {
+            // 触发火球 + 2 个后续 → 本层只产出触发火球；后续 2 个成为它的载荷
+            Run(1, 999f, Emit(trigger: true), Emit(), Emit());
+            Assert.AreEqual(1, _out.Count);           // 后缀不在本层单独产出
+            Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(2, _out[0].Payload.Count); // 载荷 = 触发之后的 2 个
+        }
+
+        [Test]
+        public void Trigger_PayloadExcludesTriggerItself()
+        {
+            var trig = Emit(trigger: true);
+            var after = Emit();
+            Run(1, 999f, trig, after);
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(1, _out[0].Payload.Count);
+            Assert.AreSame(after, _out[0].Payload[0]); // 载荷是"之后的"，不含触发自身
+        }
+
+        [Test]
+        public void Trigger_AtSequenceEnd_HasEmptyPayload()
+        {
+            Run(1, 999f, Emit(trigger: true)); // 触发后面没东西
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsFalse(_out[0].HasPayload); // 空载荷 → 命中时不再产出
         }
     }
 }
