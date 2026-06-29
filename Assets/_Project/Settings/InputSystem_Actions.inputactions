@@ -122,6 +122,15 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": false
+                },
+                {
+                    "name": "ToggleWandEditor",
+                    "type": "Button",
+                    "id": "6fa59bbe-2c21-4767-b1c5-d4c823eb6d83",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -551,6 +560,17 @@
                     "processors": "",
                     "groups": ";Keyboard&Mouse",
                     "action": "SwitchClass3",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "82bb3437-17ee-494c-aa1a-cc457d6ed2d5",
+                    "path": "<Keyboard>/tab",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": ";Keyboard&Mouse",
+                    "action": "ToggleWandEditor",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }
