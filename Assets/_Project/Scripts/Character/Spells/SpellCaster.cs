@@ -84,8 +84,20 @@ namespace Game.Character
                 {
                     IReadOnlyList<SpellDefinition> payload = cmd.Payload;
                     CastModifierState payloadMods = cmd.PayloadMods;
-                    proj.Impacted += (hitPoint, hitDir) =>
-                        RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider);
+
+                    switch (cmd.PayloadTrigger)
+                    {
+                        case PayloadTriggerMode.OnImpact:
+                            proj.Impacted += (hitPoint, hitDir) =>
+                                RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider);
+                            break;
+
+                        case PayloadTriggerMode.AfterDelay:
+                            proj.TimedTriggerElapsed += (position, direction) =>
+                                RunCast(payload, 1, payloadMods, position, direction, team, attackerId, casterCollider);
+                            proj.ArmTimedTrigger(cmd.PayloadDelaySeconds);
+                            break;
+                    }
                 }
 
                 // 直线投射物关重力；命中走标准 ProjectileBase → ReceiveHit
