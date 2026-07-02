@@ -11,12 +11,15 @@ namespace Game.Skills.Tests
         private readonly List<EmitCommand> _out = new List<EmitCommand>();
 
         // ── 构造测试用法术 ──
-        private static SpellDefinition Emit(float dmg = 10f, float speed = 20f, float mana = 0f, bool trigger = false)
+        private static SpellDefinition Emit(float dmg = 10f, float speed = 20f, float mana = 0f,
+                                            PayloadTriggerMode trigger = PayloadTriggerMode.None,
+                                            float delay = 1f)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
             s.Kind = SpellKind.Emit;
             s.BaseDamage = dmg; s.BaseSpeed = speed; s.DamageType = DamageType.Magical; s.ManaCost = mana;
-            s.IsTrigger = trigger;
+            s.PayloadTrigger = trigger;
+            s.PayloadDelaySeconds = delay;
             return s;
         }
         private static SpellDefinition DamageMod(float mul)
@@ -173,19 +176,20 @@ namespace Game.Skills.Tests
         }
 
         [Test]
-        public void Trigger_CapturesSuffixAsPayload_AndEndsCast()
+        public void OnImpactTrigger_CapturesSuffixAsPayload_AndEndsCast()
         {
             // 触发火球 + 2 个后续 → 本层只产出触发火球；后续 2 个成为它的载荷
-            Run(1, 999f, Emit(trigger: true), Emit(), Emit());
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.OnImpact), Emit(), Emit());
             Assert.AreEqual(1, _out.Count);           // 后缀不在本层单独产出
             Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(PayloadTriggerMode.OnImpact, _out[0].PayloadTrigger);
             Assert.AreEqual(2, _out[0].Payload.Count); // 载荷 = 触发之后的 2 个
         }
 
         [Test]
-        public void Trigger_PayloadExcludesTriggerItself()
+        public void OnImpactTrigger_PayloadExcludesTriggerItself()
         {
-            var trig = Emit(trigger: true);
+            var trig = Emit(trigger: PayloadTriggerMode.OnImpact);
             var after = Emit();
             Run(1, 999f, trig, after);
             Assert.AreEqual(1, _out.Count);
@@ -194,11 +198,42 @@ namespace Game.Skills.Tests
         }
 
         [Test]
-        public void Trigger_AtSequenceEnd_HasEmptyPayload()
+        public void OnImpactTrigger_AtSequenceEnd_HasNoPayloadAndNoRuntimeTrigger()
         {
-            Run(1, 999f, Emit(trigger: true)); // 触发后面没东西
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.OnImpact)); // 触发后面没东西
             Assert.AreEqual(1, _out.Count);
             Assert.IsFalse(_out[0].HasPayload); // 空载荷 → 命中时不再产出
+            Assert.AreEqual(PayloadTriggerMode.None, _out[0].PayloadTrigger);
+            Assert.AreEqual(0f, _out[0].PayloadDelaySeconds, 1e-4f);
+        }
+
+        [Test]
+        public void AfterDelayTrigger_CapturesSuffixAndDelay_AndEndsCast()
+        {
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.AfterDelay, delay: 1.5f), Emit(), Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(PayloadTriggerMode.AfterDelay, _out[0].PayloadTrigger);
+            Assert.AreEqual(1.5f, _out[0].PayloadDelaySeconds, 1e-4f);
+            Assert.AreEqual(2, _out[0].Payload.Count);
+        }
+
+        [Test]
+        public void AfterDelayTrigger_AtSequenceEnd_HasNoPayloadAndNoRuntimeTrigger()
+        {
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.AfterDelay, delay: 1.5f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsFalse(_out[0].HasPayload);
+            Assert.AreEqual(PayloadTriggerMode.None, _out[0].PayloadTrigger);
+            Assert.AreEqual(0f, _out[0].PayloadDelaySeconds, 1e-4f);
+        }
+
+        [Test]
+        public void PayloadTrigger_PayloadModsSnapshotIsPreserved()
+        {
+            Run(1, 999f, DamageMod(2f), Emit(trigger: PayloadTriggerMode.AfterDelay), Emit(dmg: 10f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(2f, _out[0].PayloadMods.DamageMul, 1e-4f);
         }
     }
 }

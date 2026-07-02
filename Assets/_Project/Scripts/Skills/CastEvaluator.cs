@@ -59,23 +59,23 @@ namespace Game.Skills
                         break;
 
                     case SpellKind.Emit:
-                        if (drawBudget <= 0) break;          // 预算用尽：本发不产出
-                        if (spell.ManaCost > manaLeft)        // 法力不足：中断本次施法
+                        if (drawBudget <= 0) break;
+                        if (spell.ManaCost > manaLeft)
                         {
                             fizzled = true;
                             break;
                         }
                         manaLeft -= spell.ManaCost;
                         manaSpent += spell.ManaCost;
-                        if (spell.IsTrigger)
+                        if (spell.PayloadTrigger != PayloadTriggerMode.None)
                         {
-                            // 触发：把"其后的后缀"捕获为载荷（命中时再跑），并结束本层求值（后缀不在本层单独产出）
+                            // payload = 严格后缀；这条不变量保证链式触发自然收敛。
                             output.Add(BakeEmit(spell, mods, CaptureSuffix(spells, i + 1)));
                             drawBudget--;
                             ended = true;
                             break;
                         }
-                        output.Add(BakeEmit(spell, mods, null)); // 普通产出：无载荷
+                        output.Add(BakeEmit(spell, mods, null));
                         drawBudget--;
                         break;
                 }
@@ -86,12 +86,17 @@ namespace Game.Skills
             return new CastSummary(manaSpent, fizzled);
         }
 
-        /// <summary>把一个 Emit 法术按当前修正快照算出最终产出指令。payload 仅触发投射物非空。</summary>
+        /// <summary>把一个 Emit 法术按当前修正快照算出最终产出指令。</summary>
         private static EmitCommand BakeEmit(SpellDefinition spell, CastModifierState mods, IReadOnlyList<SpellDefinition> payload)
         {
             float damage = (spell.BaseDamage + mods.DamageAddFlat) * mods.DamageMul;
             float speed = spell.BaseSpeed * mods.SpeedMul;
-            return new EmitCommand(spell.ProjectilePrefab, damage, speed, spell.DamageType, mods.SpreadDegrees, spell.CastSfx, payload, mods);
+            PayloadTriggerMode trigger = payload != null && payload.Count > 0
+                ? spell.PayloadTrigger
+                : PayloadTriggerMode.None;
+            float delay = trigger == PayloadTriggerMode.AfterDelay ? spell.PayloadDelaySeconds : 0f;
+            return new EmitCommand(spell.ProjectilePrefab, damage, speed, spell.DamageType,
+                                   mods.SpreadDegrees, spell.CastSfx, payload, mods, trigger, delay);
         }
 
         /// <summary>

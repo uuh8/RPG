@@ -26,8 +26,11 @@ namespace Game.Skills
         public DamageType DamageType = DamageType.Magical;
         [Tooltip("施放音效。一次施法里同一音效只播一次（多重/连发不会叠成多声）。可留空。")]
         public AudioClip CastSfx;
-        [Tooltip("是否触发投射物：命中时在命中点再施放它之后的法术(载荷)；下一个若也是触发则继续链。仅 Kind=Emit 有意义。")]
-        public bool IsTrigger = false;
+        [Tooltip("payload 释放条件：None=普通投射物；OnImpact=命中时释放后续法术；AfterDelay=存活满指定时间后释放后续法术。仅 Kind=Emit 有意义。")]
+        public PayloadTriggerMode PayloadTrigger = PayloadTriggerMode.None;
+        [Min(0f)]
+        [Tooltip("定时触发延迟秒数。仅 PayloadTrigger=AfterDelay 时使用；应小于投射物 prefab 的 Max Lifetime。")]
+        public float PayloadDelaySeconds = 1f;
 
         [Header("Modify（修正）—— 仅 Kind=Modify 用（默认值为恒等：不改变任何东西）")]
         public float ModDamageAddFlat = 0f;
