@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Stack
 
@@ -372,6 +372,6 @@ Next (not yet built):
 
 ---
 
-## Claude's Scope
+## Codex's Scope
 
-Claude only edits `.cs` source files and plain-text config files (`.asmdef`, text-serialized `.asset`/`.controller`, `ProjectSettings/`). **Compilation, Animator wiring, and Play-mode testing are performed manually by the developer in the Unity Editor.** Do not assert that a change "works" — only that it is logically correct based on static code review. Do not create `.meta` files for new assets (Unity generates them); the one exception is moving an existing `.meta` alongside its file during a rename.
+Codex only edits `.cs` source files and plain-text config files (`.asmdef`, text-serialized `.asset`/`.controller`, `ProjectSettings/`). **Compilation, Animator wiring, and Play-mode testing are performed manually by the developer in the Unity Editor.** Do not assert that a change "works" — only that it is logically correct based on static code review. Do not create `.meta` files for new assets (Unity generates them); the one exception is moving an existing `.meta` alongside its file during a rename.

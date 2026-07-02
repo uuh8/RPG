@@ -13,13 +13,15 @@ MonoBehaviour:
   m_Name: Spell_mdy_DmgUp
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 1
-  DisplayName: 
+  DisplayName: "\u6CD5\u672F\u589E\u5E45"
   Icon: {fileID: 21300000, guid: d8ac44d9012569b4f92bafb16a549967, type: 3}
   ManaCost: 0
   ProjectilePrefab: {fileID: 0}
   BaseDamage: 10
   BaseSpeed: 20
   DamageType: 1
+  CastSfx: {fileID: 0}
+  IsTrigger: 0
   ModDamageAddFlat: 0
   ModDamageMul: 1.5
   ModSpeedMul: 1
