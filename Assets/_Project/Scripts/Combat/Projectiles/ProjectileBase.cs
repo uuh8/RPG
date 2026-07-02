@@ -31,12 +31,20 @@ namespace Game.Combat
 
         private bool _consumed; // 防同一物理步多次碰撞重复结算/销毁
         private Vector3 _launchVelocity; // Init 注入的初速度快照：同队穿过时据此恢复被弹偏的直线投射物速度
+        private bool _timedTriggerArmed;
+        private float _timedTriggerRemaining;
 
         /// <summary>
         /// 命中真实目标/环境的瞬间触发（命中点, 命中方向）。上层（法术触发）据此在命中点再施放载荷，
         /// 保持 Combat 不反依赖 Skills/Character——这里只发一个通用通知。同阵营穿过不算命中、不触发；超时自毁不触发。
         /// </summary>
         public event System.Action<Vector3, Vector3> Impacted;
+
+        /// <summary>
+        /// 定时触发计时器到点时广播当前位置与当前方向。Combat 不知道 payload；上层可选择订阅。
+        /// 提前命中/销毁不会触发该事件。
+        /// </summary>
+        public event System.Action<Vector3, Vector3> TimedTriggerElapsed;
 
         // 在场投射物注册表：新生成的投射物与所有"同阵营"已存在投射物互相 IgnoreCollision，
         // 避免同队火球互撞（连发自撞偏移 / 同队两球相撞误爆炸）。异队不忽略 → 仍碰撞 → 各自爆炸。
@@ -55,6 +63,18 @@ namespace Game.Combat
 
         /// <summary>飞行中是否每帧把模型朝向对齐当前速度方向（抛物线箭矢用：机头随下坠俯冲）。默认否（直线投射物方向恒定，Init 定一次即可）。</summary>
         protected virtual bool FaceVelocityInFlight => false;
+
+        protected virtual void Update()
+        {
+            if (_consumed || !_timedTriggerArmed) return;
+
+            _timedTriggerRemaining -= Time.deltaTime;
+            if (_timedTriggerRemaining > 0f) return;
+
+            _consumed = true;
+            TimedTriggerElapsed?.Invoke(transform.position, ResolveCurrentDirection());
+            Destroy(gameObject);
+        }
 
         protected virtual void FixedUpdate()
         {
@@ -98,6 +118,15 @@ namespace Game.Combat
             Destroy(gameObject, _maxLifetime);
         }
 
+        /// <summary>
+        /// 开启定时触发。delaySeconds <= 0 时在下一帧触发，避免在 Arm 调用栈内重入施法。
+        /// </summary>
+        public void ArmTimedTrigger(float delaySeconds)
+        {
+            _timedTriggerArmed = true;
+            _timedTriggerRemaining = Mathf.Max(0f, delaySeconds);
+        }
+
         private void OnCollisionEnter(Collision collision)
         {
             if (_consumed) return;
@@ -131,10 +160,18 @@ namespace Game.Combat
             OnImpact(collision, target, hitPoint, damaged);
 
             // 命中通知：法术触发据此在命中点跑载荷（普通投射物无监听者，空触发无开销）
+            _consumed = true;
             Impacted?.Invoke(hitPoint, hitDir);
 
-            _consumed = true;
             Destroy(gameObject, _impactLingerTime);
+        }
+
+        private Vector3 ResolveCurrentDirection()
+        {
+            Vector3 v = _rb != null ? _rb.linearVelocity : Vector3.zero;
+            if (v.sqrMagnitude > 1e-6f)
+                return v.normalized;
+            return transform.forward;
         }
 
         /// <summary>命中后、销毁前的子类扩展点（默认空）。target 可能为 null（命中环境）；damaged 表示本次是否结算了伤害。</summary>
