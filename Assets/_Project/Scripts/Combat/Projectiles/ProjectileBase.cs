@@ -64,7 +64,15 @@ namespace Game.Combat
         /// <summary>飞行中是否每帧把模型朝向对齐当前速度方向（抛物线箭矢用：机头随下坠俯冲）。默认否（直线投射物方向恒定，Init 定一次即可）。</summary>
         protected virtual bool FaceVelocityInFlight => false;
 
-        protected virtual void Update()
+        private void Update()
+        {
+            TickTimedTrigger();
+            OnProjectileUpdate();
+        }
+
+        protected virtual void OnProjectileUpdate() { }
+
+        private void TickTimedTrigger()
         {
             if (_consumed || !_timedTriggerArmed) return;
 
@@ -119,7 +127,7 @@ namespace Game.Combat
         }
 
         /// <summary>
-        /// 开启定时触发。delaySeconds <= 0 时在下一帧触发，避免在 Arm 调用栈内重入施法。
+        /// 开启定时触发。delaySeconds <= 0 时在下一次 Update 触发，避免在 Arm 调用栈内重入施法。
         /// </summary>
         public void ArmTimedTrigger(float delaySeconds)
         {
