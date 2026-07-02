@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 using Game.Combat;
 
 namespace Game.Skills
@@ -32,6 +33,11 @@ namespace Game.Skills
         [Tooltip("定时触发延迟秒数。仅 PayloadTrigger=AfterDelay 时使用；应小于投射物 prefab 的 Max Lifetime。")]
         public float PayloadDelaySeconds = 1f;
 
+        [SerializeField, HideInInspector, FormerlySerializedAs("IsTrigger")]
+        private bool _legacyIsTrigger;
+        [SerializeField, HideInInspector]
+        private bool _legacyTriggerMigrated;
+
         [Header("Modify（修正）—— 仅 Kind=Modify 用（默认值为恒等：不改变任何东西）")]
         public float ModDamageAddFlat = 0f;
         public float ModDamageMul = 1f;
@@ -41,5 +47,15 @@ namespace Game.Skills
         [Header("Multicast（多重）—— 仅 Kind=Multicast 用")]
         [Tooltip("本次施法额外增加的投射物预算。双重=1，三重=2")]
         public int ExtraDraws = 0;
+
+        private void OnValidate()
+        {
+            if (!_legacyTriggerMigrated)
+            {
+                if (_legacyIsTrigger && PayloadTrigger == PayloadTriggerMode.None)
+                    PayloadTrigger = PayloadTriggerMode.OnImpact;
+                _legacyTriggerMigrated = true;
+            }
+        }
     }
 }

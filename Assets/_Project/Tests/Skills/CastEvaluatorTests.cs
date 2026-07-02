@@ -208,6 +208,16 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void OnImpactTrigger_IgnoresPayloadDelaySeconds()
+        {
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.OnImpact, delay: 1.5f), Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(PayloadTriggerMode.OnImpact, _out[0].PayloadTrigger);
+            Assert.AreEqual(0f, _out[0].PayloadDelaySeconds, 1e-4f);
+        }
+
+        [Test]
         public void AfterDelayTrigger_CapturesSuffixAndDelay_AndEndsCast()
         {
             Run(1, 999f, Emit(trigger: PayloadTriggerMode.AfterDelay, delay: 1.5f), Emit(), Emit());
