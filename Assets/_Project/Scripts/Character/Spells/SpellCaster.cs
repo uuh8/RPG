@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Game.Core;
@@ -7,24 +8,28 @@ using Game.Skills;
 namespace Game.Character
 {
     /// <summary>
-    /// 法术施放器：把"纯求值结果"落地成真实投射物。挂在施法者（法师，未来也可敌人）身上。
-    /// CastWand 跑当前法杖；RunCast 是可复用/递归的核心——触发投射物命中时，以预算 1 在命中点再 RunCast 它的载荷（链式触发）。
-    /// 递归由有限法杖天然收敛（载荷是更短后缀），无需护栏。纯求值在 Game.Skills；本组件是"数据 → Unity 实例化"的唯一桥。
+    /// 法术施放器：把 Game.Skills 的纯求值结果转换成 Unity 运行时对象。
+    /// CastEvaluator 只负责解释 wand；这里负责 Instantiate、ProjectileBase.Init 和 payload 递归触发。
     /// </summary>
     public class SpellCaster : MonoBehaviour
     {
         [SerializeField] private WandLoadout _wand;
-        [Tooltip("可用法力（占位）。资源系统是后续阶段；现给一个大值，求值器不会 fizzle。")]
-        [SerializeField] private float _availableMana = 9999f;
+        [Tooltip("可用法力值")]
+        [SerializeField] private ManaComponent _mana;
 
-        // 求值产出缓冲（预分配复用，求值器内 Clear()）
         private readonly List<EmitCommand> _emits = new List<EmitCommand>(16);
-        // 本次施法已播过的音效：去重，多重/连发的同一音效只响一次
         private readonly HashSet<AudioClip> _playedSfx = new HashSet<AudioClip>();
+        private readonly RaycastHit[] _landingHits = new RaycastHit[8];
 
         public WandLoadout Wand => _wand;
 
-        /// <summary>运行当前法杖：朝 aimPoint 从 spawnPos 施放。返回产出数。</summary>
+        private void Awake()
+        {
+            if (_mana == null)
+                _mana = GetComponent<ManaComponent>();
+        }
+
+        /// <summary>运行当前法杖：从 spawnPos 朝 aimPoint 施放。返回本次求值产出数量。</summary>
         public int CastWand(Vector3 spawnPos, Vector3 aimPoint, byte team, int attackerId, Collider casterCollider)
         {
             if (_wand == null || _wand.Spells == null || _wand.Spells.Length == 0)
@@ -34,7 +39,8 @@ namespace Game.Character
             }
 
             Vector3 baseDir = aimPoint - spawnPos;
-            if (baseDir.sqrMagnitude < 1e-6f) baseDir = transform.forward; // 退化兜底
+            if (baseDir.sqrMagnitude < 1e-6f)
+                baseDir = transform.forward;
             baseDir.Normalize();
 
             return RunCast(_wand.Spells, _wand.BaseDraws, CastModifierState.Default,
@@ -42,14 +48,20 @@ namespace Game.Character
         }
 
         /// <summary>
-        /// 运行一段法术序列，在 spawnPos 沿 baseDir 生成投射物。返回求值产出数。
-        /// 触发投射物订阅命中事件：命中时以"预算 1"在命中点再 RunCast 它的载荷（链式触发递归）。
-        /// 命中回调发生在之后的物理帧、不在本循环内重入，故复用 _emits 安全。
+        /// 运行一段法术序列。spawnPos 对普通 Emit 是发射点；对 SkyfallAtPoint 是落点。
+        /// 触发 payload 时会用命中点作为新的 spawnPos，再以预算 1 运行 payload。
         /// </summary>
         private int RunCast(IReadOnlyList<SpellDefinition> spells, int baseDraws, CastModifierState incomingMods,
                             Vector3 spawnPos, Vector3 baseDir, byte team, int attackerId, Collider casterCollider)
         {
-            CastEvaluator.Evaluate(spells, baseDraws, _availableMana, incomingMods, _emits);
+            float requiredMana = CastEvaluator.EstimateManaCost(spells, baseDraws, incomingMods);
+            if (!TrySpendMana(requiredMana))
+            {
+                _emits.Clear();
+                return 0;
+            }
+
+            CastEvaluator.Evaluate(spells, baseDraws, float.PositiveInfinity, incomingMods, _emits);
             _playedSfx.Clear();
 
             int count = _emits.Count;
@@ -57,54 +69,204 @@ namespace Game.Character
             {
                 EmitCommand cmd = _emits[i];
 
-                // 施放音效：一次施法里同一音效只播一次
                 if (cmd.CastSfx != null && _playedSfx.Add(cmd.CastSfx))
                     AudioSource.PlayClipAtPoint(cmd.CastSfx, spawnPos);
 
                 if (cmd.ProjectilePrefab == null)
                 {
-                    GameLog.Warn("EmitCommand.ProjectilePrefab 为空（法术未配置预制体），跳过该发", "Skills");
+                    GameLog.Warn("EmitCommand.ProjectilePrefab 为空，跳过该法术产出", "Skills");
                     continue;
                 }
 
-                float yaw = SpellAiming.SpreadOffsetDegrees(i, count, cmd.SpreadDegrees);
-                Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;
-
-                GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, Quaternion.LookRotation(dir));
-                ProjectileBase proj = go.GetComponent<ProjectileBase>();
-                if (proj == null)
+                switch (cmd.SpawnMode)
                 {
-                    GameLog.Warn($"法术预制体 {cmd.ProjectilePrefab.name} 上没有 ProjectileBase 组件", "Skills");
-                    Object.Destroy(go);
-                    continue;
+                    case SpellSpawnMode.SkyfallAtPoint:
+                        SpawnSkyfallProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider);
+                        break;
+
+                    default:
+                        SpawnForwardProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider);
+                        break;
                 }
-
-                // 触发：命中时在命中点以预算 1 跑载荷（载荷里再有触发 → 自然链式；有限后缀 → 自然收敛）
-                if (cmd.HasPayload)
-                {
-                    IReadOnlyList<SpellDefinition> payload = cmd.Payload;
-                    CastModifierState payloadMods = cmd.PayloadMods;
-
-                    switch (cmd.PayloadTrigger)
-                    {
-                        case PayloadTriggerMode.OnImpact:
-                            proj.Impacted += (hitPoint, hitDir) =>
-                                RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider);
-                            break;
-
-                        case PayloadTriggerMode.AfterDelay:
-                            proj.TimedTriggerElapsed += (position, direction) =>
-                                RunCast(payload, 1, payloadMods, position, direction, team, attackerId, casterCollider);
-                            proj.ArmTimedTrigger(cmd.PayloadDelaySeconds);
-                            break;
-                    }
-                }
-
-                // 直线投射物关重力；命中走标准 ProjectileBase → ReceiveHit
-                proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, dir * cmd.Speed, casterCollider, useGravity: false);
             }
 
             return count;
+        }
+
+        private bool TrySpendMana(float requiredMana)
+        {
+            if (requiredMana <= 0f)
+                return true;
+
+            if (_mana == null)
+            {
+                GameLog.Warn("SpellCaster 未配置 ManaComponent，本次施法按无限法力处理", "Skills");
+                return true;
+            }
+
+            if (!_mana.CanSpend(requiredMana))
+            {
+                GameLog.Info($"法力不足：需要 {requiredMana:0.#}，当前 {_mana.CurrentMana:0.#}", "Skills");
+                return false;
+            }
+
+            return _mana.Spend(requiredMana);
+        }
+
+        private void SpawnForwardProjectile(EmitCommand cmd, Vector3 spawnPos, Vector3 baseDir, int index, int count,
+                                            byte team, int attackerId, Collider casterCollider)
+        {
+            float yaw = SpellAiming.SpreadOffsetDegrees(index, count, cmd.SpreadDegrees);
+            Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;
+
+            GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, Quaternion.LookRotation(dir));
+            ProjectileBase proj = go.GetComponent<ProjectileBase>();
+            if (proj == null)
+            {
+                GameLog.Warn($"法术预制体 {cmd.ProjectilePrefab.name} 上没有 ProjectileBase 组件", "Skills");
+                Object.Destroy(go);
+                return;
+            }
+
+            WirePayload(proj, cmd, team, attackerId, casterCollider);
+            ConfigureProjectileMotion(proj, cmd, index, count);
+            proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, dir * cmd.Speed, casterCollider, useGravity: cmd.UseGravity);
+        }
+
+        private void WirePayload(ProjectileBase proj, EmitCommand cmd, byte team, int attackerId, Collider casterCollider)
+        {
+            if (!cmd.HasPayload)
+                return;
+
+            IReadOnlyList<SpellDefinition> payload = cmd.Payload;
+            CastModifierState payloadMods = cmd.PayloadMods;
+
+            switch (cmd.PayloadTrigger)
+            {
+                case PayloadTriggerMode.OnImpact:
+                    proj.Impacted += (hitPoint, hitDir) =>
+                        RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider);
+                    break;
+
+                case PayloadTriggerMode.AfterDelay:
+                    proj.TimedTriggerElapsed += (position, direction) =>
+                        RunCast(payload, 1, payloadMods, position, direction, team, attackerId, casterCollider);
+                    proj.ArmTimedTrigger(cmd.PayloadDelaySeconds);
+                    break;
+            }
+        }
+
+        private void ConfigureProjectileMotion(ProjectileBase proj, EmitCommand cmd, int index, int count)
+        {
+            proj.ConfigureBounce(cmd.BounceCount);
+
+            switch (cmd.MotionMode)
+            {
+                case ProjectileMotionMode.Homing:
+                    proj.ConfigureHoming(cmd.HomingRadius, cmd.HomingDuration, cmd.HomingTurnRateDegrees);
+                    proj.ConfigureOrbit(0f, 0f, 0f, 0f);
+                    break;
+
+                case ProjectileMotionMode.Orbit:
+                    proj.ConfigureHoming(0f, 0f, 0f);
+                    float orbitPhase = cmd.OrbitPhaseOffsetDegrees + SpellAiming.PhaseOffsetDegrees(index, count);
+                    float orbitPlaneTilt = SpellAiming.PlaneTiltDegrees(index, count, cmd.OrbitPlaneTiltDegrees);
+                    proj.ConfigureOrbit(cmd.OrbitRadius, cmd.OrbitAngularSpeedDegrees, orbitPhase, orbitPlaneTilt);
+                    break;
+
+                default:
+                    proj.ConfigureHoming(0f, 0f, 0f);
+                    proj.ConfigureOrbit(0f, 0f, 0f, 0f);
+                    break;
+            }
+        }
+
+        private void SpawnSkyfallProjectile(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
+                                            byte team, int attackerId, Collider casterCollider)
+        {
+            landingPoint = ResolveSkyfallLandingPoint(landingPoint, casterCollider);
+
+            if (cmd.LandingSitePrefab != null)
+            {
+                Quaternion markerRotation = cmd.LandingSitePrefab.transform.rotation;
+                GameObject marker = Object.Instantiate(cmd.LandingSitePrefab, landingPoint, markerRotation);
+                Object.Destroy(marker, Mathf.Max(0.05f, cmd.LandingSiteDuration + 0.5f));
+            }
+
+            if (cmd.LandingSiteDuration > 0f)
+            {
+                StartCoroutine(SpawnSkyfallProjectileAfterDelay(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider));
+            }
+            else
+            {
+                SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider);
+            }
+        }
+
+        private IEnumerator SpawnSkyfallProjectileAfterDelay(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir,
+                                                             int index, int count,
+                                                             byte team, int attackerId, Collider casterCollider)
+        {
+            yield return new WaitForSeconds(cmd.LandingSiteDuration);
+            SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider);
+        }
+
+        private void SpawnSkyfallProjectileNow(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
+                                               byte team, int attackerId, Collider casterCollider)
+        {
+            Vector3 horizontalDir = baseDir;
+            horizontalDir.y = 0f;
+            if (horizontalDir.sqrMagnitude < 1e-6f)
+                horizontalDir = transform.forward;
+            horizontalDir.Normalize();
+
+            float height = Mathf.Max(0f, cmd.SkyfallHeight);
+            Vector3 spawnPos = landingPoint + Vector3.up * height - horizontalDir * cmd.SkyfallBackOffset;
+            Vector3 fallDir = landingPoint - spawnPos;
+            if (fallDir.sqrMagnitude < 1e-6f)
+                fallDir = Vector3.down;
+            fallDir.Normalize();
+
+            GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, Quaternion.LookRotation(fallDir));
+            ProjectileBase proj = go.GetComponent<ProjectileBase>();
+            if (proj == null)
+            {
+                GameLog.Warn($"静态投射物预制体 {cmd.ProjectilePrefab.name} 上没有 ProjectileBase 组件", "Skills");
+                Object.Destroy(go);
+                return;
+            }
+
+            WirePayload(proj, cmd, team, attackerId, casterCollider);
+            ConfigureProjectileMotion(proj, cmd, index, count);
+            proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, fallDir * cmd.Speed, casterCollider, useGravity: cmd.UseGravity);
+        }
+
+        private Vector3 ResolveSkyfallLandingPoint(Vector3 sourcePoint, Collider casterCollider)
+        {
+            Vector3 origin = sourcePoint + Vector3.up * 2f;
+            int hitCount = Physics.RaycastNonAlloc(origin, Vector3.down, _landingHits, 50f, ~0, QueryTriggerInteraction.Ignore);
+            if (hitCount <= 0)
+                return sourcePoint;
+
+            float bestDistance = float.MaxValue;
+            Vector3 bestPoint = sourcePoint;
+            bool found = false;
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                Collider hitCollider = _landingHits[i].collider;
+                if (hitCollider == null || hitCollider == casterCollider)
+                    continue;
+
+                if (_landingHits[i].distance >= bestDistance)
+                    continue;
+
+                bestDistance = _landingHits[i].distance;
+                bestPoint = _landingHits[i].point;
+                found = true;
+            }
+
+            return found ? bestPoint : sourcePoint;
         }
     }
 }

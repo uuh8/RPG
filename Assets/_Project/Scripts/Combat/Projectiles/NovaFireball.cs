@@ -39,7 +39,10 @@ namespace Game.Combat
             // 用 GetComponentsInChildren：特效预制体常把 AreaDamage 挂在子物体上，只查根会漏掉 → 漏注入则阵营默认 0 会误伤。
             AreaDamage[] areas = go.GetComponentsInChildren<AreaDamage>(true);
             for (int i = 0; i < areas.Length; i++)
+            {
                 areas[i].Init(_attackerId, _attackerTeam);
+                areas[i].ConfigureDamage(_damage, _type);
+            }
             Destroy(go, lifetime);
         }
     }

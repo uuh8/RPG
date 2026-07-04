@@ -49,6 +49,13 @@ namespace Game.Combat
             _attackerTeam = attackerTeam;
         }
 
+        /// <summary>由生成方注入本次实例的动态伤害快照，用于让法术 Modify 影响 AOE 伤害。</summary>
+        public void ConfigureDamage(float damagePerHit, DamageType type)
+        {
+            _damagePerHit = Mathf.Max(0f, damagePerHit);
+            _type = type;
+        }
+
         private void Start()
         {
             // 一次性与持续都在此打出第一跳（爆炸的瞬间炸开 / 火场的第一跳）

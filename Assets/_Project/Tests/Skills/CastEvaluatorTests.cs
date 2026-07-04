@@ -22,21 +22,46 @@ namespace Game.Skills.Tests
             s.PayloadDelaySeconds = delay;
             return s;
         }
-        private static SpellDefinition DamageMod(float mul)
+
+        private static SpellDefinition Static(float dmg = 10f, float speed = 20f, float mana = 0f)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
-            s.Kind = SpellKind.Modify; s.ModDamageMul = mul;
+            s.Kind = SpellKind.StaticProjectile;
+            s.SpawnMode = SpellSpawnMode.SkyfallAtPoint;
+            s.BaseDamage = dmg;
+            s.BaseSpeed = speed;
+            s.DamageType = DamageType.Magical;
+            s.ManaCost = mana;
+            s.SkyfallHeight = 12f;
+            s.SkyfallBackOffset = 0f;
+            s.LandingSiteDuration = 0.8f;
             return s;
         }
-        private static SpellDefinition Multi(int extra)
+
+        private static SpellDefinition DamageMod(float mul, float mana = 0f)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
-            s.Kind = SpellKind.Multicast; s.ExtraDraws = extra;
+            s.Kind = SpellKind.Modify; s.ModDamageMul = mul; s.ManaCost = mana;
+            return s;
+        }
+        private static SpellDefinition Multi(int extra, float mana = 0f)
+        {
+            var s = ScriptableObject.CreateInstance<SpellDefinition>();
+            s.Kind = SpellKind.Multicast; s.ExtraDraws = extra; s.ManaCost = mana;
             return s;
         }
 
         private CastSummary Run(int baseDraws, float mana, params SpellDefinition[] wand)
             => CastEvaluator.Evaluate(wand, baseDraws, mana, CastModifierState.Default, _out);
+
+        [Test]
+        public void SpellKind_StaticProjectile_AppendsAfterExistingKinds()
+        {
+            Assert.AreEqual(0, (int)SpellKind.Emit);
+            Assert.AreEqual(1, (int)SpellKind.Modify);
+            Assert.AreEqual(2, (int)SpellKind.Multicast);
+            Assert.AreEqual(3, (int)SpellKind.StaticProjectile);
+        }
 
         [Test]
         public void EmptyWand_EmitsNothing()
@@ -55,6 +80,28 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void StaticProjectile_EmitsOneCommand_WithSkyfallSpawnMode()
+        {
+            Run(1, 999f, Static(dmg: 25f, speed: 18f));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(25f, _out[0].Damage, 1e-4f);
+            Assert.AreEqual(18f, _out[0].Speed, 1e-4f);
+            Assert.AreEqual(SpellSpawnMode.SkyfallAtPoint, _out[0].SpawnMode);
+            Assert.AreEqual(12f, _out[0].SkyfallHeight, 1e-4f);
+            Assert.AreEqual(0.8f, _out[0].LandingSiteDuration, 1e-4f);
+        }
+
+        [Test]
+        public void StaticProjectile_ConsumesDrawBudget()
+        {
+            Run(1, 999f, Static(), Emit());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.SkyfallAtPoint, _out[0].SpawnMode);
+        }
+
+        [Test]
         public void DamageMod_BeforeEmit_BoostsIt()
         {
             Run(1, 999f, DamageMod(1.5f), Emit(dmg: 15f));
@@ -68,6 +115,15 @@ namespace Game.Skills.Tests
             Run(1, 999f, Emit(dmg: 15f), DamageMod(1.5f));
             Assert.AreEqual(1, _out.Count);
             Assert.AreEqual(15f, _out[0].Damage, 1e-4f); // 修正只影响其后
+        }
+
+        [Test]
+        public void Modify_AffectsFollowingStaticProjectile()
+        {
+            Run(1, 999f, DamageMod(2f), Static(dmg: 25f));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(50f, _out[0].Damage, 1e-4f);
         }
 
         [Test]
@@ -97,6 +153,17 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void Multicast_CountsStaticProjectileAsProjectileOutput()
+        {
+            Run(1, 999f, Multi(2), Static(), Emit(), Emit());
+
+            Assert.AreEqual(3, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.SkyfallAtPoint, _out[0].SpawnMode);
+            Assert.AreEqual(SpellSpawnMode.ForwardProjectile, _out[1].SpawnMode);
+            Assert.AreEqual(SpellSpawnMode.ForwardProjectile, _out[2].SpawnMode);
+        }
+
+        [Test]
         public void Multicast_BudgetUnfilled_IsDiscarded_NoWrap()
         {
             Run(1, 999f, Multi(2), Emit()); // 预算 3 但只有 1 个投射物 → 产出 1（单遍不回绕，余量作废）
@@ -120,6 +187,38 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void ManaCost_IncludesModifyAndMulticast_WhenTheyAreRead()
+        {
+            var summary = Run(1, 100f, Multi(2, mana: 3f), DamageMod(2f, mana: 4f), Emit(mana: 5f));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsFalse(summary.Fizzled);
+            Assert.AreEqual(12f, summary.ManaSpent, 1e-4f);
+            Assert.AreEqual(20f, _out[0].Damage, 1e-4f);
+        }
+
+        [Test]
+        public void InsufficientMana_OnModify_FizzlesBeforeFollowingEmit()
+        {
+            var summary = Run(1, 3f, DamageMod(2f, mana: 4f), Emit(mana: 0f));
+
+            Assert.AreEqual(0, _out.Count);
+            Assert.IsTrue(summary.Fizzled);
+            Assert.AreEqual(0f, summary.ManaSpent, 1e-4f);
+        }
+
+        [Test]
+        public void EstimateManaCost_IncludesCurrentLayerOnly_AndDoesNotPrepayTriggerPayload()
+        {
+            float mana = CastEvaluator.EstimateManaCost(
+                new[] { Multi(2, mana: 3f), Emit(mana: 5f, trigger: PayloadTriggerMode.OnImpact), DamageMod(2f, mana: 11f), Emit(mana: 13f) },
+                1,
+                CastModifierState.Default);
+
+            Assert.AreEqual(8f, mana, 1e-4f);
+        }
+
+        [Test]
         public void InsufficientMana_FizzlesMidCast()
         {
             // 可用 10，每发 6：第 1 发后剩 4，第 2 发 6>4 → fizzle
@@ -138,7 +237,11 @@ namespace Game.Skills.Tests
         }
 
         // 通用修正构造（覆盖 增伤/加速/平铺加伤/散射 四类），用于验证 BakeEmit 端到端写入
-        private static SpellDefinition Mod(float dmgMul = 1f, float speedMul = 1f, float dmgAdd = 0f, float spread = 0f)
+        private static SpellDefinition Mod(float dmgMul = 1f, float speedMul = 1f, float dmgAdd = 0f, float spread = 0f,
+                                           int bounce = 0, bool useGravity = false,
+                                           float homingRadius = 0f, float homingDuration = 0f, float homingTurnRate = 0f,
+                                           float orbitRadius = 0f, float orbitAngularSpeed = 0f,
+                                           float orbitPhaseOffset = 0f, float orbitPlaneTilt = 0f)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
             s.Kind = SpellKind.Modify;
@@ -146,6 +249,15 @@ namespace Game.Skills.Tests
             s.ModSpeedMul = speedMul;
             s.ModDamageAddFlat = dmgAdd;
             s.ModSpreadAddDegrees = spread;
+            s.ModBounceAdd = bounce;
+            s.ModUseGravity = useGravity;
+            s.ModHomingRadius = homingRadius;
+            s.ModHomingDuration = homingDuration;
+            s.ModHomingTurnRateDegrees = homingTurnRate;
+            s.ModOrbitRadius = orbitRadius;
+            s.ModOrbitAngularSpeedDegrees = orbitAngularSpeed;
+            s.ModOrbitPhaseOffsetDegrees = orbitPhaseOffset;
+            s.ModOrbitPlaneTiltDegrees = orbitPlaneTilt;
             return s;
         }
 
@@ -158,6 +270,87 @@ namespace Game.Skills.Tests
             Assert.AreEqual(30f, _out[0].Damage, 1e-4f);
             Assert.AreEqual(30f, _out[0].Speed, 1e-4f);
             Assert.AreEqual(15f, _out[0].SpreadDegrees, 1e-4f);
+        }
+
+        [Test]
+        public void BounceModifier_BakesBounceCount_IntoEmit()
+        {
+            Run(1, 999f, Mod(bounce: 2), Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(2, _out[0].BounceCount);
+        }
+
+        [Test]
+        public void BounceModifier_StacksAdditively()
+        {
+            Run(1, 999f, Mod(bounce: 1), Mod(bounce: 2), Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(3, _out[0].BounceCount);
+        }
+
+        [Test]
+        public void GravityModifier_BakesUseGravity_IntoEmit()
+        {
+            Run(1, 999f, Mod(useGravity: true), Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].UseGravity);
+        }
+
+        [Test]
+        public void HomingModifier_BakesHomingConfig_IntoEmit()
+        {
+            Run(1, 999f, Mod(homingRadius: 6f, homingDuration: 0.6f, homingTurnRate: 120f), Emit());
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(6f, _out[0].HomingRadius, 1e-4f);
+            Assert.AreEqual(0.6f, _out[0].HomingDuration, 1e-4f);
+            Assert.AreEqual(120f, _out[0].HomingTurnRateDegrees, 1e-4f);
+        }
+
+        [Test]
+        public void HomingModifier_OnlyAffectsFollowingEmit()
+        {
+            Run(2, 999f, Emit(), Mod(homingRadius: 6f, homingDuration: 0.6f, homingTurnRate: 120f), Emit());
+            Assert.AreEqual(2, _out.Count);
+            Assert.AreEqual(0f, _out[0].HomingRadius, 1e-4f);
+            Assert.AreEqual(6f, _out[1].HomingRadius, 1e-4f);
+            Assert.AreEqual(0.6f, _out[1].HomingDuration, 1e-4f);
+            Assert.AreEqual(120f, _out[1].HomingTurnRateDegrees, 1e-4f);
+        }
+
+        [Test]
+        public void LaterHomingMotionModifier_OverridesEarlierOrbitForEmit()
+        {
+            Run(3, 999f,
+                Mod(orbitRadius: 0.8f, orbitAngularSpeed: 360f, orbitPlaneTilt: 35f),
+                Mod(homingRadius: 8f, homingDuration: 0.6f, homingTurnRate: 120f),
+                Emit());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(ProjectileMotionMode.Homing, _out[0].MotionMode);
+        }
+
+        [Test]
+        public void LaterOrbitMotionModifier_OverridesEarlierHomingForEmit()
+        {
+            Run(3, 999f,
+                Mod(homingRadius: 8f, homingDuration: 0.6f, homingTurnRate: 120f),
+                Mod(orbitRadius: 0.8f, orbitAngularSpeed: 360f, orbitPlaneTilt: 35f),
+                Emit());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(ProjectileMotionMode.Orbit, _out[0].MotionMode);
+        }
+
+        [Test]
+        public void OrbitModifier_BakesOrbitConfig_IntoEmit()
+        {
+            Run(1, 999f, Mod(orbitRadius: 0.8f, orbitAngularSpeed: 360f, orbitPhaseOffset: 45f, orbitPlaneTilt: 35f), Emit());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(0.8f, _out[0].OrbitRadius, 1e-4f);
+            Assert.AreEqual(360f, _out[0].OrbitAngularSpeedDegrees, 1e-4f);
+            Assert.AreEqual(45f, _out[0].OrbitPhaseOffsetDegrees, 1e-4f);
+            Assert.AreEqual(35f, _out[0].OrbitPlaneTiltDegrees, 1e-4f);
         }
 
         [Test]
@@ -184,6 +377,17 @@ namespace Game.Skills.Tests
             Assert.IsTrue(_out[0].HasPayload);
             Assert.AreEqual(PayloadTriggerMode.OnImpact, _out[0].PayloadTrigger);
             Assert.AreEqual(2, _out[0].Payload.Count); // 载荷 = 触发之后的 2 个
+        }
+
+        [Test]
+        public void TriggerPayload_CanCaptureStaticProjectile()
+        {
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.OnImpact), Static());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(1, _out[0].Payload.Count);
+            Assert.AreEqual(SpellKind.StaticProjectile, _out[0].Payload[0].Kind);
         }
 
         [Test]
@@ -244,6 +448,51 @@ namespace Game.Skills.Tests
             Run(1, 999f, DamageMod(2f), Emit(trigger: PayloadTriggerMode.AfterDelay), Emit(dmg: 10f));
             Assert.AreEqual(1, _out.Count);
             Assert.AreEqual(2f, _out[0].PayloadMods.DamageMul, 1e-4f);
+        }
+
+        [Test]
+        public void PayloadTrigger_PayloadModsPreserveBounceCount()
+        {
+            Run(1, 999f, Mod(bounce: 2), Emit(trigger: PayloadTriggerMode.AfterDelay), Emit(dmg: 10f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(2, _out[0].BounceCount);
+            Assert.AreEqual(2, _out[0].PayloadMods.BounceCount);
+        }
+
+        [Test]
+        public void PayloadTrigger_PayloadModsPreserveUseGravity()
+        {
+            Run(1, 999f, Mod(useGravity: true), Emit(trigger: PayloadTriggerMode.AfterDelay), Emit(dmg: 10f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].UseGravity);
+            Assert.IsTrue(_out[0].PayloadMods.UseGravity);
+        }
+
+        [Test]
+        public void PayloadTrigger_PayloadModsPreserveHomingConfig()
+        {
+            Run(1, 999f, Mod(homingRadius: 6f, homingDuration: 0.6f, homingTurnRate: 120f),
+                Emit(trigger: PayloadTriggerMode.AfterDelay), Emit(dmg: 10f));
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(6f, _out[0].HomingRadius, 1e-4f);
+            Assert.AreEqual(6f, _out[0].PayloadMods.HomingRadius, 1e-4f);
+            Assert.AreEqual(0.6f, _out[0].PayloadMods.HomingDuration, 1e-4f);
+            Assert.AreEqual(120f, _out[0].PayloadMods.HomingTurnRateDegrees, 1e-4f);
+        }
+
+        [Test]
+        public void PayloadTrigger_PayloadModsPreserveOrbitConfig()
+        {
+            Run(1, 999f, Mod(orbitRadius: 0.8f, orbitAngularSpeed: 360f, orbitPhaseOffset: 45f, orbitPlaneTilt: 35f),
+                Emit(trigger: PayloadTriggerMode.AfterDelay), Emit(dmg: 10f));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(0.8f, _out[0].OrbitRadius, 1e-4f);
+            Assert.AreEqual(0.8f, _out[0].PayloadMods.OrbitRadius, 1e-4f);
+            Assert.AreEqual(360f, _out[0].PayloadMods.OrbitAngularSpeedDegrees, 1e-4f);
+            Assert.AreEqual(45f, _out[0].PayloadMods.OrbitPhaseOffsetDegrees, 1e-4f);
+            Assert.AreEqual(35f, _out[0].PayloadMods.OrbitPlaneTiltDegrees, 1e-4f);
+            Assert.AreEqual(ProjectileMotionMode.Orbit, _out[0].PayloadMods.MotionMode);
         }
     }
 }

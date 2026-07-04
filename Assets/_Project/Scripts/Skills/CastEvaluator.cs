@@ -19,17 +19,18 @@ namespace Game.Skills
     /// <summary>
     /// 法术编程系统的解释器内核：从左到右"运行"一段法杖序列，算出本次施法该产出哪些投射物。
     /// 纯逻辑、不碰 Unity 实例化（对标 Combat.DamagePipeline），可 EditMode 单测。运行时由 SpellCaster（阶段 B）把 EmitCommand 变成真实投射物。
-    /// 语义：Emit 产出（消耗预算）；Modify 累积修正（影响其后）；Multicast 增大预算；预算耗尽或法力不足即停。单遍读取、不回绕。
+    /// 语义：Emit 产出并消耗投射物预算；Modify 累积修正（影响其后）；Multicast 增大投射物预算；
+    /// 投射物预算耗尽或法力不足即停。单遍读取、不回绕。
     /// incomingMods 让本方法可被递归调用（后期触发：命中时以快照为起点再跑子序列）。
     /// </summary>
     public static class CastEvaluator
     {
         public static CastSummary Evaluate(
-            IReadOnlyList<SpellDefinition> spells,
-            int baseDraws,
-            float availableMana,
-            CastModifierState incomingMods,
-            List<EmitCommand> output)
+            IReadOnlyList<SpellDefinition> spells,      // 法术序列
+            int baseDraws,                              // 投射物释放数
+            float availableMana,                        // 当前可用法力值
+            CastModifierState incomingMods,             // 外部传入的修正状态
+            List<EmitCommand> output)                   // 输出列表
         {
             output.Clear();
             if (spells == null || spells.Count == 0)
@@ -51,22 +52,31 @@ namespace Game.Skills
                 switch (spell.Kind)
                 {
                     case SpellKind.Modify:
-                        mods = mods.Apply(spell);
-                        break;
-
-                    case SpellKind.Multicast:
-                        drawBudget += spell.ExtraDraws;
-                        break;
-
-                    case SpellKind.Emit:
-                        if (drawBudget <= 0) break;
-                        if (spell.ManaCost > manaLeft)
+                        if (!TrySpend(spell, ref manaLeft, ref manaSpent))
                         {
                             fizzled = true;
                             break;
                         }
-                        manaLeft -= spell.ManaCost;
-                        manaSpent += spell.ManaCost;
+                        mods = mods.Apply(spell);
+                        break;
+
+                    case SpellKind.Multicast:
+                        if (!TrySpend(spell, ref manaLeft, ref manaSpent))
+                        {
+                            fizzled = true;
+                            break;
+                        }
+                        drawBudget += spell.ExtraDraws;
+                        break;
+
+                    case SpellKind.Emit:
+                    case SpellKind.StaticProjectile:
+                        if (drawBudget <= 0) break;
+                        if (!TrySpend(spell, ref manaLeft, ref manaSpent))
+                        {
+                            fizzled = true;
+                            break;
+                        }
                         if (spell.PayloadTrigger != PayloadTriggerMode.None)
                         {
                             // payload = 严格后缀；这条不变量保证链式触发自然收敛。
@@ -86,7 +96,76 @@ namespace Game.Skills
             return new CastSummary(manaSpent, fizzled);
         }
 
-        /// <summary>把一个 Emit 法术按当前修正快照算出最终产出指令。</summary>
+        /// <summary>
+        /// 估算当前求值层会读取到的法术 Mana 成本。它不实例化、不扣真实资源，只镜像 Evaluate 的读法。
+        /// payload suffix 不在本层预付费；触发投射物读到后，本层结束，suffix 留到触发时作为新层再估算。
+        /// </summary>
+        public static float EstimateManaCost(
+            IReadOnlyList<SpellDefinition> spells,
+            int baseDraws,
+            CastModifierState incomingMods)
+        {
+            if (spells == null || spells.Count == 0)
+                return 0f;
+
+            int drawBudget = baseDraws;
+            float manaCost = 0f;
+            CastModifierState mods = incomingMods;
+
+            for (int i = 0; i < spells.Count; i++)
+            {
+                SpellDefinition spell = spells[i];
+                if (spell == null) continue;
+
+                switch (spell.Kind)
+                {
+                    case SpellKind.Modify:
+                        manaCost += SanitizedManaCost(spell);
+                        mods = mods.Apply(spell);
+                        break;
+
+                    case SpellKind.Multicast:
+                        manaCost += SanitizedManaCost(spell);
+                        drawBudget += spell.ExtraDraws;
+                        break;
+
+                    case SpellKind.Emit:
+                    case SpellKind.StaticProjectile:
+                        if (drawBudget <= 0)
+                            break;
+
+                        manaCost += SanitizedManaCost(spell);
+                        drawBudget--;
+
+                        if (spell.PayloadTrigger != PayloadTriggerMode.None)
+                            return manaCost;
+                        break;
+                }
+            }
+
+            return manaCost;
+        }
+
+        private static bool TrySpend(SpellDefinition spell, ref float manaLeft, ref float manaSpent)
+        {
+            float cost = SanitizedManaCost(spell);
+            if (cost > manaLeft)
+                return false;
+
+            manaLeft -= cost;
+            manaSpent += cost;
+            return true;
+        }
+
+        private static float SanitizedManaCost(SpellDefinition spell)
+        {
+            return spell != null && spell.ManaCost > 0f ? spell.ManaCost : 0f;
+        }
+
+        /// <summary>
+        /// 把一个 Emit 法术按当前修正快照算出最终产出指令。
+        /// “本次发射命令”的纯数据快照
+        /// </summary>
         private static EmitCommand BakeEmit(SpellDefinition spell, CastModifierState mods, IReadOnlyList<SpellDefinition> payload)
         {
             float damage = (spell.BaseDamage + mods.DamageAddFlat) * mods.DamageMul;
@@ -95,8 +174,15 @@ namespace Game.Skills
                 ? spell.PayloadTrigger
                 : PayloadTriggerMode.None;
             float delay = trigger == PayloadTriggerMode.AfterDelay ? spell.PayloadDelaySeconds : 0f;
-            return new EmitCommand(spell.ProjectilePrefab, damage, speed, spell.DamageType,
-                                   mods.SpreadDegrees, spell.CastSfx, payload, mods, trigger, delay);
+            return new EmitCommand(spell.ProjectilePrefab, spell.SpawnMode, spell.LandingSitePrefab,
+                                   spell.SkyfallHeight, spell.SkyfallBackOffset, spell.LandingSiteDuration,
+                                   damage, speed, spell.DamageType,
+                                   mods.SpreadDegrees, mods.BounceCount, mods.UseGravity,
+                                   mods.HomingRadius, mods.HomingDuration, mods.HomingTurnRateDegrees,
+                                   mods.OrbitRadius, mods.OrbitAngularSpeedDegrees, mods.OrbitPhaseOffsetDegrees,
+                                   mods.OrbitPlaneTiltDegrees,
+                                   mods.MotionMode,
+                                   spell.CastSfx, payload, mods, trigger, delay);
         }
 
         /// <summary>

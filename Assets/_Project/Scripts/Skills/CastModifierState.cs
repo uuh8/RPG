@@ -1,35 +1,100 @@
+using UnityEngine;
+
 namespace Game.Skills
 {
     /// <summary>
-    /// 求值过程中"当前累积的修正"。求值器从左到右读取修正法术时更新它；产出投射物时把它快照进 EmitCommand。
-    /// readonly struct：按值传递、零 GC、可作为递归求值的"继承起点"（后期触发用）。
+    /// 互斥的投射物主运动控制器。后出现的冲突类 Modify 会覆盖前一个模式。
+    /// </summary>
+    public enum ProjectileMotionMode : byte
+    {
+        None = 0,
+        Homing = 1,
+        Orbit = 2
+    }
+
+    /// <summary>
+    /// 求值过程中当前累积的修正状态。解释器从左到右读取 Modify 法术时更新它，
+    /// 产出投射物时把它快照进 EmitCommand。readonly struct 保持值传递和低开销。
     /// </summary>
     public readonly struct CastModifierState
     {
-        public readonly float DamageAddFlat; // 平铺加伤（先加）
-        public readonly float DamageMul;     // 伤害倍率（后乘）
-        public readonly float SpeedMul;      // 速度倍率
-        public readonly float SpreadDegrees; // 散射角度（扇形半角，度）
+        public readonly float DamageAddFlat;
+        public readonly float DamageMul;
+        public readonly float SpeedMul;
+        public readonly float SpreadDegrees;
+        public readonly int BounceCount;
+        public readonly bool UseGravity;
+        public readonly float HomingRadius;
+        public readonly float HomingDuration;
+        public readonly float HomingTurnRateDegrees;
+        public readonly float OrbitRadius;
+        public readonly float OrbitAngularSpeedDegrees;
+        public readonly float OrbitPhaseOffsetDegrees;
+        public readonly float OrbitPlaneTiltDegrees;
+        public readonly ProjectileMotionMode MotionMode;
 
-        public CastModifierState(float damageAddFlat, float damageMul, float speedMul, float spreadDegrees)
+        public CastModifierState(float damageAddFlat, float damageMul, float speedMul, float spreadDegrees,
+                                 int bounceCount, bool useGravity,
+                                 float homingRadius, float homingDuration, float homingTurnRateDegrees,
+                                 float orbitRadius, float orbitAngularSpeedDegrees, float orbitPhaseOffsetDegrees,
+                                 float orbitPlaneTiltDegrees, ProjectileMotionMode motionMode)
         {
             DamageAddFlat = damageAddFlat;
             DamageMul = damageMul;
             SpeedMul = speedMul;
             SpreadDegrees = spreadDegrees;
+            BounceCount = bounceCount;
+            UseGravity = useGravity;
+            HomingRadius = homingRadius;
+            HomingDuration = homingDuration;
+            HomingTurnRateDegrees = homingTurnRateDegrees;
+            OrbitRadius = orbitRadius;
+            OrbitAngularSpeedDegrees = orbitAngularSpeedDegrees;
+            OrbitPhaseOffsetDegrees = orbitPhaseOffsetDegrees;
+            OrbitPlaneTiltDegrees = orbitPlaneTiltDegrees;
+            MotionMode = motionMode;
         }
 
-        /// <summary>初始（恒等）状态：加伤 0、倍率 1、散射 0。乘法用 1 作单位元，保证"只改伤害的修正"不影响速度。</summary>
-        public static CastModifierState Default => new CastModifierState(0f, 1f, 1f, 0f);
+        public static CastModifierState Default => new CastModifierState(0f, 1f, 1f, 0f, 0, false, 0f, 0f, 0f, 0f, 0f, 0f, 0f, ProjectileMotionMode.None);
 
-        /// <summary>把一个 Modify 法术叠加到当前状态，返回新状态（不可变）。加法项相加、乘法项相乘、散射相加。</summary>
         public CastModifierState Apply(SpellDefinition modify)
         {
+            ProjectileMotionMode motionMode = ResolveMotionMode(modify);
             return new CastModifierState(
                 DamageAddFlat + modify.ModDamageAddFlat,
                 DamageMul * modify.ModDamageMul,
                 SpeedMul * modify.ModSpeedMul,
-                SpreadDegrees + modify.ModSpreadAddDegrees);
+                SpreadDegrees + modify.ModSpreadAddDegrees,
+                BounceCount + modify.ModBounceAdd,
+                UseGravity || modify.ModUseGravity,
+                Mathf.Max(HomingRadius, modify.ModHomingRadius),
+                HomingDuration + modify.ModHomingDuration,
+                HomingTurnRateDegrees + modify.ModHomingTurnRateDegrees,
+                Mathf.Max(OrbitRadius, modify.ModOrbitRadius),
+                OrbitAngularSpeedDegrees + modify.ModOrbitAngularSpeedDegrees,
+                OrbitPhaseOffsetDegrees + modify.ModOrbitPhaseOffsetDegrees,
+                Mathf.Abs(modify.ModOrbitPlaneTiltDegrees) > Mathf.Abs(OrbitPlaneTiltDegrees)
+                    ? modify.ModOrbitPlaneTiltDegrees
+                    : OrbitPlaneTiltDegrees,
+                motionMode);
+        }
+
+        private ProjectileMotionMode ResolveMotionMode(SpellDefinition modify)
+        {
+            ProjectileMotionMode mode = MotionMode;
+
+            bool enablesHoming = modify.ModHomingRadius > 0f
+                && modify.ModHomingDuration > 0f
+                && modify.ModHomingTurnRateDegrees > 0f;
+            if (enablesHoming)
+                mode = ProjectileMotionMode.Homing;
+
+            bool enablesOrbit = modify.ModOrbitRadius > 0f
+                && !Mathf.Approximately(modify.ModOrbitAngularSpeedDegrees, 0f);
+            if (enablesOrbit)
+                mode = ProjectileMotionMode.Orbit;
+
+            return mode;
         }
     }
 }

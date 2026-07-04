@@ -12,7 +12,7 @@ namespace Game.Skills
         [Tooltip("法杖里从左到右的法术序列（求值器据此运行）")]
         public SpellDefinition[] Spells;
 
-        [Tooltip("基础投射物预算（施放数）。多重法术在此之上叠加")]
+        [Tooltip("基础投射物施放数。多重法术在此之上叠加")]
         public int BaseDraws = 1;
     }
 }

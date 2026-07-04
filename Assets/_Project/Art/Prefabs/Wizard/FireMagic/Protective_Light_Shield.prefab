@@ -4833,7 +4833,7 @@ GameObject:
   - component: {fileID: 2163724341660548216}
   - component: {fileID: 3979105564334253965}
   m_Layer: 0
-  m_Name: NovaFireball_Pre_Field
+  m_Name: Protective_Light_Shield
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

@@ -19,6 +19,8 @@ namespace Game.Combat
         [SerializeField] protected Vector3 _modelForwardOffsetEuler = Vector3.zero;
         [Tooltip("命中后停留多久再销毁(秒)。0 = 立即消失(爆炸类)；箭矢类设 >0 可插在目标/地面上残留一小段时间。")]
         [SerializeField] protected float _impactLingerTime = 0f;
+        [Tooltip("追踪目标扫描间隔。仅配置追踪修正的投射物会使用。")]
+        [SerializeField] private float _homingScanInterval = 0.1f;
 
         protected Rigidbody _rb;
         protected Collider _collider;
@@ -31,8 +33,29 @@ namespace Game.Combat
 
         private bool _consumed; // 防同一物理步多次碰撞重复结算/销毁
         private Vector3 _launchVelocity; // Init 注入的初速度快照：同队穿过时据此恢复被弹偏的直线投射物速度
+        private int _bounceRemaining;
+        private float _currentSpeed;
         private bool _timedTriggerArmed;
         private float _timedTriggerRemaining;
+        private float _homingRadius;
+        private float _homingDuration;
+        private float _homingTurnRateDegrees;
+        private bool _homingEnabled;
+        private bool _homingAcquired;
+        private float _homingRemaining;
+        private float _homingScanTimer;
+        private Transform _homingTarget;
+        private IDamageable _homingTargetDamageable;
+        private float _orbitRadius;
+        private float _orbitAngularSpeedDegrees;
+        private float _orbitAngleDegrees;
+        private float _orbitPlaneTiltDegrees;
+        private bool _orbitEnabled;
+        private Vector3 _orbitCenter;
+        private Vector3 _orbitForward;
+        private Vector3 _orbitRight;
+        private Vector3 _orbitUp;
+        private float _orbitCenterSpeed;
 
         /// <summary>
         /// 命中真实目标/环境的瞬间触发（命中点, 命中方向）。上层（法术触发）据此在命中点再施放载荷，
@@ -49,6 +72,7 @@ namespace Game.Combat
         // 在场投射物注册表：新生成的投射物与所有"同阵营"已存在投射物互相 IgnoreCollision，
         // 避免同队火球互撞（连发自撞偏移 / 同队两球相撞误爆炸）。异队不忽略 → 仍碰撞 → 各自爆炸。
         private static readonly List<ProjectileBase> s_active = new List<ProjectileBase>(32);
+        private static readonly Collider[] s_homingHits = new Collider[16];
 
         protected virtual void Awake()
         {
@@ -86,8 +110,15 @@ namespace Game.Combat
 
         protected virtual void FixedUpdate()
         {
-            // 命中后(_consumed)或非抛物线投射物不更新；命中冻结(velocity≈0)时自动停止，保留命中姿态
-            if (_consumed || !FaceVelocityInFlight || _rb == null) return;
+            if (_consumed || _rb == null) return;
+
+            if (_orbitEnabled)
+                TickOrbit(Time.fixedDeltaTime);
+            else
+                TickHoming(Time.fixedDeltaTime);
+
+            // 非抛物线投射物不更新模型朝向；命中冻结(velocity≈0)时自动停止，保留命中姿态
+            if (!FaceVelocityInFlight) return;
             Vector3 v = _rb.linearVelocity;
             if (v.sqrMagnitude > 1e-6f)
                 transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
@@ -105,6 +136,7 @@ namespace Game.Combat
             _damage = damage;
             _type = type;
             _launchVelocity = velocity; // 直线投射物被同队物体擦碰弹偏后，据此恢复原方向
+            _currentSpeed = velocity.magnitude;
 
             if (_rb == null) _rb = GetComponent<Rigidbody>();
             if (_collider == null) _collider = GetComponent<Collider>();
@@ -120,10 +152,69 @@ namespace Game.Combat
             // 高速投射物防穿透：连续碰撞检测可命中薄的静态碰撞体（地面），避免快速飞行时隧穿穿地
             _rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
             _rb.linearVelocity = velocity; // Unity 6：Rigidbody.velocity → linearVelocity
+            if (_orbitEnabled)
+                InitializeOrbit(velocity);
             if (velocity.sqrMagnitude > 1e-6f)
                 transform.rotation = Quaternion.LookRotation(velocity) * Quaternion.Euler(_modelForwardOffsetEuler);
 
             Destroy(gameObject, _maxLifetime);
+        }
+
+        /// <summary>配置本次投射物可用的环境弹跳次数。由 SpellCaster 从 EmitCommand 注入。</summary>
+        public void ConfigureBounce(int bounceCount)
+        {
+            _bounceRemaining = Mathf.Max(0, bounceCount);
+        }
+
+        /// <summary>配置本次投射物的有限追踪能力。由 SpellCaster 从 EmitCommand 注入。</summary>
+        public void ConfigureHoming(float radius, float duration, float turnRateDegrees)
+        {
+            _homingRadius = Mathf.Max(0f, radius);
+            _homingDuration = Mathf.Max(0f, duration);
+            _homingTurnRateDegrees = Mathf.Max(0f, turnRateDegrees);
+            _homingEnabled = _homingRadius > 0f && _homingDuration > 0f && _homingTurnRateDegrees > 0f;
+            _homingAcquired = false;
+            _homingRemaining = 0f;
+            _homingScanTimer = 0f;
+            _homingTarget = null;
+            _homingTargetDamageable = null;
+        }
+
+        /// <summary>配置本次投射物的轨道螺旋运动。由 SpellCaster 从 EmitCommand 注入。</summary>
+        public void ConfigureOrbit(float radius, float angularSpeedDegrees, float phaseOffsetDegrees, float planeTiltDegrees)
+        {
+            _orbitRadius = Mathf.Max(0f, radius);
+            _orbitAngularSpeedDegrees = angularSpeedDegrees;
+            _orbitAngleDegrees = phaseOffsetDegrees;
+            _orbitPlaneTiltDegrees = planeTiltDegrees;
+            _orbitEnabled = _orbitRadius > 0f && !Mathf.Approximately(_orbitAngularSpeedDegrees, 0f);
+            _orbitCenter = Vector3.zero;
+            _orbitForward = Vector3.forward;
+            _orbitRight = Vector3.right;
+            _orbitUp = Vector3.up;
+            _orbitCenterSpeed = 0f;
+        }
+
+        private void InitializeOrbit(Vector3 velocity)
+        {
+            Vector3 forward = velocity.sqrMagnitude > 1e-6f ? velocity.normalized : transform.forward;
+            if (forward.sqrMagnitude <= 1e-6f)
+                forward = Vector3.forward;
+
+            _orbitForward = forward.normalized;
+            _orbitCenter = transform.position;
+            _orbitCenterSpeed = velocity.magnitude;
+
+            Vector3 upSeed = Mathf.Abs(Vector3.Dot(_orbitForward, Vector3.up)) > 0.95f
+                ? Vector3.forward
+                : Vector3.up;
+
+            Quaternion basis = Quaternion.LookRotation(_orbitForward, upSeed);
+            if (!Mathf.Approximately(_orbitPlaneTiltDegrees, 0f))
+                basis = Quaternion.AngleAxis(_orbitPlaneTiltDegrees, basis * Vector3.right) * basis;
+
+            _orbitRight = basis * Vector3.right;
+            _orbitUp = basis * Vector3.up;
         }
 
         /// <summary>
@@ -151,6 +242,9 @@ namespace Game.Combat
                 return;
             }
 
+            if (TryBounce(collision, target))
+                return;
+
             Vector3 hitPoint = collision.GetContact(0).point;
             Vector3 vel = _rb != null ? _rb.linearVelocity : Vector3.zero;
             Vector3 hitDir = vel.sqrMagnitude > 1e-6f ? vel.normalized : transform.forward;
@@ -172,6 +266,138 @@ namespace Game.Combat
             Impacted?.Invoke(hitPoint, hitDir);
 
             Destroy(gameObject, _impactLingerTime);
+        }
+
+        private bool TryBounce(Collision collision, IDamageable target)
+        {
+            if (target != null || _bounceRemaining <= 0 || _rb == null)
+                return false;
+
+            if (collision.contactCount <= 0)
+                return false;
+
+            Vector3 velocity = _rb.linearVelocity;
+            Vector3 intendedVelocity = _launchVelocity.sqrMagnitude > 1e-6f ? _launchVelocity : velocity;
+            Vector3 incoming = intendedVelocity.sqrMagnitude > 1e-6f ? intendedVelocity.normalized : transform.forward;
+            Vector3 normal = collision.GetContact(0).normal;
+            float normalDot = Vector3.Dot(incoming, normal);
+            Vector3 reflected = normalDot < 0f ? Vector3.Reflect(incoming, normal) : incoming;
+
+            if (reflected.sqrMagnitude <= 1e-6f)
+                return false;
+
+            reflected.Normalize();
+            float speed = _currentSpeed > 1e-6f ? _currentSpeed : intendedVelocity.magnitude;
+            if (speed <= 1e-6f)
+                speed = _launchVelocity.magnitude;
+
+            _bounceRemaining--;
+            _orbitEnabled = false;
+            Vector3 newVelocity = reflected * speed;
+            _rb.position += normal * 0.03f;
+            _rb.linearVelocity = newVelocity;
+            _launchVelocity = newVelocity;
+
+            transform.rotation = Quaternion.LookRotation(reflected) * Quaternion.Euler(_modelForwardOffsetEuler);
+            return true;
+        }
+
+        private void TickOrbit(float deltaTime)
+        {
+            if (!_orbitEnabled || _rb == null)
+                return;
+
+            float safeDeltaTime = Mathf.Max(deltaTime, 1e-5f);
+            _orbitCenter += _orbitForward * _orbitCenterSpeed * safeDeltaTime;
+            _orbitAngleDegrees += _orbitAngularSpeedDegrees * safeDeltaTime;
+
+            float radians = _orbitAngleDegrees * Mathf.Deg2Rad;
+            Vector3 offset = (_orbitRight * Mathf.Cos(radians) + _orbitUp * Mathf.Sin(radians)) * _orbitRadius;
+            Vector3 targetPosition = _orbitCenter + offset;
+            Vector3 newVelocity = (targetPosition - _rb.position) / safeDeltaTime;
+
+            _rb.linearVelocity = newVelocity;
+            _launchVelocity = newVelocity;
+            _currentSpeed = newVelocity.magnitude;
+        }
+
+        private void TickHoming(float deltaTime)
+        {
+            if (!_homingEnabled)
+                return;
+
+            if (!_homingAcquired)
+            {
+                _homingScanTimer -= deltaTime;
+                if (_homingScanTimer > 0f)
+                    return;
+
+                _homingScanTimer = Mathf.Max(0.02f, _homingScanInterval);
+                TryAcquireHomingTarget();
+                return;
+            }
+
+            if (_homingRemaining <= 0f)
+                return;
+
+            if (_homingTarget == null || _homingTargetDamageable == null || !_homingTargetDamageable.IsAlive)
+            {
+                _homingRemaining = 0f;
+                return;
+            }
+
+            _homingRemaining -= deltaTime;
+
+            Vector3 velocity = _rb.linearVelocity;
+            float speed = velocity.magnitude;
+            if (speed <= 1e-6f)
+                return;
+
+            Vector3 toTarget = _homingTarget.position - transform.position;
+            if (toTarget.sqrMagnitude <= 1e-6f)
+                return;
+
+            float maxRadians = _homingTurnRateDegrees * Mathf.Deg2Rad * deltaTime;
+            Vector3 newDir = Vector3.RotateTowards(velocity.normalized, toTarget.normalized, maxRadians, 0f);
+            Vector3 newVelocity = newDir * speed;
+            _rb.linearVelocity = newVelocity;
+            _launchVelocity = newVelocity;
+        }
+
+        private void TryAcquireHomingTarget()
+        {
+            int hitCount = Physics.OverlapSphereNonAlloc(transform.position, _homingRadius, s_homingHits);
+            float bestSqrDistance = float.MaxValue;
+            Transform bestTarget = null;
+            IDamageable bestDamageable = null;
+
+            for (int i = 0; i < hitCount; i++)
+            {
+                Collider hit = s_homingHits[i];
+                if (hit == null || hit == _collider)
+                    continue;
+
+                IDamageable damageable = hit.GetComponentInParent<IDamageable>();
+                if (damageable == null || !damageable.IsAlive || damageable.TeamId == _attackerTeam)
+                    continue;
+
+                Vector3 targetPoint = hit.bounds.center;
+                float sqrDistance = (targetPoint - transform.position).sqrMagnitude;
+                if (sqrDistance >= bestSqrDistance)
+                    continue;
+
+                bestSqrDistance = sqrDistance;
+                bestTarget = damageable is Component component ? component.transform : hit.transform;
+                bestDamageable = damageable;
+            }
+
+            if (bestTarget == null)
+                return;
+
+            _homingTarget = bestTarget;
+            _homingTargetDamageable = bestDamageable;
+            _homingAcquired = true;
+            _homingRemaining = _homingDuration;
         }
 
         private Vector3 ResolveCurrentDirection()
