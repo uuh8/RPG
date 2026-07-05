@@ -55,6 +55,11 @@ namespace Game.Skills
         [Tooltip("落点提示提前显示多久后生成陨石。")]
         public float LandingSiteDuration = 0.8f;
 
+        [Header("StaticProjectile / Shield（保护盾）——仅 Kind=StaticProjectile 且 SpawnMode=StaticAtPoint 使用")]
+        [Min(0)]
+        [Tooltip("保护盾可反弹投射物的次数。每成功反弹一次减 1，耗尽后护盾销毁。")]
+        public int ShieldReflectCount = 3;
+
         [SerializeField, HideInInspector, FormerlySerializedAs("IsTrigger")]
         private bool _legacyIsTrigger;
         [SerializeField, HideInInspector]

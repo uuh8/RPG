@@ -14,5 +14,6 @@ namespace Game.Skills
     {
         ForwardProjectile = 0,
         SkyfallAtPoint = 1,
+        StaticAtPoint = 2,
     }
 }

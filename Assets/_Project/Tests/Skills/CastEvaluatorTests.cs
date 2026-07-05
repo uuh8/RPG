@@ -38,6 +38,29 @@ namespace Game.Skills.Tests
             return s;
         }
 
+        private static SpellDefinition Shield(int reflectCount = 3, float mana = 0f)
+        {
+            var s = ScriptableObject.CreateInstance<SpellDefinition>();
+            s.Kind = SpellKind.StaticProjectile;
+            s.SpawnMode = SpellSpawnMode.StaticAtPoint;
+            s.ManaCost = mana;
+            s.ShieldReflectCount = reflectCount;
+            return s;
+        }
+
+        private static SpellDefinition ShieldEmit(int reflectCount = 3, float speed = 10f, float mana = 0f)
+        {
+            var s = ScriptableObject.CreateInstance<SpellDefinition>();
+            s.Kind = SpellKind.Emit;
+            s.SpawnMode = SpellSpawnMode.ForwardProjectile;
+            s.BaseDamage = 0f;
+            s.BaseSpeed = speed;
+            s.DamageType = DamageType.Magical;
+            s.ManaCost = mana;
+            s.ShieldReflectCount = reflectCount;
+            return s;
+        }
+
         private static SpellDefinition DamageMod(float mul, float mana = 0f)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
@@ -61,6 +84,14 @@ namespace Game.Skills.Tests
             Assert.AreEqual(1, (int)SpellKind.Modify);
             Assert.AreEqual(2, (int)SpellKind.Multicast);
             Assert.AreEqual(3, (int)SpellKind.StaticProjectile);
+        }
+
+        [Test]
+        public void SpellSpawnMode_StaticAtPoint_AppendsAfterExistingModes()
+        {
+            Assert.AreEqual(0, (int)SpellSpawnMode.ForwardProjectile);
+            Assert.AreEqual(1, (int)SpellSpawnMode.SkyfallAtPoint);
+            Assert.AreEqual(2, (int)SpellSpawnMode.StaticAtPoint);
         }
 
         [Test]
@@ -99,6 +130,25 @@ namespace Game.Skills.Tests
 
             Assert.AreEqual(1, _out.Count);
             Assert.AreEqual(SpellSpawnMode.SkyfallAtPoint, _out[0].SpawnMode);
+        }
+
+        [Test]
+        public void StaticProjectile_Shield_BakesStaticAtPointAndReflectCount()
+        {
+            Run(1, 999f, Shield(reflectCount: 4));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.StaticAtPoint, _out[0].SpawnMode);
+            Assert.AreEqual(4, _out[0].ShieldReflectCount);
+        }
+
+        [Test]
+        public void ShieldStaticProjectile_ConsumesDrawBudgetLikeOtherStaticProjectiles()
+        {
+            Run(1, 999f, Shield(reflectCount: 3), Emit());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.StaticAtPoint, _out[0].SpawnMode);
         }
 
         [Test]
@@ -391,6 +441,29 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void TriggerPayload_CanCaptureShieldStaticProjectile()
+        {
+            Run(1, 999f, Emit(trigger: PayloadTriggerMode.OnImpact), Shield(reflectCount: 2));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(1, _out[0].Payload.Count);
+            Assert.AreEqual(SpellKind.StaticProjectile, _out[0].Payload[0].Kind);
+            Assert.AreEqual(SpellSpawnMode.StaticAtPoint, _out[0].Payload[0].SpawnMode);
+        }
+
+        [Test]
+        public void TriggerPayload_ShieldPreservesIncomingModifierSnapshot()
+        {
+            Run(1, 999f, Mod(bounce: 2), Emit(trigger: PayloadTriggerMode.OnImpact), Shield(reflectCount: 3));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.IsTrue(_out[0].HasPayload);
+            Assert.AreEqual(2, _out[0].PayloadMods.BounceCount);
+            Assert.AreEqual(SpellSpawnMode.StaticAtPoint, _out[0].Payload[0].SpawnMode);
+        }
+
+        [Test]
         public void OnImpactTrigger_PayloadExcludesTriggerItself()
         {
             var trig = Emit(trigger: PayloadTriggerMode.OnImpact);
@@ -493,6 +566,50 @@ namespace Game.Skills.Tests
             Assert.AreEqual(45f, _out[0].PayloadMods.OrbitPhaseOffsetDegrees, 1e-4f);
             Assert.AreEqual(35f, _out[0].PayloadMods.OrbitPlaneTiltDegrees, 1e-4f);
             Assert.AreEqual(ProjectileMotionMode.Orbit, _out[0].PayloadMods.MotionMode);
+        }
+
+        [Test]
+        public void EmitShield_BakesForwardProjectileAndReflectCount()
+        {
+            Run(1, 999f, ShieldEmit(reflectCount: 5, speed: 12f));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.ForwardProjectile, _out[0].SpawnMode);
+            Assert.AreEqual(5, _out[0].ShieldReflectCount);
+            Assert.AreEqual(12f, _out[0].Speed, 1e-4f);
+        }
+
+        [Test]
+        public void EmitShield_BakesMotionModifiers()
+        {
+            Run(1, 999f,
+                Mod(bounce: 2, useGravity: true, homingRadius: 6f, homingDuration: 0.6f, homingTurnRate: 120f),
+                ShieldEmit(reflectCount: 3, speed: 10f));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.ForwardProjectile, _out[0].SpawnMode);
+            Assert.AreEqual(3, _out[0].ShieldReflectCount);
+            Assert.AreEqual(2, _out[0].BounceCount);
+            Assert.IsTrue(_out[0].UseGravity);
+            Assert.AreEqual(6f, _out[0].HomingRadius, 1e-4f);
+            Assert.AreEqual(0.6f, _out[0].HomingDuration, 1e-4f);
+            Assert.AreEqual(120f, _out[0].HomingTurnRateDegrees, 1e-4f);
+        }
+
+        [Test]
+        public void StaticProjectile_Shield_BakesOrbitModifier()
+        {
+            Run(1, 999f,
+                Mod(orbitRadius: 0.8f, orbitAngularSpeed: 360f, orbitPhaseOffset: 45f, orbitPlaneTilt: 35f),
+                Shield(reflectCount: 3));
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(SpellSpawnMode.StaticAtPoint, _out[0].SpawnMode);
+            Assert.AreEqual(ProjectileMotionMode.Orbit, _out[0].MotionMode);
+            Assert.AreEqual(0.8f, _out[0].OrbitRadius, 1e-4f);
+            Assert.AreEqual(360f, _out[0].OrbitAngularSpeedDegrees, 1e-4f);
+            Assert.AreEqual(45f, _out[0].OrbitPhaseOffsetDegrees, 1e-4f);
+            Assert.AreEqual(35f, _out[0].OrbitPlaneTiltDegrees, 1e-4f);
         }
     }
 }

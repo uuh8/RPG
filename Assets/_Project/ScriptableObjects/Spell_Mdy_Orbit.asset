@@ -28,6 +28,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0
@@ -39,7 +40,7 @@ MonoBehaviour:
   ModHomingRadius: 0
   ModHomingDuration: 0
   ModHomingTurnRateDegrees: 0
-  ModOrbitRadius: 1.2
+  ModOrbitRadius: 1.5
   ModOrbitAngularSpeedDegrees: 360
   ModOrbitPhaseOffsetDegrees: 0
   ModOrbitPlaneTiltDegrees: 120

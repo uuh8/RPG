@@ -176,6 +176,7 @@ namespace Game.Skills
             float delay = trigger == PayloadTriggerMode.AfterDelay ? spell.PayloadDelaySeconds : 0f;
             return new EmitCommand(spell.ProjectilePrefab, spell.SpawnMode, spell.LandingSitePrefab,
                                    spell.SkyfallHeight, spell.SkyfallBackOffset, spell.LandingSiteDuration,
+                                   spell.ShieldReflectCount,
                                    damage, speed, spell.DamageType,
                                    mods.SpreadDegrees, mods.BounceCount, mods.UseGravity,
                                    mods.HomingRadius, mods.HomingDuration, mods.HomingTurnRateDegrees,

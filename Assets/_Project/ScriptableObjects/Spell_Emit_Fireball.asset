@@ -28,6 +28,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

@@ -84,6 +84,10 @@ namespace Game.Character
                         SpawnSkyfallProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider);
                         break;
 
+                    case SpellSpawnMode.StaticAtPoint:
+                        SpawnStaticProjectileAtPoint(cmd, spawnPos, baseDir, team, attackerId, casterCollider);
+                        break;
+
                     default:
                         SpawnForwardProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider);
                         break;
@@ -130,7 +134,29 @@ namespace Game.Character
 
             WirePayload(proj, cmd, team, attackerId, casterCollider);
             ConfigureProjectileMotion(proj, cmd, index, count);
+            if (proj is ShieldProjectile shieldProjectile)
+                shieldProjectile.ConfigureShield(cmd.ShieldReflectCount);
             proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, dir * cmd.Speed, casterCollider, useGravity: cmd.UseGravity);
+        }
+
+        private void SpawnStaticProjectileAtPoint(EmitCommand cmd, Vector3 spawnPos, Vector3 baseDir,
+                                                  byte team, int attackerId, Collider casterCollider)
+        {
+            Quaternion rotation = cmd.ProjectilePrefab.transform.rotation;
+            if (baseDir.sqrMagnitude > 1e-6f)
+                rotation = Quaternion.LookRotation(baseDir.normalized) * rotation;
+
+            GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, rotation);
+            ProjectileShield shield = go.GetComponent<ProjectileShield>();
+            if (shield == null)
+                shield = go.GetComponentInChildren<ProjectileShield>();
+            if (shield != null)
+            {
+                shield.Init(team, attackerId, cmd.ShieldReflectCount, casterCollider);
+                return;
+            }
+
+            GameLog.Warn($"StaticAtPoint prefab {cmd.ProjectilePrefab.name} has no ProjectileShield component", "Skills");
         }
 
         private void WirePayload(ProjectileBase proj, EmitCommand cmd, byte team, int attackerId, Collider casterCollider)

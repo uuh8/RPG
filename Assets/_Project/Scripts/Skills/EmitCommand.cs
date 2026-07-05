@@ -15,6 +15,7 @@ namespace Game.Skills
         public readonly float SkyfallHeight;
         public readonly float SkyfallBackOffset;
         public readonly float LandingSiteDuration;
+        public readonly int ShieldReflectCount;
         public readonly float Damage;
         public readonly float Speed;
         public readonly DamageType DamageType;
@@ -39,6 +40,7 @@ namespace Game.Skills
 
         public EmitCommand(GameObject projectilePrefab, SpellSpawnMode spawnMode, GameObject landingSitePrefab,
                            float skyfallHeight, float skyfallBackOffset, float landingSiteDuration,
+                           int shieldReflectCount,
                            float damage, float speed, DamageType damageType,
                            float spreadDegrees, int bounceCount, bool useGravity,
                            float homingRadius, float homingDuration, float homingTurnRateDegrees,
@@ -55,6 +57,7 @@ namespace Game.Skills
             SkyfallHeight = skyfallHeight;
             SkyfallBackOffset = skyfallBackOffset;
             LandingSiteDuration = landingSiteDuration;
+            ShieldReflectCount = shieldReflectCount;
             Damage = damage;
             Speed = speed;
             DamageType = damageType;

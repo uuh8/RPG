@@ -128,8 +128,8 @@ namespace Game.Combat
         /// 攻击方生成瞬间调用：注入伤害快照与初速度，忽略与施法者自身碰撞，定向、计时。
         /// useGravity：抛物线箭矢传 true（默认）；直线投射物（瞄准直射/火球/陨石）传 false。
         /// </summary>
-        public void Init(byte attackerTeam, int attackerId, float damage, DamageType type,
-                         Vector3 velocity, Collider casterCollider, bool useGravity = true)
+        public virtual void Init(byte attackerTeam, int attackerId, float damage, DamageType type,
+                                 Vector3 velocity, Collider casterCollider, bool useGravity = true)
         {
             _attackerTeam = attackerTeam;
             _attackerId = attackerId;
@@ -195,6 +195,46 @@ namespace Game.Combat
             _orbitCenterSpeed = 0f;
         }
 
+        /// <summary>
+        /// 由保护盾调用：按护盾球面法线反射当前投射物，并把伤害归属改成护盾释放者。
+        /// </summary>
+        public bool ReflectByShield(Vector3 shieldNormal, byte newTeam, int newAttackerId)
+        {
+            if (_consumed || _rb == null)
+                return false;
+
+            Vector3 velocity = _rb.linearVelocity;
+            if (velocity.sqrMagnitude <= 1e-6f)
+                return false;
+
+            Vector3 normal = shieldNormal.sqrMagnitude > 1e-6f ? shieldNormal.normalized : -velocity.normalized;
+            Vector3 incoming = velocity.normalized;
+            Vector3 reflected = Vector3.Reflect(incoming, normal);
+            if (reflected.sqrMagnitude <= 1e-6f)
+                return false;
+
+            reflected.Normalize();
+            float speed = velocity.magnitude;
+            Vector3 newVelocity = reflected * speed;
+
+            _attackerTeam = newTeam;
+            _attackerId = newAttackerId;
+            _orbitEnabled = false;
+            _homingEnabled = false;
+            _homingAcquired = false;
+            _homingTarget = null;
+            _homingTargetDamageable = null;
+
+            _rb.position += normal * 0.03f;
+            _rb.linearVelocity = newVelocity;
+            _launchVelocity = newVelocity;
+            _currentSpeed = speed;
+            RefreshSameTeamProjectileIgnores();
+
+            transform.rotation = Quaternion.LookRotation(reflected) * Quaternion.Euler(_modelForwardOffsetEuler);
+            return true;
+        }
+
         private void InitializeOrbit(Vector3 velocity)
         {
             Vector3 forward = velocity.sqrMagnitude > 1e-6f ? velocity.normalized : transform.forward;
@@ -245,6 +285,9 @@ namespace Game.Combat
             if (TryBounce(collision, target))
                 return;
 
+            if (TryHandleCollisionBeforeDefault(collision, target))
+                return;
+
             Vector3 hitPoint = collision.GetContact(0).point;
             Vector3 vel = _rb != null ? _rb.linearVelocity : Vector3.zero;
             Vector3 hitDir = vel.sqrMagnitude > 1e-6f ? vel.normalized : transform.forward;
@@ -266,6 +309,11 @@ namespace Game.Combat
             Impacted?.Invoke(hitPoint, hitDir);
 
             Destroy(gameObject, _impactLingerTime);
+        }
+
+        protected virtual bool TryHandleCollisionBeforeDefault(Collision collision, IDamageable target)
+        {
+            return false;
         }
 
         private bool TryBounce(Collision collision, IDamageable target)
@@ -427,6 +475,22 @@ namespace Game.Combat
                     Physics.IgnoreCollision(_collider, other._collider);
             }
             s_active.Add(this);
+        }
+
+        private void RefreshSameTeamProjectileIgnores()
+        {
+            if (_collider == null)
+                return;
+
+            for (int i = 0; i < s_active.Count; i++)
+            {
+                ProjectileBase other = s_active[i];
+                if (other == null || other == this || other._collider == null)
+                    continue;
+
+                if (other._attackerTeam == _attackerTeam)
+                    Physics.IgnoreCollision(_collider, other._collider);
+            }
         }
     }
 }
