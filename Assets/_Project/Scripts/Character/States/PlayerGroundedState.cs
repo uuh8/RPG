@@ -49,7 +49,7 @@ namespace Game.Character
         {
             // 水平方向由 MoveDirection 决定，垂直方向由 VerticalVelocity 决定
             // 两者合并成一个 Vector3 交给 Move()，由 CC 统一做碰撞检测
-            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed;
+            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed * _player.StatusMoveSpeedMultiplier;
             velocity.y = _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }

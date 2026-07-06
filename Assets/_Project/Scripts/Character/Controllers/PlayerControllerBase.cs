@@ -1,5 +1,6 @@
 using UnityEngine;
 using Game.Core;
+using Game.Combat;
 
 namespace Game.Character
 {
@@ -51,6 +52,7 @@ namespace Game.Character
         private InputSystem_Actions _inputActions;
         private GroundChecker _groundChecker;
         private Camera _mainCamera;
+        private StatusController _statusController;
 
         // 状态机与共享状态（Awake 创建一次，运行时切换只改引用，不产生 GC）
         private PlayerStateMachine _stateMachine;
@@ -85,6 +87,7 @@ namespace Game.Character
         /// <summary>锁存的目标朝向（水平）：按下方向时更新为该方向，松开后仍朝它转到位，避免"转身中途停下"。</summary>
         public Vector3 TargetFacing { get; set; } = Vector3.forward;
         public float MoveSpeed => _moveSpeed;
+        public float StatusMoveSpeedMultiplier => _statusController != null ? _statusController.MoveSpeedMultiplier : 1f;
         public float RotationSpeed => _rotationSpeed;
         public float VerticalVelocity { get; set; }
         public float JumpForce => _jumpForce;
@@ -175,6 +178,7 @@ namespace Game.Character
             _characterController = GetComponent<CharacterController>();
             _animator = GetComponentInChildren<Animator>();
             _groundChecker = GetComponent<GroundChecker>();
+            _statusController = GetComponent<StatusController>();
             _inputActions = new InputSystem_Actions();
             _mainCamera = Camera.main;
 

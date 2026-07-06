@@ -82,7 +82,7 @@ namespace Game.Character
         private void HandleMovement()
         {
             // 边走边射：与接地态相同的完整移动（水平 MoveDirection*MoveSpeed + 垂直 VerticalVelocity）
-            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed;
+            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed * _player.StatusMoveSpeedMultiplier;
             velocity.y = _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }

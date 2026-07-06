@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9f5c1b79c0d7e324f81d14ae2343d180, type: 3}
+  m_Name: StatusDatabase
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.StatusDatabase
+  _definitions:
+  - {fileID: 11400000, guid: 733cfd4206e531f47966fda1571e3e43, type: 2}
+  - {fileID: 11400000, guid: 19d12af998f9407408a32bd709e6b3b6, type: 2}
+  - {fileID: 11400000, guid: bf1f1b71c4804d34097d0849d18f24b7, type: 2}
+  - {fileID: 11400000, guid: 56a2e760f7362f844bb38f03905faa6a, type: 2}

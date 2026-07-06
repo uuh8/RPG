@@ -58,7 +58,7 @@ namespace Game.Character
         {
             // 空中依然保留水平移动控制（常见设计，让玩家在空中能微调方向）
             // 垂直方向由重力积分的 VerticalVelocity 控制
-            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed;
+            Vector3 velocity = _player.MoveDirection * _player.MoveSpeed * _player.StatusMoveSpeedMultiplier;
             velocity.y = _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }

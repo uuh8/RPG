@@ -18,7 +18,7 @@ MonoBehaviour:
   ManaCost: 15
   ProjectilePrefab: {fileID: 6314436004956066621, guid: c10fca504c906c643a3310fd6f8ec231, type: 3}
   BaseDamage: 0
-  BaseSpeed: 10
+  BaseSpeed: 5
   DamageType: 1
   CastSfx: {fileID: 8300000, guid: 5cd691c7632755d499fbbb55bc1f0fac, type: 3}
   PayloadTrigger: 0

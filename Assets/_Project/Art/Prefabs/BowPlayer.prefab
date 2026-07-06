@@ -14,6 +14,7 @@ GameObject:
   - component: {fileID: 5842247336306656891}
   - component: {fileID: 5289944598073839073}
   - component: {fileID: 7407154770750940856}
+  - component: {fileID: 3254391564459236209}
   m_Layer: 0
   m_Name: BowPlayer
   m_TagString: Untagged
@@ -117,6 +118,7 @@ MonoBehaviour:
   _aimMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  _aimMaxDistance: 100
 --- !u!114 &5289944598073839073
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -161,6 +163,20 @@ MonoBehaviour:
   _bloodHitLifetime: 2
   _bloodDripPrefab: {fileID: 7323871151985639507, guid: 5b4753961b655db4a8402ae014b59d2e, type: 3}
   _bloodDripLifetime: 3
+--- !u!114 &3254391564459236209
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4708242254204814118}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 52c67abcc85821b4ea30f7580d6df43e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.StatusController
+  _database: {fileID: 11400000, guid: 28a8df9509d99744e824b08680571ad2, type: 2}
+  _wetExtinguishBurningPerSecond: 35
 --- !u!1 &7951692776455586140
 GameObject:
   m_ObjectHideFlags: 0

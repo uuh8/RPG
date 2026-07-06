@@ -8,6 +8,7 @@ namespace Game.Combat
     /// 期间在目标身上挂一个 OnFire 特效（结束时销毁）。重复命中刷新持续时间（不叠加第二份特效）。
     /// 伤害仍走 IDamageable.ReceiveHit 标准路径，故与火球直击/近战/箭矢复用同一套结算与事件。
     /// </summary>
+    [System.Obsolete("Use StatusController with StatusKind.Burning instead.")]
     public class BurnStatus : MonoBehaviour
     {
         private IDamageable _target;     // 同物体上的可受击目标（缓存）
