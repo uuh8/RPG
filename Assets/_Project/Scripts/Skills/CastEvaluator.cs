@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Game.Combat;
+using Unity.Profiling;
 
 namespace Game.Skills
 {
@@ -25,6 +27,8 @@ namespace Game.Skills
     /// </summary>
     public static class CastEvaluator
     {
+        private static readonly ProfilerMarker s_evaluateMarker = new ProfilerMarker("Spell.Evaluate");
+
         public static CastSummary Evaluate(
             IReadOnlyList<SpellDefinition> spells,      // 法术序列
             int baseDraws,                              // 投射物释放数
@@ -32,68 +36,166 @@ namespace Game.Skills
             CastModifierState incomingMods,             // 外部传入的修正状态
             List<EmitCommand> output)                   // 输出列表
         {
-            output.Clear();
-            if (spells == null || spells.Count == 0)
-                return new CastSummary(0f, false);
+            return EvaluateCore(spells, baseDraws, availableMana, incomingMods, output, null);
+        }
 
-            int drawBudget = baseDraws;
-            float manaLeft = availableMana;
-            float manaSpent = 0f;
-            bool fizzled = false;
-            CastModifierState mods = incomingMods;
+        public static CastSummary EvaluateWithTrace(
+            IReadOnlyList<SpellDefinition> spells,
+            int baseDraws,
+            float availableMana,
+            CastModifierState incomingMods,
+            List<EmitCommand> output,
+            CastTraceCollector trace)
+        {
+            if (trace == null)
+                throw new ArgumentNullException(nameof(trace));
 
-            for (int i = 0; i < spells.Count; i++)
+            trace.Clear();
+            return EvaluateCore(spells, baseDraws, availableMana, incomingMods, output, trace);
+        }
+
+        private static CastSummary EvaluateCore(
+            IReadOnlyList<SpellDefinition> spells,
+            int baseDraws,
+            float availableMana,
+            CastModifierState incomingMods,
+            List<EmitCommand> output,
+            CastTraceCollector trace)
+        {
+            using (s_evaluateMarker.Auto())
             {
-                SpellDefinition spell = spells[i];
-                if (spell == null) continue;
+                output.Clear();
+                int drawBudget = baseDraws;
+                float manaLeft = availableMana;
+                float manaSpent = 0f;
+                bool fizzled = false;
+                CastModifierState mods = incomingMods;
 
-                bool ended = false;
+                trace?.Record(new CastTraceStep(
+                    CastTraceStepKind.CastStarted, -1, null,
+                    drawBudget, drawBudget, manaLeft, manaLeft, mods, mods));
 
-                switch (spell.Kind)
+                if (spells == null || spells.Count == 0)
                 {
-                    case SpellKind.Modify:
-                        if (!TrySpend(spell, ref manaLeft, ref manaSpent))
-                        {
-                            fizzled = true;
-                            break;
-                        }
-                        mods = mods.Apply(spell);
-                        break;
+                    trace?.Record(new CastTraceStep(
+                        CastTraceStepKind.CastCompleted, -1, null,
+                        drawBudget, drawBudget, manaLeft, manaLeft, mods, mods));
+                    return new CastSummary(0f, false);
+                }
 
-                    case SpellKind.Multicast:
-                        if (!TrySpend(spell, ref manaLeft, ref manaSpent))
-                        {
-                            fizzled = true;
-                            break;
-                        }
-                        drawBudget += spell.ExtraDraws;
-                        break;
+                for (int i = 0; i < spells.Count; i++)
+                {
+                    SpellDefinition spell = spells[i];
+                    int budgetBefore = drawBudget;
+                    float manaBefore = manaLeft;
+                    CastModifierState modsBefore = mods;
 
-                    case SpellKind.Emit:
-                    case SpellKind.StaticProjectile:
-                        if (drawBudget <= 0) break;
-                        if (!TrySpend(spell, ref manaLeft, ref manaSpent))
-                        {
-                            fizzled = true;
+                    if (spell == null)
+                    {
+                        trace?.Record(new CastTraceStep(
+                            CastTraceStepKind.NullSpellSkipped, i, null,
+                            budgetBefore, drawBudget, manaBefore, manaLeft,
+                            modsBefore, mods));
+                        continue;
+                    }
+
+                    bool ended = false;
+                    switch (spell.Kind)
+                    {
+                        case SpellKind.Modify:
+                            if (!TrySpend(spell, ref manaLeft, ref manaSpent))
+                            {
+                                fizzled = true;
+                                trace?.Record(new CastTraceStep(
+                                    CastTraceStepKind.ManaFizzle, i, spell,
+                                    budgetBefore, drawBudget, manaBefore, manaLeft,
+                                    modsBefore, mods));
+                                break;
+                            }
+
+                            mods = mods.Apply(spell);
+                            trace?.Record(new CastTraceStep(
+                                CastTraceStepKind.ModifyApplied, i, spell,
+                                budgetBefore, drawBudget, manaBefore, manaLeft,
+                                modsBefore, mods));
                             break;
-                        }
-                        if (spell.PayloadTrigger != PayloadTriggerMode.None)
-                        {
-                            // payload = 严格后缀；这条不变量保证链式触发自然收敛。
-                            output.Add(BakeEmit(spell, mods, CaptureSuffix(spells, i + 1)));
+
+                        case SpellKind.Multicast:
+                            if (!TrySpend(spell, ref manaLeft, ref manaSpent))
+                            {
+                                fizzled = true;
+                                trace?.Record(new CastTraceStep(
+                                    CastTraceStepKind.ManaFizzle, i, spell,
+                                    budgetBefore, drawBudget, manaBefore, manaLeft,
+                                    modsBefore, mods));
+                                break;
+                            }
+
+                            drawBudget += spell.ExtraDraws;
+                            trace?.Record(new CastTraceStep(
+                                CastTraceStepKind.MulticastApplied, i, spell,
+                                budgetBefore, drawBudget, manaBefore, manaLeft,
+                                modsBefore, mods));
+                            break;
+
+                        case SpellKind.Emit:
+                        case SpellKind.StaticProjectile:
+                            if (drawBudget <= 0)
+                            {
+                                trace?.Record(new CastTraceStep(
+                                    CastTraceStepKind.DrawBudgetBlocked, i, spell,
+                                    budgetBefore, drawBudget, manaBefore, manaLeft,
+                                    modsBefore, mods));
+                                break;
+                            }
+
+                            if (!TrySpend(spell, ref manaLeft, ref manaSpent))
+                            {
+                                fizzled = true;
+                                trace?.Record(new CastTraceStep(
+                                    CastTraceStepKind.ManaFizzle, i, spell,
+                                    budgetBefore, drawBudget, manaBefore, manaLeft,
+                                    modsBefore, mods));
+                                break;
+                            }
+
+                            IReadOnlyList<SpellDefinition> payload =
+                                spell.PayloadTrigger != PayloadTriggerMode.None
+                                    ? CaptureSuffix(spells, i + 1)
+                                    : null;
+                            EmitCommand command = BakeEmit(spell, mods, payload);
+                            int emitIndex = output.Count;
+                            output.Add(command);
                             drawBudget--;
-                            ended = true;
+
+                            trace?.Record(new CastTraceStep(
+                                CastTraceStepKind.EmitProduced, i, spell,
+                                budgetBefore, drawBudget, manaBefore, manaLeft,
+                                modsBefore, mods, emitIndex, command));
+
+                            if (spell.PayloadTrigger != PayloadTriggerMode.None)
+                            {
+                                trace?.Record(new CastTraceStep(
+                                    CastTraceStepKind.PayloadCaptured, i, spell,
+                                    budgetBefore, drawBudget, manaBefore, manaLeft,
+                                    modsBefore, mods, emitIndex, command,
+                                    i + 1,
+                                    command.HasPayload ? command.Payload.Count : 0,
+                                    command.PayloadTrigger));
+                                ended = true;
+                            }
                             break;
-                        }
-                        output.Add(BakeEmit(spell, mods, null));
-                        drawBudget--;
+                    }
+
+                    if (fizzled || ended)
                         break;
                 }
 
-                if (fizzled || ended) break; // 法力不足 或 触发结束本层 → 跳出读取循环
+                trace?.Record(new CastTraceStep(
+                    CastTraceStepKind.CastCompleted, -1, null,
+                    drawBudget, drawBudget, manaLeft, manaLeft, mods, mods));
+                return new CastSummary(manaSpent, fizzled);
             }
-
-            return new CastSummary(manaSpent, fizzled);
         }
 
         /// <summary>
