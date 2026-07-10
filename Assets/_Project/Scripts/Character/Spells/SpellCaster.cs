@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Unity.Profiling;
 using Game.Core;
 using Game.Combat;
 using Game.Skills;
@@ -16,12 +17,30 @@ namespace Game.Character
         [SerializeField] private WandLoadout _wand;
         [Tooltip("可用法力值")]
         [SerializeField] private ManaComponent _mana;
+        [Header("开发诊断")]
+        [SerializeField] private CastTraceLevel _traceLevel = CastTraceLevel.Off;
 
+        private static int s_nextCastId;
+        private static readonly ProfilerMarker s_runtimeSpawnMarker = new ProfilerMarker("Spell.RuntimeSpawn");
         private readonly List<EmitCommand> _emits = new List<EmitCommand>(16);
         private readonly HashSet<AudioClip> _playedSfx = new HashSet<AudioClip>();
         private readonly RaycastHit[] _landingHits = new RaycastHit[8];
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private readonly CastTraceCollector _traceCollector = new CastTraceCollector(64);
+#endif
 
         public WandLoadout Wand => _wand;
+        public CastTraceLevel TraceLevel
+        {
+            get
+            {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                return _traceLevel;
+#else
+                return CastTraceLevel.Off;
+#endif
+            }
+        }
 
         private void Awake()
         {
@@ -43,8 +62,9 @@ namespace Game.Character
                 baseDir = transform.forward;
             baseDir.Normalize();
 
+            int castId = ++s_nextCastId;
             return RunCast(_wand.Spells, _wand.BaseDraws, CastModifierState.Default,
-                           spawnPos, baseDir, team, attackerId, casterCollider);
+                           spawnPos, baseDir, team, attackerId, casterCollider, castId, 0);
         }
 
         /// <summary>
@@ -52,7 +72,8 @@ namespace Game.Character
         /// 触发 payload 时会用命中点作为新的 spawnPos，再以预算 1 运行 payload。
         /// </summary>
         private int RunCast(IReadOnlyList<SpellDefinition> spells, int baseDraws, CastModifierState incomingMods,
-                            Vector3 spawnPos, Vector3 baseDir, byte team, int attackerId, Collider casterCollider)
+                            Vector3 spawnPos, Vector3 baseDir, byte team, int attackerId, Collider casterCollider,
+                            int castId, int depth)
         {
             float requiredMana = CastEvaluator.EstimateManaCost(spells, baseDraws, incomingMods);
             if (!TrySpendMana(requiredMana))
@@ -61,36 +82,55 @@ namespace Game.Character
                 return 0;
             }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            CastSummary summary;
+            if (_traceLevel == CastTraceLevel.Detailed)
+            {
+                summary = CastEvaluator.EvaluateWithTrace(
+                    spells, baseDraws, float.PositiveInfinity,
+                    incomingMods, _emits, _traceCollector);
+            }
+            else
+            {
+                summary = CastEvaluator.Evaluate(
+                    spells, baseDraws, float.PositiveInfinity, incomingMods, _emits);
+            }
+            LogTrace(castId, depth, requiredMana, summary);
+#else
             CastEvaluator.Evaluate(spells, baseDraws, float.PositiveInfinity, incomingMods, _emits);
+#endif
             _playedSfx.Clear();
 
             int count = _emits.Count;
-            for (int i = 0; i < count; i++)
+            using (s_runtimeSpawnMarker.Auto())
             {
-                EmitCommand cmd = _emits[i];
-
-                if (cmd.CastSfx != null && _playedSfx.Add(cmd.CastSfx))
-                    AudioSource.PlayClipAtPoint(cmd.CastSfx, spawnPos);
-
-                if (cmd.ProjectilePrefab == null)
+                for (int i = 0; i < count; i++)
                 {
-                    GameLog.Warn("EmitCommand.ProjectilePrefab 为空，跳过该法术产出", "Skills");
-                    continue;
-                }
+                    EmitCommand cmd = _emits[i];
 
-                switch (cmd.SpawnMode)
-                {
-                    case SpellSpawnMode.SkyfallAtPoint:
-                        SpawnSkyfallProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider);
-                        break;
+                    if (cmd.CastSfx != null && _playedSfx.Add(cmd.CastSfx))
+                        AudioSource.PlayClipAtPoint(cmd.CastSfx, spawnPos);
 
-                    case SpellSpawnMode.StaticAtPoint:
-                        SpawnStaticProjectileAtPoint(cmd, spawnPos, baseDir, team, attackerId, casterCollider);
-                        break;
+                    if (cmd.ProjectilePrefab == null)
+                    {
+                        GameLog.Warn("EmitCommand.ProjectilePrefab 为空，跳过该法术产出", "Skills");
+                        continue;
+                    }
 
-                    default:
-                        SpawnForwardProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider);
-                        break;
+                    switch (cmd.SpawnMode)
+                    {
+                        case SpellSpawnMode.SkyfallAtPoint:
+                            SpawnSkyfallProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider, castId, depth);
+                            break;
+
+                        case SpellSpawnMode.StaticAtPoint:
+                            SpawnStaticProjectileAtPoint(cmd, spawnPos, baseDir, team, attackerId, casterCollider);
+                            break;
+
+                        default:
+                            SpawnForwardProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider, castId, depth);
+                            break;
+                    }
                 }
             }
 
@@ -118,7 +158,7 @@ namespace Game.Character
         }
 
         private void SpawnForwardProjectile(EmitCommand cmd, Vector3 spawnPos, Vector3 baseDir, int index, int count,
-                                            byte team, int attackerId, Collider casterCollider)
+                                            byte team, int attackerId, Collider casterCollider, int castId, int depth)
         {
             float yaw = SpellAiming.SpreadOffsetDegrees(index, count, cmd.SpreadDegrees);
             Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;
@@ -132,7 +172,7 @@ namespace Game.Character
                 return;
             }
 
-            WirePayload(proj, cmd, team, attackerId, casterCollider);
+            WirePayload(proj, cmd, team, attackerId, casterCollider, castId, depth);
             ConfigureProjectileMotion(proj, cmd, index, count);
             if (proj is ShieldProjectile shieldProjectile)
                 shieldProjectile.ConfigureShield(cmd.ShieldReflectCount);
@@ -159,7 +199,8 @@ namespace Game.Character
             GameLog.Warn($"StaticAtPoint prefab {cmd.ProjectilePrefab.name} has no ProjectileShield component", "Skills");
         }
 
-        private void WirePayload(ProjectileBase proj, EmitCommand cmd, byte team, int attackerId, Collider casterCollider)
+        private void WirePayload(ProjectileBase proj, EmitCommand cmd, byte team, int attackerId, Collider casterCollider,
+                                 int castId, int depth)
         {
             if (!cmd.HasPayload)
                 return;
@@ -171,16 +212,101 @@ namespace Game.Character
             {
                 case PayloadTriggerMode.OnImpact:
                     proj.Impacted += (hitPoint, hitDir) =>
-                        RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider);
+                        RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider, castId, depth + 1);
                     break;
 
                 case PayloadTriggerMode.AfterDelay:
                     proj.TimedTriggerElapsed += (position, direction) =>
-                        RunCast(payload, 1, payloadMods, position, direction, team, attackerId, casterCollider);
+                        RunCast(payload, 1, payloadMods, position, direction, team, attackerId, casterCollider, castId, depth + 1);
                     proj.ArmTimedTrigger(cmd.PayloadDelaySeconds);
                     break;
             }
         }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void LogTrace(int castId, int depth, float requiredMana, CastSummary summary)
+        {
+            if (_traceLevel == CastTraceLevel.Off)
+                return;
+
+            GameLog.Info(
+                $"Cast #{castId} Depth={depth} Emits={_emits.Count} " +
+                $"RequiredMana={requiredMana:0.##} EvaluatedMana={summary.ManaSpent:0.##} " +
+                $"Fizzled={summary.Fizzled}",
+                "SpellTrace");
+
+            if (_traceLevel != CastTraceLevel.Detailed)
+                return;
+
+            for (int i = 0; i < _traceCollector.Count; i++)
+                LogTraceStep(castId, depth, _traceCollector[i]);
+
+            if (_traceCollector.ExpandedDuringLastCollection)
+            {
+                GameLog.Warn(
+                    $"Cast #{castId} Trace 超出预分配容量，本次诊断发生 List 扩容",
+                    "SpellTrace");
+            }
+        }
+
+        private static void LogTraceStep(int castId, int depth, CastTraceStep step)
+        {
+            string spellName = step.Spell != null
+                ? step.Spell.DisplayName
+                : "<none>";
+
+            switch (step.Kind)
+            {
+                case CastTraceStepKind.CastStarted:
+                    GameLog.Info($"Cast #{castId} D{depth} START Draw={step.DrawBudgetBefore}", "SpellTrace");
+                    break;
+                case CastTraceStepKind.ModifyApplied:
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} MODIFY " +
+                        $"DamageMul {step.ModifiersBefore.DamageMul:0.##}->{step.ModifiersAfter.DamageMul:0.##} " +
+                        $"SpeedMul {step.ModifiersBefore.SpeedMul:0.##}->{step.ModifiersAfter.SpeedMul:0.##} " +
+                        $"Motion {step.ModifiersBefore.MotionMode}->{step.ModifiersAfter.MotionMode}",
+                        "SpellTrace");
+                    break;
+                case CastTraceStepKind.MulticastApplied:
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} MULTICAST " +
+                        $"Draw {step.DrawBudgetBefore}->{step.DrawBudgetAfter}", "SpellTrace");
+                    break;
+                case CastTraceStepKind.DrawBudgetBlocked:
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} BLOCKED Draw=0",
+                        "SpellTrace");
+                    break;
+                case CastTraceStepKind.EmitProduced:
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} EMIT#{step.EmitIndex} " +
+                        $"Damage={step.Emit.Damage:0.##} Speed={step.Emit.Speed:0.##} " +
+                        $"Gravity={step.Emit.UseGravity} Motion={step.Emit.MotionMode} " +
+                        $"Draw {step.DrawBudgetBefore}->{step.DrawBudgetAfter}",
+                        "SpellTrace");
+                    break;
+                case CastTraceStepKind.PayloadCaptured:
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} [{step.SpellIndex}] PAYLOAD " +
+                        $"Trigger={step.PayloadTrigger} Start={step.PayloadStartIndex} Count={step.PayloadCount}",
+                        "SpellTrace");
+                    break;
+                case CastTraceStepKind.ManaFizzle:
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} FIZZLE " +
+                        $"ManaLeft={step.ManaLeftBefore:0.##}",
+                        "SpellTrace");
+                    break;
+                case CastTraceStepKind.NullSpellSkipped:
+                    GameLog.Info($"Cast #{castId} D{depth} [{step.SpellIndex}] NULL SKIPPED", "SpellTrace");
+                    break;
+                case CastTraceStepKind.CastCompleted:
+                    GameLog.Info($"Cast #{castId} D{depth} COMPLETE DrawLeft={step.DrawBudgetAfter}", "SpellTrace");
+                    break;
+            }
+        }
+#endif
 
         private void ConfigureProjectileMotion(ProjectileBase proj, EmitCommand cmd, int index, int count)
         {
@@ -208,7 +334,7 @@ namespace Game.Character
         }
 
         private void SpawnSkyfallProjectile(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
-                                            byte team, int attackerId, Collider casterCollider)
+                                            byte team, int attackerId, Collider casterCollider, int castId, int depth)
         {
             landingPoint = ResolveSkyfallLandingPoint(landingPoint, casterCollider);
 
@@ -221,24 +347,26 @@ namespace Game.Character
 
             if (cmd.LandingSiteDuration > 0f)
             {
-                StartCoroutine(SpawnSkyfallProjectileAfterDelay(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider));
+                StartCoroutine(SpawnSkyfallProjectileAfterDelay(
+                    cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider, castId, depth));
             }
             else
             {
-                SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider);
+                SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider, castId, depth);
             }
         }
 
         private IEnumerator SpawnSkyfallProjectileAfterDelay(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir,
                                                              int index, int count,
-                                                             byte team, int attackerId, Collider casterCollider)
+                                                             byte team, int attackerId, Collider casterCollider,
+                                                             int castId, int depth)
         {
             yield return new WaitForSeconds(cmd.LandingSiteDuration);
-            SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider);
+            SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider, castId, depth);
         }
 
         private void SpawnSkyfallProjectileNow(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
-                                               byte team, int attackerId, Collider casterCollider)
+                                               byte team, int attackerId, Collider casterCollider, int castId, int depth)
         {
             Vector3 horizontalDir = baseDir;
             horizontalDir.y = 0f;
@@ -262,7 +390,7 @@ namespace Game.Character
                 return;
             }
 
-            WirePayload(proj, cmd, team, attackerId, casterCollider);
+            WirePayload(proj, cmd, team, attackerId, casterCollider, castId, depth);
             ConfigureProjectileMotion(proj, cmd, index, count);
             proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, fallDir * cmd.Speed, casterCollider, useGravity: cmd.UseGravity);
         }
