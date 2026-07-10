@@ -28,15 +28,26 @@ namespace Game.Combat
             if (!enabled || !gameObject.activeInHierarchy)
                 return;
 
-            IReadOnlyList<ProjectileBase> active = ProjectileBase.ActiveProjectiles;
-            for (int i = 0; i < active.Count; i++)
+            Color previousColor = Gizmos.color;
+            Matrix4x4 previousMatrix = Gizmos.matrix;
+            try
             {
-                ProjectileBase projectile = active[i];
-                if (projectile == null || !ShouldDraw(projectile))
-                    continue;
+                Gizmos.matrix = Matrix4x4.identity;
+                IReadOnlyList<ProjectileBase> active = ProjectileBase.ActiveProjectiles;
+                for (int i = 0; i < active.Count; i++)
+                {
+                    ProjectileBase projectile = active[i];
+                    if (projectile == null || !ShouldDraw(projectile))
+                        continue;
 
-                ProjectileDebugSnapshot snapshot = projectile.GetDebugSnapshot();
-                DrawSnapshot(snapshot);
+                    ProjectileDebugSnapshot snapshot = projectile.GetDebugSnapshot();
+                    DrawSnapshot(snapshot);
+                }
+            }
+            finally
+            {
+                Gizmos.color = previousColor;
+                Gizmos.matrix = previousMatrix;
             }
         }
 
