@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using Game.Core;
 using UnityEngine;
+using Unity.Profiling;
 
 namespace Game.Combat
 {
@@ -56,6 +58,13 @@ namespace Game.Combat
         private Vector3 _orbitRight;
         private Vector3 _orbitUp;
         private float _orbitCenterSpeed;
+        private bool _hasDebugReflection;
+        private Vector3 _lastDebugCollisionPoint;
+        private Vector3 _lastDebugCollisionNormal;
+        private Vector3 _lastDebugReflectedDirection;
+        private float _lastDebugCollisionTime;
+        private bool _debugMissingRigidbodyWarned;
+        private bool _initialized;
 
         /// <summary>
         /// 命中真实目标/环境的瞬间触发（命中点, 命中方向）。上层（法术触发）据此在命中点再施放载荷，
@@ -73,6 +82,10 @@ namespace Game.Combat
         // 避免同队火球互撞（连发自撞偏移 / 同队两球相撞误爆炸）。异队不忽略 → 仍碰撞 → 各自爆炸。
         private static readonly List<ProjectileBase> s_active = new List<ProjectileBase>(32);
         private static readonly Collider[] s_homingHits = new Collider[16];
+        private static readonly ProfilerMarker s_motionMarker = new ProfilerMarker("Projectile.Motion");
+
+        public static int ActiveCount => s_active.Count;
+        internal static IReadOnlyList<ProjectileBase> ActiveProjectiles => s_active;
 
         protected virtual void Awake()
         {
@@ -82,11 +95,22 @@ namespace Game.Combat
 
         protected virtual void OnDestroy()
         {
-            s_active.Remove(this); // 从在场表注销（命中销毁 / 超时自毁 / 场景卸载）
+            Unregister(); // 从在场表注销（命中销毁 / 超时自毁 / 场景卸载）
         }
 
         /// <summary>飞行中是否每帧把模型朝向对齐当前速度方向（抛物线箭矢用：机头随下坠俯冲）。默认否（直线投射物方向恒定，Init 定一次即可）。</summary>
         protected virtual bool FaceVelocityInFlight => false;
+
+        protected virtual void OnEnable()
+        {
+            if (_initialized)
+                RegisterAndIgnoreSameTeamProjectiles();
+        }
+
+        protected virtual void OnDisable()
+        {
+            Unregister();
+        }
 
         private void Update()
         {
@@ -112,16 +136,19 @@ namespace Game.Combat
         {
             if (_consumed || _rb == null) return;
 
-            if (_orbitEnabled)
-                TickOrbit(Time.fixedDeltaTime);
-            else
-                TickHoming(Time.fixedDeltaTime);
+            using (s_motionMarker.Auto())
+            {
+                if (_orbitEnabled)
+                    TickOrbit(Time.fixedDeltaTime);
+                else
+                    TickHoming(Time.fixedDeltaTime);
 
-            // 非抛物线投射物不更新模型朝向；命中冻结(velocity≈0)时自动停止，保留命中姿态
-            if (!FaceVelocityInFlight) return;
-            Vector3 v = _rb.linearVelocity;
-            if (v.sqrMagnitude > 1e-6f)
-                transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
+                // 非抛物线投射物不更新模型朝向；命中冻结(velocity≈0)时自动停止，保留命中姿态
+                if (!FaceVelocityInFlight) return;
+                Vector3 v = _rb.linearVelocity;
+                if (v.sqrMagnitude > 1e-6f)
+                    transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
+            }
         }
 
         /// <summary>
@@ -131,6 +158,7 @@ namespace Game.Combat
         public virtual void Init(byte attackerTeam, int attackerId, float damage, DamageType type,
                                  Vector3 velocity, Collider casterCollider, bool useGravity = true)
         {
+            ClearDebugReflectionFacts();
             _attackerTeam = attackerTeam;
             _attackerId = attackerId;
             _damage = damage;
@@ -146,6 +174,7 @@ namespace Game.Combat
                 Physics.IgnoreCollision(_collider, casterCollider);
 
             // 与同阵营的其它在场投射物互相忽略碰撞，并把自己登记进表
+            _initialized = true;
             RegisterAndIgnoreSameTeamProjectiles();
 
             _rb.useGravity = useGravity;
@@ -214,6 +243,7 @@ namespace Game.Combat
                 return false;
 
             reflected.Normalize();
+            RecordDebugReflection(transform.position, normal, reflected);
             float speed = velocity.magnitude;
             Vector3 newVelocity = reflected * speed;
 
@@ -335,6 +365,8 @@ namespace Game.Combat
                 return false;
 
             reflected.Normalize();
+            ContactPoint contact = collision.GetContact(0);
+            RecordDebugReflection(contact.point, normal, reflected);
             float speed = _currentSpeed > 1e-6f ? _currentSpeed : intendedVelocity.magnitude;
             if (speed <= 1e-6f)
                 speed = _launchVelocity.magnitude;
@@ -448,6 +480,59 @@ namespace Game.Combat
             _homingRemaining = _homingDuration;
         }
 
+        public ProjectileDebugSnapshot GetDebugSnapshot()
+        {
+            if (_rb == null && !_debugMissingRigidbodyWarned)
+            {
+                _debugMissingRigidbodyWarned = true;
+                GameLog.Warn(
+                    $"Projectile {name} 缺少 Rigidbody，Debug Snapshot 使用零速度",
+                    "ProjectileDebug");
+            }
+
+            Vector3 velocity = _rb != null ? _rb.linearVelocity : Vector3.zero;
+            bool hasTarget = _homingTarget != null;
+
+            return new ProjectileDebugSnapshot(
+                transform.position,
+                velocity,
+                _rb != null && _rb.useGravity,
+                _homingEnabled,
+                _homingRadius,
+                hasTarget,
+                hasTarget ? _homingTarget.position : Vector3.zero,
+                _orbitEnabled,
+                _orbitCenter,
+                _orbitForward,
+                _orbitRight,
+                _orbitUp,
+                _orbitRadius,
+                _hasDebugReflection,
+                _lastDebugCollisionPoint,
+                _lastDebugCollisionNormal,
+                _lastDebugReflectedDirection,
+                _lastDebugCollisionTime);
+        }
+
+        private void RecordDebugReflection(
+            Vector3 point, Vector3 normal, Vector3 reflectedDirection)
+        {
+            _hasDebugReflection = true;
+            _lastDebugCollisionPoint = point;
+            _lastDebugCollisionNormal = normal;
+            _lastDebugReflectedDirection = reflectedDirection;
+            _lastDebugCollisionTime = Time.time;
+        }
+
+        private void ClearDebugReflectionFacts()
+        {
+            _hasDebugReflection = false;
+            _lastDebugCollisionPoint = Vector3.zero;
+            _lastDebugCollisionNormal = Vector3.zero;
+            _lastDebugReflectedDirection = Vector3.zero;
+            _lastDebugCollisionTime = 0f;
+        }
+
         private Vector3 ResolveCurrentDirection()
         {
             Vector3 v = _rb != null ? _rb.linearVelocity : Vector3.zero;
@@ -474,7 +559,14 @@ namespace Game.Combat
                 if (other._attackerTeam == _attackerTeam && other._collider != null && _collider != null)
                     Physics.IgnoreCollision(_collider, other._collider);
             }
-            s_active.Add(this);
+
+            if (!s_active.Contains(this))
+                s_active.Add(this);
+        }
+
+        private void Unregister()
+        {
+            s_active.Remove(this);
         }
 
         private void RefreshSameTeamProjectileIgnores()
