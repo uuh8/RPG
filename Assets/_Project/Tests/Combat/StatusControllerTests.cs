@@ -1,5 +1,7 @@
+using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Game.Combat;
 
 namespace Game.Combat.Tests
@@ -99,9 +101,11 @@ namespace Game.Combat.Tests
             Object.DestroyImmediate(controller.gameObject);
         }
 
-        [Test]
-        public void Poisoned_DealsDotWithoutHitReaction()
+        [UnityTest]
+        public IEnumerator Poisoned_DealsDotWithoutHitReaction()
         {
+            yield return new EnterPlayMode();
+
             GameObject go = new GameObject("poison-target");
             HealthComponent health = go.AddComponent<HealthComponent>();
             StatusController controller = go.AddComponent<StatusController>();
@@ -118,9 +122,14 @@ namespace Game.Combat.Tests
 
             float before = health.CurrentHp;
             controller.TickForTests(1f);
+            float after = health.CurrentHp;
 
-            Assert.AreEqual(before - 4f, health.CurrentHp, 1e-4f);
-            Object.DestroyImmediate(go);
+            Object.Destroy(go);
+            Object.Destroy(poison);
+            yield return null;
+            yield return new ExitPlayMode();
+
+            Assert.AreEqual(before - 4f, after, 1e-4f);
         }
     }
 }
