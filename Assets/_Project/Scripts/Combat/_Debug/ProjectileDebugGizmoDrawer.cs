@@ -28,6 +28,10 @@ namespace Game.Combat
             if (!enabled || !gameObject.activeInHierarchy)
                 return;
 
+            Camera camera = Camera.current;
+            if (camera == null || camera.cameraType != CameraType.SceneView)
+                return;
+
             Color previousColor = Gizmos.color;
             Matrix4x4 previousMatrix = Gizmos.matrix;
             try

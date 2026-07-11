@@ -62,6 +62,7 @@ namespace Game.Character
         private int _currentTarget;
         private int _peakActive;
         private float _phaseTimer;
+        private float _stallTimer;
 
         public SpellPerformanceRunState State => _state;
         public int CurrentTarget => _currentTarget;
@@ -79,6 +80,15 @@ namespace Game.Character
             if (!Application.isPlaying)
             {
                 GameLog.Warn("SpellPerformanceLab can only run in Play Mode", "PerformanceLab");
+                return;
+            }
+
+            if (_state == SpellPerformanceRunState.Filling
+                || _state == SpellPerformanceRunState.Holding)
+            {
+                GameLog.Warn(
+                    $"Performance Lab is already running: target={_currentTarget}, active={ProjectileBase.ActiveCount}, peak={_peakActive}",
+                    "PerformanceLab");
                 return;
             }
 
@@ -174,8 +184,6 @@ namespace Game.Character
             if (active > _peakActive)
                 _peakActive = active;
 
-            _phaseTimer += Time.unscaledDeltaTime;
-
             if (_state == SpellPerformanceRunState.Filling)
                 TickFilling(active);
             else if (_state == SpellPerformanceRunState.Holding)
@@ -184,6 +192,8 @@ namespace Game.Character
 
         private void TickFilling(int active)
         {
+            _phaseTimer += Time.unscaledDeltaTime;
+
             if (active < _currentTarget)
                 FillToTarget();
 
@@ -199,7 +209,7 @@ namespace Game.Character
                 return;
             }
 
-            if (_phaseTimer >= _fillTimeoutSeconds)
+            if (IsFiniteRun() && _phaseTimer >= _fillTimeoutSeconds)
             {
                 GameLog.Warn(
                     $"Fill timed out: target={_currentTarget}, active={active}, peak={_peakActive}, elapsed={_phaseTimer:0.###}",
@@ -211,7 +221,30 @@ namespace Game.Character
         private void TickHolding(int active)
         {
             if (active < _currentTarget)
+            {
                 FillToTarget();
+
+                active = ProjectileBase.ActiveCount;
+                if (active < _currentTarget)
+                {
+                    if (IsFiniteRun())
+                    {
+                        _stallTimer += Time.unscaledDeltaTime;
+                        if (_stallTimer >= _fillTimeoutSeconds)
+                        {
+                            GameLog.Warn(
+                                $"Hold stalled below target: target={_currentTarget}, active={active}, peak={_peakActive}, hold={_phaseTimer:0.###}, stall={_stallTimer:0.###}",
+                                "PerformanceLab");
+                            _state = SpellPerformanceRunState.Completed;
+                        }
+                    }
+
+                    return;
+                }
+            }
+
+            _stallTimer = 0f;
+            _phaseTimer += Time.unscaledDeltaTime;
 
             if (_runMode == SpellPerformanceRunMode.Custom
                 && _maintainCustomIndefinitely)
@@ -219,6 +252,12 @@ namespace Game.Character
 
             if (_phaseTimer >= _holdSeconds)
                 CompleteCurrentTarget();
+        }
+
+        private bool IsFiniteRun()
+        {
+            return _runMode != SpellPerformanceRunMode.Custom
+                || !_maintainCustomIndefinitely;
         }
 
         private void FillToTarget()
@@ -290,6 +329,7 @@ namespace Game.Character
 
             _currentTarget = target;
             _phaseTimer = 0f;
+            _stallTimer = 0f;
             _state = SpellPerformanceRunState.Filling;
             GameLog.Info(
                 $"Target started: target={_currentTarget}, active={ProjectileBase.ActiveCount}, peak={_peakActive}, elapsed={_phaseTimer:0.###}",

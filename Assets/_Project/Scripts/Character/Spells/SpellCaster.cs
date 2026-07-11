@@ -76,8 +76,14 @@ namespace Game.Character
                             int castId, int depth)
         {
             float requiredMana = CastEvaluator.EstimateManaCost(spells, baseDraws, incomingMods);
+            float availableMana = _mana != null ? _mana.CurrentMana : float.PositiveInfinity;
             if (!TrySpendMana(requiredMana))
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+                LogManaPreflightFailure(
+                    spells, baseDraws, incomingMods,
+                    castId, depth, requiredMana, availableMana);
+#endif
                 _emits.Clear();
                 return 0;
             }
@@ -224,6 +230,34 @@ namespace Game.Character
         }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void LogManaPreflightFailure(
+            IReadOnlyList<SpellDefinition> spells,
+            int baseDraws,
+            CastModifierState incomingMods,
+            int castId,
+            int depth,
+            float requiredMana,
+            float availableMana)
+        {
+            if (_traceLevel == CastTraceLevel.Off)
+                return;
+
+            if (_traceLevel == CastTraceLevel.Detailed)
+            {
+                CastSummary summary = CastEvaluator.EvaluateWithTrace(
+                    spells, baseDraws, availableMana,
+                    incomingMods, _emits, _traceCollector);
+                LogTrace(castId, depth, requiredMana, summary);
+                _emits.Clear();
+                return;
+            }
+
+            GameLog.Info(
+                $"Cast #{castId} Depth={depth} PRECHECK FAILED Emits=0 " +
+                $"RequiredMana={requiredMana:0.##} AvailableMana={availableMana:0.##} Fizzled=True",
+                "SpellTrace");
+        }
+
         private void LogTrace(int castId, int depth, float requiredMana, CastSummary summary)
         {
             if (_traceLevel == CastTraceLevel.Off)
@@ -258,14 +292,16 @@ namespace Game.Character
             switch (step.Kind)
             {
                 case CastTraceStepKind.CastStarted:
-                    GameLog.Info($"Cast #{castId} D{depth} START Draw={step.DrawBudgetBefore}", "SpellTrace");
+                    GameLog.Info(
+                        $"Cast #{castId} D{depth} START Draw={step.DrawBudgetBefore} " +
+                        FormatModifiers(step.ModifiersBefore),
+                        "SpellTrace");
                     break;
                 case CastTraceStepKind.ModifyApplied:
                     GameLog.Info(
                         $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} MODIFY " +
-                        $"DamageMul {step.ModifiersBefore.DamageMul:0.##}->{step.ModifiersAfter.DamageMul:0.##} " +
-                        $"SpeedMul {step.ModifiersBefore.SpeedMul:0.##}->{step.ModifiersAfter.SpeedMul:0.##} " +
-                        $"Motion {step.ModifiersBefore.MotionMode}->{step.ModifiersAfter.MotionMode}",
+                        $"Before[{FormatModifiers(step.ModifiersBefore)}] " +
+                        $"After[{FormatModifiers(step.ModifiersAfter)}]",
                         "SpellTrace");
                     break;
                 case CastTraceStepKind.MulticastApplied:
@@ -281,15 +317,15 @@ namespace Game.Character
                 case CastTraceStepKind.EmitProduced:
                     GameLog.Info(
                         $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} EMIT#{step.EmitIndex} " +
-                        $"Damage={step.Emit.Damage:0.##} Speed={step.Emit.Speed:0.##} " +
-                        $"Gravity={step.Emit.UseGravity} Motion={step.Emit.MotionMode} " +
+                        FormatEmit(step.Emit) + " " +
                         $"Draw {step.DrawBudgetBefore}->{step.DrawBudgetAfter}",
                         "SpellTrace");
                     break;
                 case CastTraceStepKind.PayloadCaptured:
                     GameLog.Info(
                         $"Cast #{castId} D{depth} [{step.SpellIndex}] PAYLOAD " +
-                        $"Trigger={step.PayloadTrigger} Start={step.PayloadStartIndex} Count={step.PayloadCount}",
+                        $"Trigger={step.PayloadTrigger} Delay={step.Emit.PayloadDelaySeconds:0.##} " +
+                        $"Start={step.PayloadStartIndex} Count={step.PayloadCount}",
                         "SpellTrace");
                     break;
                 case CastTraceStepKind.ManaFizzle:
@@ -305,6 +341,32 @@ namespace Game.Character
                     GameLog.Info($"Cast #{castId} D{depth} COMPLETE DrawLeft={step.DrawBudgetAfter}", "SpellTrace");
                     break;
             }
+        }
+
+        private static string FormatModifiers(CastModifierState modifiers)
+        {
+            return $"DamageAddFlat={modifiers.DamageAddFlat:0.##} DamageMul={modifiers.DamageMul:0.##} " +
+                   $"SpeedMul={modifiers.SpeedMul:0.##} Spread={modifiers.SpreadDegrees:0.##} " +
+                   $"Bounce={modifiers.BounceCount} UseGravity={modifiers.UseGravity} " +
+                   $"Homing(R={modifiers.HomingRadius:0.##},Duration={modifiers.HomingDuration:0.##},Turn={modifiers.HomingTurnRateDegrees:0.##}) " +
+                   $"Orbit(R={modifiers.OrbitRadius:0.##},Angular={modifiers.OrbitAngularSpeedDegrees:0.##},Phase={modifiers.OrbitPhaseOffsetDegrees:0.##},Tilt={modifiers.OrbitPlaneTiltDegrees:0.##}) " +
+                   $"Motion={modifiers.MotionMode}";
+        }
+
+        private static string FormatEmit(EmitCommand emit)
+        {
+            return $"Projectile={(emit.ProjectilePrefab != null ? emit.ProjectilePrefab.name : "<none>")} " +
+                   $"LandingSite={(emit.LandingSitePrefab != null ? emit.LandingSitePrefab.name : "<none>")} " +
+                   $"CastSfx={(emit.CastSfx != null ? emit.CastSfx.name : "<none>")} " +
+                   $"Damage={emit.Damage:0.##} Speed={emit.Speed:0.##} DamageType={emit.DamageType} " +
+                   $"Spread={emit.SpreadDegrees:0.##} Bounce={emit.BounceCount} UseGravity={emit.UseGravity} " +
+                   $"Homing(R={emit.HomingRadius:0.##},Duration={emit.HomingDuration:0.##},Turn={emit.HomingTurnRateDegrees:0.##}) " +
+                   $"Orbit(R={emit.OrbitRadius:0.##},Angular={emit.OrbitAngularSpeedDegrees:0.##},Phase={emit.OrbitPhaseOffsetDegrees:0.##},Tilt={emit.OrbitPlaneTiltDegrees:0.##}) " +
+                   $"Motion={emit.MotionMode} SpawnMode={emit.SpawnMode} " +
+                   $"Skyfall(Height={emit.SkyfallHeight:0.##},Back={emit.SkyfallBackOffset:0.##},LandingDuration={emit.LandingSiteDuration:0.##}) " +
+                   $"ShieldReflect={emit.ShieldReflectCount} " +
+                   $"Payload(Has={emit.HasPayload},Count={(emit.Payload != null ? emit.Payload.Count : 0)},Trigger={emit.PayloadTrigger},Delay={emit.PayloadDelaySeconds:0.##}," +
+                   $"Mods=[{FormatModifiers(emit.PayloadMods)}])";
         }
 #endif
 
