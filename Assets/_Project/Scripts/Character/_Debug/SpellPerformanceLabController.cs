@@ -111,8 +111,12 @@ namespace Game.Character
                 return;
             }
 
+            int active = ProjectileBase.ActiveCount;
+            float elapsed = _phaseTimer;
+            GameLog.Info(
+                $"Performance Lab stopped: target={_currentTarget}, active={active}, peak={_peakActive}, elapsed={elapsed:0.###}",
+                "PerformanceLab");
             _state = SpellPerformanceRunState.Idle;
-            GameLog.Info("Performance Lab stopped", "PerformanceLab");
         }
 
         private bool TryResolveScenario(out SpellPerformanceScenario scenario)
@@ -275,8 +279,12 @@ namespace Game.Character
         {
             if (target <= 0)
             {
+                int active = ProjectileBase.ActiveCount;
+                float elapsed = _phaseTimer;
+                GameLog.Warn(
+                    $"Target count is invalid; test stopped: target={target}, active={active}, peak={_peakActive}, elapsed={elapsed:0.###}",
+                    "PerformanceLab");
                 _state = SpellPerformanceRunState.Completed;
-                GameLog.Warn("Target count is invalid; test stopped", "PerformanceLab");
                 return;
             }
 
