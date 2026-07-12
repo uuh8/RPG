@@ -69,7 +69,9 @@ State objects are pre-instantiated in `Awake()` and reused — never allocate th
 ## Workflow
 
 - **Before any cross-module or architectural change**: write a plan and confirm alignment first.
-- **Feature flow**: non-trivial features go brainstorm → design spec → implementation plan → execute, with artifacts saved under `docs/superpowers/specs/` and `docs/superpowers/plans/`. Large features ship in **phases**, each gated by the developer verifying in the Editor before the next begins.
+- **Subagent policy**: never use a SubAgent unless the user explicitly approves SubAgent use for the current task. Prior approval does not carry over to later tasks.
+- **Feature flow**: non-trivial features normally go brainstorm → one detailed implementation plan → user confirmation → execute. Save the Chinese plan under `docs/superpowers/plans/`; do not create a separate spec unless the user explicitly requests one. Large features ship in **phases**, each gated by the developer verifying in the Editor before the next begins.
+- **Incremental learning document**: for P2 and subsequent P3/P4/P5 development, maintain one Simplified Chinese living explainer under `Assets/_Project/Docs/` for the whole phase. Update it after every completed Task with fundamentals, implementation technology, architecture integration, alternatives/trade-offs, tests, debugging, and interview-oriented explanations. The document remains explicitly "in progress" until the entire phase is complete. This learning workflow does not authorize SubAgent use.
 - **Renaming a MonoBehaviour script**: move the `.cs` **and its `.meta` together** (`git mv` both) so the script GUID survives and prefab/scene references don't break — never delete-and-recreate (that orphans the reference and resets serialized fields).
 - **Commits**: use [Conventional Commits](https://www.conventionalcommits.org/). Examples:
   - `feat(combat): add hit-stun state machine`
