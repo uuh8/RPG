@@ -464,7 +464,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: fad5184cd7abfe5429c03e02637cd450, type: 2}
+  - {fileID: 2100000, guid: 74cc4b4b6311c6e46b3de716755cb36d, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -799,7 +799,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: b5e2b127bea985b4f9463280a9a1d736, type: 2}
+  - {fileID: 2100000, guid: 8935fa558823da645b9ddd788e30e61b, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -1385,7 +1385,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: b5e2b127bea985b4f9463280a9a1d736, type: 2}
+  - {fileID: 2100000, guid: 8935fa558823da645b9ddd788e30e61b, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -4397,7 +4397,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: b5e2b127bea985b4f9463280a9a1d736, type: 2}
+  - {fileID: 2100000, guid: 8935fa558823da645b9ddd788e30e61b, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -9090,6 +9090,7 @@ GameObject:
   - component: {fileID: 3459414776841057456}
   - component: {fileID: 925266231771544054}
   - component: {fileID: 6060466127136814256}
+  - component: {fileID: 1299665379977283279}
   m_Layer: 7
   m_Name: SwordEnemy
   m_TagString: Untagged
@@ -9295,6 +9296,20 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Combat::Game.Combat.StatusController
   _database: {fileID: 11400000, guid: 28a8df9509d99744e824b08680571ad2, type: 2}
   _wetExtinguishBurningPerSecond: 35
+--- !u!114 &1299665379977283279
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8444702561198123193}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 54f66d8f20b2f3e4b890ca625b2c9ee9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.StatusMaterialController
+  _targetRenderers: []
+  _responseSpeed: 4
 --- !u!1 &8444702561204574413
 GameObject:
   m_ObjectHideFlags: 0
@@ -10429,7 +10444,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 249df724c5c531948a357c100787e4db, type: 2}
+  - {fileID: 2100000, guid: 5b51bf91b41ed9249b60856c713b8e30, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -12165,7 +12180,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 249df724c5c531948a357c100787e4db, type: 2}
+  - {fileID: 2100000, guid: 5b51bf91b41ed9249b60856c713b8e30, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -13188,7 +13203,7 @@ SkinnedMeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 249df724c5c531948a357c100787e4db, type: 2}
+  - {fileID: 2100000, guid: 5b51bf91b41ed9249b60856c713b8e30, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0

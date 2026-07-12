@@ -23,7 +23,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ```
 Game.Core          (foundation — no game dependencies)
-├── Game.Rendering (depends on Core)
+├── Game.Rendering (depends on Core + Combat; read-only presentation bridge)
 ├── Game.Combat    (depends on Core)
 │   ├── Game.Skills    (depends on Core + Combat — spell data/evaluator, pure helpers)
 │   └── Game.Character (depends on Core + Combat + Skills)
@@ -56,6 +56,13 @@ New code goes in the lowest assembly that satisfies its dependencies. Cross-modu
 
 Every script must declare a namespace matching its assembly.
 
+### Learning-oriented comments
+
+- New scripts and substantive edits must include concise Simplified Chinese comments for architecture boundaries, non-obvious control flow, Unity lifecycle/API behavior, math or graphics formulas, performance constraints, and important design trade-offs.
+- Comments must explain **why** the code is structured this way and what Unity/graphics concept is involved; do not mechanically narrate obvious assignments or every line.
+- For graphics and Shader work, assume the user is a beginner. Plans, code comments, Editor instructions, and retrospective docs must explain coordinate spaces, vector/math terms, Shader stages, material/property behavior, Rendering trade-offs, and the purpose of relevant Unity APIs in foundational detail.
+- When a feature needs user-sourced assets, state the dependency before implementation. The detailed plan must list each required model, texture, noise/normal map, VFX, audio, font, or other asset with its purpose, expected format/channels, size or quality guidance, Unity import settings, destination path, and an acceptable fallback. Do not reveal missing asset requirements only after code is written.
+
 ## Performance Rules
 
 The following are **forbidden** inside `Update()`, `FixedUpdate()`, or any per-frame hot path:
@@ -69,7 +76,8 @@ State objects are pre-instantiated in `Awake()` and reused — never allocate th
 ## Workflow
 
 - **Before any cross-module or architectural change**: write a plan and confirm alignment first.
-- **Feature flow**: non-trivial features go brainstorm → design spec → implementation plan → execute, with artifacts saved under `docs/superpowers/specs/` and `docs/superpowers/plans/`. Large features ship in **phases**, each gated by the developer verifying in the Editor before the next begins.
+- **Subagent policy**: never use a SubAgent unless the user explicitly approves SubAgent use for the current task. Prior approval does not carry over to later tasks.
+- **Feature flow**: non-trivial features normally go brainstorm → one detailed implementation plan → user confirmation → execute. Save the Chinese plan under `docs/superpowers/plans/`; do not create a separate spec unless the user explicitly requests one. The plan must include the design rationale, alternatives and trade-offs, architecture integration, exact file changes, tests, Editor setup, verification steps, and rollback/debug notes. Large features ship in **phases**, each gated by the developer verifying in the Editor before the next begins.
 - **Renaming a MonoBehaviour script**: move the `.cs` **and its `.meta` together** (`git mv` both) so the script GUID survives and prefab/scene references don't break — never delete-and-recreate (that orphans the reference and resets serialized fields).
 - **Commits**: use [Conventional Commits](https://www.conventionalcommits.org/). Examples:
   - `feat(combat): add hit-stun state machine`
@@ -340,9 +348,9 @@ EditMode tests live in `Assets/_Project/Tests/Skills/`: `CastModifierStateTests`
 
 ## Presentation (`Game.Rendering` / `Game.UI`)
 
-Presentation is **read-only on gameplay**: it never references `Game.Character`/`Game.Combat` types except the combat events it subscribes to. It reacts purely through EventBus.
+Presentation is **read-only on gameplay**: it never references `Game.Character`; its only `Game.Combat` dependency is gameplay data/events consumed for presentation. It reacts through EventBus and never modifies gameplay state.
 
-- **`Game.Rendering`**: `CrosshairUI` (shows/positions the aim reticle), `AimFramingController` (camera framing). Driven by `AimStateChangedEvent` / `CrosshairVisibilityEvent` (defined in `Game.Core/Events`).
+- **`Game.Rendering`**: `CrosshairUI` (shows/positions the aim reticle), `AimFramingController` (camera framing), and `StatusMaterialController` (subscribes `StatusChangedEvent`, normalizes/smooths status intensity, then writes per-renderer Shader values through `MaterialPropertyBlock`). Rendering reads Combat state but never changes it.
 - **`Game.UI`**: `EnemyHealthBar` (world-space, billboards to camera, one per enemy) and `PlayerHealthBar` (screen-space HUD, smoothed via `Mathf.MoveTowards`). Both consume `DamageReceivedEvent` / `DeathEvent` and filter by `e.TargetId == HealthComponent.Id` (`Id == gameObject.GetInstanceID()`). `Image.fillAmount` requires the UGUI Image be **`Type = Filled`** (a common "bar doesn't move" gotcha). `Game.UI` also owns the wand editor (`WandEditorController`, palette/frame/slot views) and is allowed to reference `Game.Skills` for spell data and pure editing helpers.
 
 ---

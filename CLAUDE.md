@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 Game.Core          (foundation — no game dependencies)
-├── Game.Rendering (depends on Core)
+├── Game.Rendering (depends on Core + Combat; read-only presentation bridge)
 ├── Game.Combat    (depends on Core)
 │   ├── Game.Skills    (depends on Core + Combat — spell data/evaluator, pure helpers)
 │   └── Game.Character (depends on Core + Combat + Skills)
@@ -340,9 +340,9 @@ EditMode tests live in `Assets/_Project/Tests/Skills/`: `CastModifierStateTests`
 
 ## Presentation (`Game.Rendering` / `Game.UI`)
 
-Presentation is **read-only on gameplay**: it never references `Game.Character`/`Game.Combat` types except the combat events it subscribes to. It reacts purely through EventBus.
+Presentation is **read-only on gameplay**: it never references `Game.Character`; its only `Game.Combat` dependency is gameplay data/events consumed for presentation. It reacts through EventBus and never modifies gameplay state.
 
-- **`Game.Rendering`**: `CrosshairUI` (shows/positions the aim reticle), `AimFramingController` (camera framing). Driven by `AimStateChangedEvent` / `CrosshairVisibilityEvent` (defined in `Game.Core/Events`).
+- **`Game.Rendering`**: `CrosshairUI` (shows/positions the aim reticle), `AimFramingController` (camera framing), and `StatusMaterialController` (subscribes `StatusChangedEvent`, normalizes/smooths status intensity, then writes per-renderer Shader values through `MaterialPropertyBlock`). Rendering reads Combat state but never changes it.
 - **`Game.UI`**: `EnemyHealthBar` (world-space, billboards to camera, one per enemy) and `PlayerHealthBar` (screen-space HUD, smoothed via `Mathf.MoveTowards`). Both consume `DamageReceivedEvent` / `DeathEvent` and filter by `e.TargetId == HealthComponent.Id` (`Id == gameObject.GetInstanceID()`). `Image.fillAmount` requires the UGUI Image be **`Type = Filled`** (a common "bar doesn't move" gotcha). `Game.UI` also owns the wand editor (`WandEditorController`, palette/frame/slot views) and is allowed to reference `Game.Skills` for spell data and pure editing helpers.
 
 ---
