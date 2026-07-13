@@ -20,6 +20,7 @@ namespace Game.Combat
         private IDamageable _damageable;
         private int _targetId;
         private ElementReactionRuntime _reactionRuntime;
+        private AreaReactionDamageResolver _areaReactionDamageResolver;
 
         public float MoveSpeedMultiplier { get; private set; } = 1f;
 
@@ -28,6 +29,7 @@ namespace Game.Combat
             _damageable = GetComponent<IDamageable>();
             _targetId = gameObject.GetInstanceID();
             CacheDefinitions();
+            _areaReactionDamageResolver = new AreaReactionDamageResolver();
             RebuildReactionRuntime();
             RecalculateMoveSpeedMultiplier();
         }
@@ -231,7 +233,13 @@ namespace Game.Combat
             if (frame.SignalCount > 2)
                 PublishReactionSignal(in frame.Signal2);
 
-            // AreaDamage 由 Task 4 的 NonAlloc Resolver 执行；Adapter 当前只保留命令边界。
+            if (frame.HasAreaDamage)
+            {
+                // 正常由 Awake 预创建；EditMode 测试/工具若先调用公开 API，再做一次低频兜底。
+                if (_areaReactionDamageResolver == null)
+                    _areaReactionDamageResolver = new AreaReactionDamageResolver();
+                _areaReactionDamageResolver.Resolve(in frame.AreaDamage, transform.position);
+            }
         }
 
         private ElementStateSnapshot BuildReactionSnapshot()
