@@ -19,6 +19,11 @@ namespace Game.Combat
         public DamageType DamageType = DamageType.Magical;
         public bool TriggerHitReaction = false;
 
+        [Header("Wet Cleanse")]
+        [Tooltip("启用后，该状态会消耗 Wet Cleanse 的有限预算；Burning/Wet 应保持关闭。")]
+        public bool WetCleanseable;
+        [Min(0f)] public float WetCleanseMultiplier = 1f;
+
         [Header("Movement Modifier")]
         public bool AffectsMoveSpeed;
         [Range(0f, 0.95f)] public float MaxMoveSpeedSlowRatio = 0f;

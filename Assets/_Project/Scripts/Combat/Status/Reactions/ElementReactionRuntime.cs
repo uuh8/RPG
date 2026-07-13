@@ -46,8 +46,9 @@ namespace Game.Combat
 
         public ElementReactionFrame Tick(in ElementStateSnapshot snapshot, float deltaTime)
         {
-            if (deltaTime <= 0f)
-                return default;
+            // 零时间步仍允许 Dirty 输入建立 Process 和发布 Started，但禁止任何连续积分。
+            // Adapter 因而能在 ApplyStatus 当帧建立反应，下一次正常 Tick 再推进数值。
+            deltaTime = MaxZero(deltaTime);
 
             _toxicCooldown = MaxZero(_toxicCooldown - deltaTime);
             _igniteCooldown = MaxZero(_igniteCooldown - deltaTime);
@@ -69,6 +70,9 @@ namespace Game.Combat
                 startedToxic = TryStartToxic(in snapshot, ref frame);
                 startedIgnite = TryStartIgnite(in snapshot, ref frame);
             }
+
+            if (deltaTime <= 0f)
+                return frame;
 
             if (_extinguishActive && !startedExtinguish)
                 TickExtinguish(ref fire, ref water, deltaTime, ref frame);
