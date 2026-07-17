@@ -108,3 +108,6 @@ InitTestScene*.unity*
 
 # Local agent worktrees
 /.worktrees/
+
+# Local visual brainstorming companion artifacts
+/.superpowers/
