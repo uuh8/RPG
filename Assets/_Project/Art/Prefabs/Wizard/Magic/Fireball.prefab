@@ -9605,6 +9605,7 @@ GameObject:
   - component: {fileID: -3208501048099798622}
   - component: {fileID: 8278182072657761699}
   - component: {fileID: 5583532657886760444}
+  - component: {fileID: 4550910569968575498}
   m_Layer: 0
   m_Name: Fireball
   m_TagString: Untagged
@@ -14606,12 +14607,10 @@ MonoBehaviour:
   _maxLifetime: 5
   _modelForwardOffsetEuler: {x: 0, y: 0, z: 0}
   _impactLingerTime: 0
+  _homingScanInterval: 0.1
   _explosionPrefab: {fileID: 1628644007216397936, guid: 3002191ea789a4847821379225afe4b3, type: 3}
   _explosionLifetime: 1
-  _onFirePrefab: {fileID: 2494727312554208266, guid: 6fb63a9c354e0254798ccceb511261d4, type: 3}
-  _burnDamagePerTick: 3
-  _burnInterval: 0.5
-  _burnDuration: 3
+  _burningApplyAmount: 45
 --- !u!54 &8278182072657761699
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -14658,8 +14657,24 @@ SphereCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Radius: 0.2998855
-  m_Center: {x: 0.00000023841858, y: -0.00020289421, z: 0}
+  m_Radius: 0.17443167
+  m_Center: {x: 0, y: -0.00020289459, z: 0}
+--- !u!114 &4550910569968575498
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7581999627747165493}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aeb1cc9b05ea81b4994427978e1e3f50, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.ElementDepositOnImpact
+  _materialKind: 2
+  _totalAmount: 1200
+  _radius: 0.6
+  _useLinearFalloff: 1
 --- !u!1 &8914606660101845406
 GameObject:
   m_ObjectHideFlags: 0

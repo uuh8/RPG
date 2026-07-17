@@ -23,14 +23,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 Game.Core          (foundation — no game dependencies)
-├── Game.Rendering (depends on Core + Combat; read-only presentation bridge)
 ├── Game.Combat    (depends on Core)
 │   ├── Game.Skills    (depends on Core + Combat — spell data/evaluator, pure helpers)
 │   └── Game.Character (depends on Core + Combat + Skills)
+├── Game.ElementField (depends on Core + Combat — owns compact environment gameplay data)
+├── Game.Rendering (depends on Core + Combat; may read ElementField only through IElementFieldReadOnly)
 └── Game.UI        (depends on Core + Combat + Skills + UnityEngine.UI + Unity.InputSystem)
 ```
 
-New code goes in the lowest assembly that satisfies its dependencies. Cross-module communication goes through EventBus events in `Game.Core`. Presentation (e.g. UI in `Game.Rendering`) reacts to gameplay only by subscribing to EventBus events — gameplay never references presentation.
+New code goes in the lowest assembly that satisfies its dependencies. Cross-module communication goes through EventBus events in `Game.Core`. `Game.ElementField` may depend on Combat status/projectile contracts, but `Game.Combat` never depends back on ElementField. Presentation (e.g. UI or `Game.Rendering`) reacts to gameplay through events or read-only interfaces — gameplay never references presentation.
 
 ### Folder Conventions
 

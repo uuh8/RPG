@@ -18,6 +18,8 @@ namespace Game.Combat
             float poisonWetCleanseMultiplier,
             float gooWetCleanseMultiplier)
         {
+            // Wet Cleanse multiplier 属于被清洗状态的 StatusDefinition，其他反应参数属于本 Profile；
+            // 在这里把两处数据汇合成 Runtime 只读快照，纯核心不需要认识 ScriptableObject。
             return new ElementReactionTuningSnapshot(
                 Extinguish,
                 WetCleanse,

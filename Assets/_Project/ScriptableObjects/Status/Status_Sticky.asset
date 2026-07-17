@@ -22,5 +22,7 @@ MonoBehaviour:
   BaseDamagePerTick: 0
   DamageType: 1
   TriggerHitReaction: 0
+  WetCleanseable: 1
+  WetCleanseMultiplier: 1.25
   AffectsMoveSpeed: 1
   MaxMoveSpeedSlowRatio: 0.4

@@ -5,6 +5,9 @@ using UnityEngine.TestTools;
 
 namespace Game.Combat.Tests
 {
+    /// <summary>
+    /// 验证环境 Volume 的固定间隔、离开范围、来源归因、Collider 去重与固定缓冲区边界。
+    /// </summary>
     public class StatusVolumeTests
     {
         private sealed class TestDamageable : MonoBehaviour, IDamageable
@@ -24,6 +27,7 @@ namespace Game.Combat.Tests
         [UnityTest]
         public IEnumerator Tick_AppliesOncePerIntervalAndDeduplicatesMultipleColliders()
         {
+            // 0.24 + 0.01 恰好跨过 0.25 秒边界；两 Collider 仍只能累计一次 5 点 Wet。
             yield return new EnterPlayMode();
 
             StatusVolume volume = CreateVolume(StatusKind.Wet, 0.25f, 5f, 255);
@@ -44,6 +48,7 @@ namespace Game.Combat.Tests
         [UnityTest]
         public IEnumerator Tick_TargetOutsideBoxStopsReceivingStatus()
         {
+            // Overlap 查询是离散采样；目标移出并同步 Physics Transform 后，下一 tick 不再命中。
             yield return new EnterPlayMode();
 
             StatusVolume volume = CreateVolume(StatusKind.Sticky, 0.25f, 5f, 255);
@@ -62,8 +67,45 @@ namespace Game.Combat.Tests
         }
 
         [UnityTest]
+        public IEnumerator Tick_SustainedContactHoldsDecayAndLeavingResumesItAfterGrace()
+        {
+            // StatusVolume 与 ElementField Exposure 共用同一持续来源契约：
+            // 低频 Physics Query 之间不衰减，离开 Box 后则只保留一个短 Grace。
+            yield return new EnterPlayMode();
+
+            StatusVolume volume = CreateVolume(StatusKind.Wet, 0.25f, 5f, 255);
+            StatusController target = CreateTarget(Vector3.zero, twoColliders: false);
+            StatusDefinition wet = ScriptableObject.CreateInstance<StatusDefinition>();
+            wet.Kind = StatusKind.Wet;
+            wet.NaturalDecayPerSecond = 8f;
+            target.SetDefinitionsForTests(wet);
+            Physics.SyncTransforms();
+
+            volume.TickForTests(0.25f);
+            target.TickForTests(0.25f);
+            volume.TickForTests(0.25f);
+            target.TickForTests(0.25f);
+            Assert.AreEqual(10f, target.GetIntensity(StatusKind.Wet), 1e-4f,
+                "持续位于 Volume 中时，两次补充之间不应发生 NaturalDecay。");
+
+            target.transform.position = Vector3.right * 10f;
+            Physics.SyncTransforms();
+            volume.TickForTests(0.25f);
+            target.TickForTests(0.2f);
+
+            // 最近一次 Apply 的 Hold=0.35 秒，前一 Tick 已消耗 0.25 秒；
+            // 离场后 0.20 秒只有后 0.10 秒参与 8/s 衰减，因此 10 - 0.8 = 9.2。
+            Assert.AreEqual(9.2f, target.GetIntensity(StatusKind.Wet), 1e-4f);
+
+            Object.Destroy(wet);
+            Cleanup(volume, target);
+            yield return new ExitPlayMode();
+        }
+
+        [UnityTest]
         public IEnumerator Tick_UsesVolumeInstanceIdAndConfiguredEnvironmentTeamAsSource()
         {
+            // 状态来源会继续进入 DoT 的 DamageRequest，因此环境也必须提供稳定 Id 与 Team。
             yield return new EnterPlayMode();
 
             StatusVolume volume = CreateVolume(StatusKind.Poisoned, 0.25f, 100f, 255);
@@ -95,6 +137,7 @@ namespace Game.Combat.Tests
         [Test]
         public void Tick_WhenColliderBufferIsFull_DoesNotThrow()
         {
+            // 固定数组容量是 32；超过容量会截断而不是扩容或抛异常，这是明确的性能上限。
             StatusVolume volume = CreateVolume(StatusKind.Burning, 0.25f, 5f, 255);
             var colliders = new GameObject[40];
             for (int i = 0; i < colliders.Length; i++)

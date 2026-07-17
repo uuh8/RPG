@@ -5,8 +5,11 @@ namespace Game.Combat
     /// </summary>
     public enum ElementReactionId : byte
     {
+        // Fire + Water：连续消耗双方强度，表现层可据此播放 Steam。
         Extinguish = 0,
+        // Fire + Poison：经过 Wind-up 后一次性消耗 Poison 并产生范围伤害。
         ToxicCombustion = 1,
+        // Fire + Goo：连续把 Goo 转化为 Fire；Wet 足够高时禁止启动。
         IgniteGoo = 2,
     }
 }

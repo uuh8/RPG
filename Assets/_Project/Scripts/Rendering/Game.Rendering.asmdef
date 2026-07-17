@@ -4,6 +4,7 @@
     "references": [
         "GUID:510f5541b1215f1449e6418b6638bd1c",
         "GUID:22c3013598b2cc848a08181aa794a019",
+        "GUID:b25dc389a34caeb4e872c05fe8d011e2",
         "Unity.Cinemachine"
     ],
     "includePlatforms": [],

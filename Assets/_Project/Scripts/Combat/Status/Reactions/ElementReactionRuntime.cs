@@ -11,12 +11,17 @@ namespace Game.Combat
 
         private readonly ElementReactionTuningSnapshot _tuning;
 
+        // dirty flag 表示“状态刚收到新输入，需要重新检查启动门槛”。
+        // 没有新输入时不重复触发 Started，避免一组持续存在的状态每帧重启反应。
         private bool _dirty;
         private StatusSource _triggerSource;
 
+        // Extinguish 没有计时 Wind-up，但需要记住是否已经跨过正式反应门槛并发过 Started。
         private bool _extinguishActive;
         private bool _extinguishFormalSignalled;
 
+        // Toxic Combustion 是“预热期间逐步消耗 Poison，结束时再结算伤害”的有时长 Process。
+        // planned 与 consumed 分开保存，因为 Wet Cleanse 可能抢先洗掉 Poison，实际消耗会低于计划值。
         private bool _toxicActive;
         private float _toxicElapsed;
         private float _toxicPlannedConsume;
@@ -24,6 +29,7 @@ namespace Game.Combat
         private float _toxicCooldown;
         private StatusSource _toxicSource;
 
+        // Ignite Goo 可被 Wet 暂停，因此 Active 与 Paused 必须是两个正交状态。
         private bool _igniteActive;
         private bool _ignitePaused;
         private float _igniteCooldown;
@@ -35,9 +41,14 @@ namespace Game.Combat
 
         public ElementReactionRuntime(in ElementReactionTuningSnapshot tuning)
         {
+            // 构造时复制纯值快照，运行期间不再读取可变 ScriptableObject，保证一次模拟规则稳定。
             _tuning = tuning;
         }
 
+        /// <summary>
+        /// 通知 Runtime 有新的元素输入，并记录这次输入的来源。
+        /// 真正的门槛检查延迟到 Tick，以便同一帧多个 ApplyStatus 先汇总成完整 Snapshot。
+        /// </summary>
         public void MarkDirty(StatusSource triggerSource)
         {
             _dirty = true;
@@ -54,6 +65,9 @@ namespace Game.Combat
             _igniteCooldown = MaxZero(_igniteCooldown - deltaTime);
 
             var frame = new ElementReactionFrame();
+
+            // fire/water/poison/goo 是本模拟步的“工作副本”。前一个高优先级规则修改它后，
+            // 后一个规则会看到更新后的值；最终只把差值写进 frame，不直接改调用者状态。
             float fire = ClampIntensity(snapshot.Fire);
             float water = ClampIntensity(snapshot.Water);
             float poison = ClampIntensity(snapshot.Poison);
@@ -77,6 +91,8 @@ namespace Game.Combat
             if (_extinguishActive && !startedExtinguish)
                 TickExtinguish(ref fire, ref water, deltaTime, ref frame);
 
+            // 固定优先级：Extinguish → Wet Cleanse → Toxic Combustion → Ignite Goo。
+            // 因此 Wet 会先削减 Poison/Goo，后续反应只能消费清洗后的剩余量。
             WetCleanseResult cleanse = ElementReactionEvaluator.CalculateWetCleanse(
                 new ElementStateSnapshot(
                     fire, water, poison, goo,
@@ -101,6 +117,8 @@ namespace Game.Combat
 
         public ElementReactionFrame CancelAll()
         {
+            // 生命周期结束（例如组件 Disable/死亡）时必须清空尚未完成的 Process，
+            // 否则 Toxic 的 Wind-up 可能在对象重新启用后错误地补发一次范围伤害。
             var frame = new ElementReactionFrame();
             if (_extinguishActive && _extinguishFormalSignalled)
                 AddSignal(ref frame, ElementReactionId.Extinguish, ElementReactionPhase.Cancelled, 0f, 0f);
@@ -129,6 +147,8 @@ namespace Game.Combat
             if (!_extinguishActive)
                 _extinguishActive = true;
 
+            // Fire 与 Water 同时大于 0 即可低速中和；只有双方都达到 FormalThreshold
+            // 才把它视为需要视觉反馈的正式 Extinguish，并发送 Started。
             bool formal = ElementReactionEvaluator.IsFormalExtinguish(in snapshot, in _tuning.Extinguish);
             if (!formal || _extinguishFormalSignalled)
                 return false;
@@ -155,6 +175,8 @@ namespace Game.Combat
             _toxicPlannedConsume = Min(
                 ClampIntensity(snapshot.Poison),
                 MaxZero(_tuning.ToxicCombustion.MaxPoisonConsume));
+
+            // 爆炸伤害归因于最后触发本轮门槛检查的输入来源，而不是每帧重新查询施加者。
             _toxicSource = _triggerSource;
             AddSignal(
                 ref frame,
@@ -173,6 +195,8 @@ namespace Game.Combat
 
             _igniteActive = true;
             _ignitePaused = false;
+
+            // 黏液被已有火焰点燃，因此归因使用 FireSource；它与 Toxic 的 triggerSource 语义不同。
             _igniteSource = snapshot.FireSource;
             AddSignal(
                 ref frame,
@@ -195,12 +219,14 @@ namespace Game.Combat
                 return;
             }
 
-            // 一旦达到正式阈值并发布 Started，就锁定高速中和直到一方归零。
-            // 否则 80 Fire + 30 Water 会在 Water 跌破 10 后突然降速，无法守恒地得到 50/0。
-            float rate = _extinguishFormalSignalled
-                ? MaxZero(_tuning.Extinguish.FormalRatePerSecond)
-                : MaxZero(_tuning.Extinguish.LowRatePerSecond);
-            float consumed = Min(Min(fire, water), rate * deltaTime);
+            // 一旦达到正式阈值并发布 Started，就把 true 传给共享公式，锁定高速中和直到一方归零。
+            // 角色 Runtime 负责这个跨帧 Latch；纯公式本身不记忆状态，因此也能被 P6 Cell 复用。
+            float consumed = ElementReactionEvaluator.CalculateExtinguishConsumption(
+                fire,
+                water,
+                deltaTime,
+                _extinguishFormalSignalled,
+                in _tuning.Extinguish);
 
             fire -= consumed;
             water -= consumed;
@@ -226,6 +252,10 @@ namespace Game.Combat
         {
             float duration = MaxPositive(_tuning.ToxicCombustion.WindUpSeconds);
             float remainingPlanned = MaxZero(_toxicPlannedConsume - _toxicConsumed);
+
+            // 匀速消耗公式：rate = plannedConsume / windUpSeconds，
+            // 本步消耗 = min(当前 Poison, 剩余计划量, rate * deltaTime)。
+            // deltaTime 积分让 30 FPS 与 120 FPS 在相同总时间后得到相同结果。
             float rate = _toxicPlannedConsume / duration;
             float consumed = Min(Min(poison, remainingPlanned), rate * deltaTime);
 
@@ -245,6 +275,8 @@ namespace Game.Combat
                 frame.HasAreaDamage = true;
                 frame.AreaDamage = new ReactionDamageCommand(
                     _toxicSource,
+                    // Damage = BaseDamage + ActualConsumedPoison * DamagePerPoison。
+                    // 使用实际消耗量，使 Wet Cleanse 确实能够降低爆炸威力。
                     MaxZero(_tuning.ToxicCombustion.BaseDamage)
                         + _toxicConsumed * MaxZero(_tuning.ToxicCombustion.DamagePerPoison),
                     MaxZero(_tuning.ToxicCombustion.Radius));
@@ -281,6 +313,8 @@ namespace Game.Combat
 
             if (_ignitePaused)
             {
+                // Resumed 帧只发布离散通知而不立即转换，表现层可先恢复 VFX，
+                // 同时避免同一 Tick 既解除暂停又跳过一段可观察的生命周期。
                 _ignitePaused = false;
                 AddSignal(ref frame, ElementReactionId.IgniteGoo, ElementReactionPhase.Resumed,
                     goo / MaximumIntensity, 0f);
@@ -295,6 +329,10 @@ namespace Game.Combat
             }
 
             float fireCapacityAsGoo = MaxZero(MaximumIntensity - fire) / ratio;
+
+            // 先把剩余 Fire 容量换算成最多可消耗的 Goo：
+            // gooCapacity = (100 - fire) / FirePerGoo。
+            // 再取 Goo 存量、容量和本帧速率预算三者最小值，防止 Fire 超过 100。
             float consumed = Min(
                 Min(goo, fireCapacityAsGoo),
                 MaxZero(_tuning.IgniteGoo.GooConsumePerSecond) * deltaTime);
@@ -327,6 +365,7 @@ namespace Game.Combat
             float strength,
             float expectedDuration)
         {
+            // 在数值核心边界统一归一化，表现层无需为非法强度或负时长重复防御。
             var signal = new ReactionSignal(
                 reaction,
                 phase,
@@ -356,6 +395,7 @@ namespace Game.Combat
 
         private static float MaxPositive(float value)
         {
+            // 参与除法的参数至少为 Epsilon，避免错误配置 0 秒导致 NaN/Infinity 扩散。
             return value > Epsilon ? value : Epsilon;
         }
 

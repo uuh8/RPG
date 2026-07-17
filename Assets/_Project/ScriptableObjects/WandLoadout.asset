@@ -12,5 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 65b76633143e342438c9c2b6bd0bcb6c, type: 3}
   m_Name: WandLoadout
   m_EditorClassIdentifier: Game.Skills::Game.Skills.WandLoadout
-  Spells: []
+  Spells:
+  - {fileID: 11400000, guid: 042ba0aa84f8b814f85de5561cc8fb52, type: 2}
   BaseDraws: 1

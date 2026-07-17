@@ -5,6 +5,9 @@ using UnityEngine.TestTools;
 
 namespace Game.Combat.Tests
 {
+    /// <summary>
+    /// 使用真实 Unity Physics 验证范围伤害 Adapter：阵营过滤、多 Collider 去重和 DamageRequest 快照。
+    /// </summary>
     public class AreaReactionDamageResolverTests
     {
         private sealed class TestDamageable : MonoBehaviour, IDamageable
@@ -29,6 +32,7 @@ namespace Game.Combat.Tests
         [UnityTest]
         public IEnumerator Resolve_DamagesHostilesOnceAndSkipsSourceTeam()
         {
+            // Physics 查询只在 PlayMode 中具有完整场景语义；SyncTransforms 确保刚设置的位置已同步到物理世界。
             yield return new EnterPlayMode();
 
             TestDamageable center = CreateTarget("center", Vector3.zero, 1, twoColliders: false);
@@ -59,6 +63,7 @@ namespace Game.Combat.Tests
         [UnityTest]
         public IEnumerator Resolve_DefaultOrCancelledCommandDoesNotDamage()
         {
+            // default command 的 Amount/Radius 均为 0，Resolver 应在执行 Physics 查询前快速返回。
             yield return new EnterPlayMode();
 
             TestDamageable target = CreateTarget("target", Vector3.zero, 1, twoColliders: false);
@@ -88,6 +93,7 @@ namespace Game.Combat.Tests
 
             if (twoColliders)
             {
+                // 子 Collider 与根 Collider 都会命中，但 GetComponentInParent 找到同一个 IDamageable。
                 var child = new GameObject("extra-collider");
                 child.transform.SetParent(gameObject.transform, false);
                 child.transform.localPosition = Vector3.right * 0.2f;

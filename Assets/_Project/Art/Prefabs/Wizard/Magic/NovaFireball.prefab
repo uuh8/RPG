@@ -14444,6 +14444,7 @@ GameObject:
   - component: {fileID: 7375847803051402143}
   - component: {fileID: 3725053834434574135}
   - component: {fileID: 7982132962425739391}
+  - component: {fileID: -3005917883522123017}
   m_Layer: 0
   m_Name: NovaFireball
   m_TagString: Untagged
@@ -19459,12 +19460,29 @@ MonoBehaviour:
   _maxLifetime: 5
   _modelForwardOffsetEuler: {x: 0, y: 0, z: 0}
   _impactLingerTime: 0
+  _homingScanInterval: 0.1
   _explosionPrefab: {fileID: 52697837145695908, guid: e512e8e00511f21438b458f2bfd02261, type: 3}
   _explosionLifetime: 1
   _explosionRotationEuler: {x: 90, y: 0, z: 0}
   _fireFieldPrefab: {fileID: 2721181026081694849, guid: 0f30149736f752c4c9c0917a9e652ab4, type: 3}
   _fireFieldLifetime: 5
   _fireFieldRotationEuler: {x: 90, y: 0, z: 0}
+--- !u!114 &-3005917883522123017
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7306172122243908268}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aeb1cc9b05ea81b4994427978e1e3f50, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.ElementDepositOnImpact
+  _materialKind: 1
+  _totalAmount: 1200
+  _radius: 0.75
+  _useLinearFalloff: 1
 --- !u!1 &8982008244938986500
 GameObject:
   m_ObjectHideFlags: 0

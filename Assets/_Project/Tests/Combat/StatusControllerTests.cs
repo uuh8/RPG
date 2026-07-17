@@ -7,8 +7,13 @@ using Game.Core;
 
 namespace Game.Combat.Tests
 {
+    /// <summary>
+    /// 覆盖 StatusController 作为 Unity Adapter 的职责：强度存储、自然衰减、
+    /// Runtime 集成、事件发布、减速与 DoT。纯 Runtime 的公式细节由独立测试负责。
+    /// </summary>
     public class StatusControllerTests
     {
+        // 测试按需创建临时 ScriptableObject，避免依赖 Project 中某个可被调参的真实资产。
         private static StatusDefinition Def(StatusKind kind, float decay = 0f)
         {
             StatusDefinition definition = ScriptableObject.CreateInstance<StatusDefinition>();
@@ -28,6 +33,7 @@ namespace Game.Combat.Tests
 
         private static StatusController Controller(params StatusDefinition[] definitions)
         {
+            // 每个测试拥有独立 GameObject，结束时销毁，防止状态和 EventBus 观察相互污染。
             GameObject go = new GameObject("status-test");
             StatusController controller = go.AddComponent<StatusController>();
             controller.SetDefinitionsForTests(definitions);
@@ -36,6 +42,7 @@ namespace Game.Combat.Tests
 
         private static ElementReactionProfile ReactionProfile()
         {
+            // 明确写出所有数值，使断言可以由 rate * time 等公式直接推导。
             ElementReactionProfile profile = ScriptableObject.CreateInstance<ElementReactionProfile>();
             profile.Extinguish = new ExtinguishTuning
             {
@@ -108,8 +115,63 @@ namespace Game.Combat.Tests
         }
 
         [Test]
+        public void SustainedStatus_HoldsNaturalDecayUntilWindowExpires()
+        {
+            // 0.3 秒 Hold 覆盖第一个 0.2 秒 Tick，并覆盖第二个 Tick 的前 0.1 秒；
+            // 第二个 Tick 剩余 0.1 秒才恢复 8/s 衰减，因此只减少 0.8。
+            StatusController controller = Controller(Def(StatusKind.Wet, 8f));
+
+            controller.ApplySustainedStatus(StatusKind.Wet, 40f, 10, 1, 0.3f);
+            controller.TickForTests(0.2f);
+            Assert.AreEqual(40f, controller.GetIntensity(StatusKind.Wet), 1e-4f);
+
+            controller.TickForTests(0.2f);
+            Assert.AreEqual(39.2f, controller.GetIntensity(StatusKind.Wet), 1e-4f);
+            Object.DestroyImmediate(controller.gameObject);
+        }
+
+        [Test]
+        public void RepeatedSustainedApply_RefreshesHoldWithoutAddingDurations()
+        {
+            // 第二次持续施加把剩余 0.1 秒刷新为 0.3 秒，而不是累加成 0.4 秒。
+            // 随后经过 0.25 + 0.1 秒，最后 0.05 秒应恢复 8/s 衰减，即减少 0.4。
+            StatusController controller = Controller(Def(StatusKind.Wet, 8f));
+
+            controller.ApplySustainedStatus(StatusKind.Wet, 10f, 10, 1, 0.3f);
+            controller.TickForTests(0.2f);
+            controller.ApplySustainedStatus(StatusKind.Wet, 10f, 10, 1, 0.3f);
+            controller.TickForTests(0.25f);
+            Assert.AreEqual(20f, controller.GetIntensity(StatusKind.Wet), 1e-4f);
+
+            controller.TickForTests(0.1f);
+            Assert.AreEqual(19.6f, controller.GetIntensity(StatusKind.Wet), 1e-4f);
+            Object.DestroyImmediate(controller.gameObject);
+        }
+
+        [Test]
+        public void SustainedStatus_DoesNotBlockElementReactionConsumption()
+        {
+            // Hold 只屏蔽 NaturalDecay；正式 Extinguish 仍按 50/s 连续中和双方。
+            ElementReactionProfile profile = ReactionProfile();
+            StatusController controller = Controller(
+                Def(StatusKind.Burning, 8f),
+                Def(StatusKind.Wet, 8f));
+            controller.SetReactionProfileForTests(profile);
+
+            controller.ApplySustainedStatus(StatusKind.Burning, 80f, 10, 1, 1f);
+            controller.ApplySustainedStatus(StatusKind.Wet, 30f, 11, 2, 1f);
+            controller.TickForTests(0.2f);
+
+            Assert.AreEqual(70f, controller.GetIntensity(StatusKind.Burning), 1e-4f);
+            Assert.AreEqual(20f, controller.GetIntensity(StatusKind.Wet), 1e-4f);
+            Object.DestroyImmediate(controller.gameObject);
+            Object.DestroyImmediate(profile);
+        }
+
+        [Test]
         public void Reaction_ApplyOnlyStartsThenTickContinuouslyExtinguishes()
         {
+            // ApplyStatus 只建立 Process；0.6 秒 Tick 才完成 30 点正式中和。
             ElementReactionProfile profile = ReactionProfile();
             StatusController controller = Controller(
                 Def(StatusKind.Burning),
@@ -133,6 +195,7 @@ namespace Game.Combat.Tests
         [Test]
         public void WetCleanse_UsesDefinitionMultipliersAndPrioritizesPoison()
         {
+            // 同时测试 Profile 的公共预算与 StatusDefinition 的逐状态 multiplier 能正确汇合。
             ElementReactionProfile profile = ReactionProfile();
             StatusDefinition poison = Def(StatusKind.Poisoned);
             poison.WetCleanseable = true;
@@ -157,6 +220,7 @@ namespace Game.Combat.Tests
         [Test]
         public void ReactionSignal_IsPublishedAsDiscreteEvent()
         {
+            // 连续 Tick 不应连续广播；Extinguish Started 只在阶段边沿发布一次。
             ElementReactionProfile profile = ReactionProfile();
             StatusController controller = Controller(Def(StatusKind.Burning), Def(StatusKind.Wet));
             controller.SetReactionProfileForTests(profile);
@@ -186,6 +250,7 @@ namespace Game.Combat.Tests
         [Test]
         public void Sticky_ProducesMoveSpeedMultiplier()
         {
+            // 100% Sticky：1 - 0.4 = 0.6；50% Sticky：1 - 0.4*0.5 = 0.8。
             StatusController controller = Controller(StickyDef());
 
             controller.ApplyStatus(StatusKind.Sticky, 100f, 10, 1);
@@ -201,6 +266,7 @@ namespace Game.Combat.Tests
         [UnityTest]
         public IEnumerator Poisoned_DealsDotWithoutHitReaction()
         {
+            // HealthComponent/MonoBehaviour 生命周期需要 PlayMode；这里验证 DoT 仍走统一 DamageRequest 漏斗。
             yield return new EnterPlayMode();
 
             GameObject go = new GameObject("poison-target");

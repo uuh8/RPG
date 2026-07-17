@@ -3,6 +3,11 @@ using UnityEngine;
 
 namespace Game.Combat
 {
+    /// <summary>
+    /// 环境元素区域的 Gameplay 载体：按固定间隔执行一次 Box Overlap，
+    /// 对范围内每个 StatusController 施加指定状态。它与 Water/Fire 可见 Shader 解耦，
+    /// 因而同一规则区域可以更换 Mesh/VFX，而不影响碰撞查询和数值逻辑。
+    /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(BoxCollider))]
     public sealed class StatusVolume : MonoBehaviour
@@ -14,10 +19,12 @@ namespace Game.Combat
         [SerializeField] private StatusKind _statusKind = StatusKind.Wet;
         [SerializeField, Min(MinimumTickInterval)] private float _tickInterval = 0.25f;
         [SerializeField, Min(0f)] private float _applyAmount = 5f;
+        [SerializeField, Min(0f)] private float _naturalDecayHoldGraceSeconds = 0.1f;
         [SerializeField] private byte _sourceTeam = byte.MaxValue;
         [SerializeField] private LayerMask _targetLayers = ~0;
 
         private readonly Collider[] _colliderBuffer = new Collider[MaxCollidersPerTick];
+        // 一个角色可能由多个 Collider 组成；每个环境 tick 按 StatusController InstanceID 去重。
         private readonly HashSet<int> _appliedTargetIds = new HashSet<int>(MaxCollidersPerTick);
         private BoxCollider _box;
         private float _elapsedTime;
@@ -38,8 +45,10 @@ namespace Game.Combat
 
         private void OnValidate()
         {
+            // OnValidate 只在 Editor 配置变化时执行，用来阻止负数/零间隔进入运行时。
             _tickInterval = Mathf.Max(MinimumTickInterval, _tickInterval);
             _applyAmount = Mathf.Max(0f, _applyAmount);
+            _naturalDecayHoldGraceSeconds = Mathf.Max(0f, _naturalDecayHoldGraceSeconds);
         }
 
         private void Update()
@@ -88,6 +97,9 @@ namespace Game.Combat
             Transform boxTransform = _box.transform;
             Vector3 center = boxTransform.TransformPoint(_box.center);
             Vector3 scale = boxTransform.lossyScale;
+
+            // BoxCollider.size 是 Local Space 全尺寸；Physics.OverlapBox 需要 World Space 半尺寸。
+            // 因此 halfExtents = 0.5 * localSize ⊙ abs(lossyScale)，其中 ⊙ 表示逐分量乘法。
             Vector3 halfExtents = Vector3.Scale(
                 _box.size * 0.5f,
                 new Vector3(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z)));
@@ -100,6 +112,8 @@ namespace Game.Combat
                 _targetLayers,
                 QueryTriggerInteraction.Collide);
 
+            // 选择 Collide 是为了让角色的 Trigger Hitbox 也能成为状态接收入口；最终仍在父级找 Controller。
+
             _appliedTargetIds.Clear();
             for (int i = 0; i < hitCount; i++)
             {
@@ -111,13 +125,20 @@ namespace Game.Combat
                 if (target == null || !_appliedTargetIds.Add(target.GetInstanceID()))
                     continue;
 
-                target.ApplyStatus(_statusKind, amount, _sourceId, _sourceTeam);
+                target.ApplySustainedStatus(
+                    _statusKind,
+                    amount,
+                    _sourceId,
+                    _sourceTeam,
+                    _tickInterval + _naturalDecayHoldGraceSeconds);
             }
         }
 
         private void CacheIdentityAndShape()
         {
             _box = GetComponent<BoxCollider>();
+
+            // 环境本身没有角色攻击者，使用 Volume 的 InstanceID 作为可追踪来源，Team 用配置值表达阵营。
             _sourceId = gameObject.GetInstanceID();
         }
 

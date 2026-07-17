@@ -2,8 +2,13 @@ using NUnit.Framework;
 
 namespace Game.Combat.Tests
 {
+    /// <summary>
+    /// 验证 Task 2 连续反应状态机的时间轴、优先级、归因和生命周期。
+    /// 这些是 EditMode 纯 C# 测试，不依赖场景与 MonoBehaviour，因此能精确控制 deltaTime。
+    /// </summary>
     public sealed class ElementReactionRuntimeTests
     {
+        // 用不同 Id 明确区分“最后一次触发反应的来源”和“原有 Fire 的来源”，验证伤害归因规则。
         private static readonly StatusSource TriggerSource = new StatusSource(99, 2);
         private static readonly StatusSource FireSource = new StatusSource(10, 1);
 
@@ -11,6 +16,8 @@ namespace Game.Combat.Tests
         [TestCase(1f / 120f)]
         public void Extinguish_ConsumesEightyThirtyToFiftyZero(float step)
         {
+            // 同一段 0.6 秒模拟分别用 30 FPS 与 120 FPS 步长执行，
+            // 证明结果取决于 rate * totalTime，而不是 Tick 调用次数。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 80f, water: 30f);
             runtime.MarkDirty(TriggerSource);
@@ -29,8 +36,28 @@ namespace Game.Combat.Tests
         }
 
         [Test]
+        public void Extinguish_FormalRateRemainsLatchedAfterWaterFallsBelowThreshold()
+        {
+            // Started 帧建立正式反应；0.4 秒后 Water 恰好从 30 降到阈值 10。
+            // 后续 0.2 秒仍应使用 50/s 的 Formal Rate 将其清零，而不是退回 10/s 的 Low Rate。
+            ElementReactionRuntime runtime = CreateRuntime();
+            ElementStateSnapshot state = Snapshot(fire: 80f, water: 30f);
+            runtime.MarkDirty(TriggerSource);
+
+            state = Step(runtime, state, 0.01f);
+            state = Step(runtime, state, 0.4f);
+            Assert.AreEqual(60f, state.Fire, 1e-4f);
+            Assert.AreEqual(10f, state.Water, 1e-4f);
+
+            state = Step(runtime, state, 0.2f);
+            Assert.AreEqual(50f, state.Fire, 1e-4f);
+            Assert.AreEqual(0f, state.Water, 1e-4f);
+        }
+
+        [Test]
         public void Extinguish_BelowFormalThresholdUsesLowRate()
         {
+            // 双方低于 FormalThreshold 时仍会中和，但不会走正式高速反应与 Started VFX 信号。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 5f, water: 5f);
             runtime.MarkDirty(TriggerSource);
@@ -45,6 +72,8 @@ namespace Game.Combat.Tests
         [Test]
         public void ToxicCombustion_ResolvesOnlyAfterWindUp()
         {
+            // Arrange：Fire/Poison 均达到门槛；Act：分两个 0.1 秒步推进 0.2 秒 Wind-up；
+            // Assert：中途无伤害，结束时才输出按实际 Poison 消耗计算的命令。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 30f, poison: 40f);
             runtime.MarkDirty(TriggerSource);
@@ -72,6 +101,8 @@ namespace Game.Combat.Tests
         [Test]
         public void WetCleanse_ReducesToxicActualConsumptionAndDamage()
         {
+            // 该测试锁定“Wet Cleanse 先于 Toxic 消耗”的顺序：Poison 被抢先清洗后，
+            // Toxic 的 actualConsumed 下降，最终 Damage 也必须低于未清洗情况。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 30f, water: 100f, poison: 20f);
             runtime.MarkDirty(TriggerSource);
@@ -88,6 +119,7 @@ namespace Game.Combat.Tests
         [Test]
         public void IgniteGoo_ConvertsFortyGooIntoFiftyFirePerSecond()
         {
+            // 公式：40 Goo/s * 1.25 Fire/Goo * 1s = 50 Fire。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 20f, goo: 40f);
             runtime.MarkDirty(TriggerSource);
@@ -105,6 +137,7 @@ namespace Game.Combat.Tests
         [Test]
         public void IgniteGoo_PausesAtWetThresholdAndResumesBelowIt()
         {
+            // 同时验证边界 water == threshold 会暂停，而 9.99 < threshold 会恢复。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 20f, goo: 40f);
             runtime.MarkDirty(TriggerSource);
@@ -134,6 +167,7 @@ namespace Game.Combat.Tests
         [Test]
         public void MarkDirty_DoesNotDuplicateAnActiveReaction()
         {
+            // dirty 只要求重新检查门槛；已经 Active 的 Process 不应再次发 Started。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 80f, water: 30f);
             runtime.MarkDirty(TriggerSource);
@@ -150,6 +184,8 @@ namespace Game.Combat.Tests
         [Test]
         public void ThreeDifferentProcesses_CanBeActiveWithoutBreakingSignalBudget()
         {
+            // 固定信号槽容量为 3；这里验证多 Process 并存时不会产生动态集合，
+            // 同时正式信号仍按固定启动优先级写入。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 80f, water: 9f, poison: 40f, goo: 40f);
             runtime.MarkDirty(TriggerSource);
@@ -168,6 +204,7 @@ namespace Game.Combat.Tests
         [Test]
         public void CancelAll_PreventsPendingToxicDamage()
         {
+            // 模拟对象死亡/Disable：取消 Wind-up 后，即使继续 Tick 也不能补发爆炸。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 30f, poison: 40f);
             runtime.MarkDirty(TriggerSource);
@@ -183,6 +220,7 @@ namespace Game.Combat.Tests
         [Test]
         public void ZeroDeltaTime_DoesNotAdvanceProcesses()
         {
+            // ApplyStatus 当帧可以 deltaTime=0 建立 Process，但不能偷偷消耗状态强度。
             ElementReactionRuntime runtime = CreateRuntime();
             ElementStateSnapshot state = Snapshot(fire: 80f, water: 30f);
             runtime.MarkDirty(TriggerSource);
@@ -195,6 +233,7 @@ namespace Game.Combat.Tests
 
         private static ElementReactionRuntime CreateRuntime()
         {
+            // 每个测试复用同一组明确参数；测试失败时可直接用公式手算预期值。
             return new ElementReactionRuntime(new ElementReactionTuningSnapshot(
                 new ExtinguishTuning
                 {
@@ -237,6 +276,7 @@ namespace Game.Combat.Tests
             ElementStateSnapshot state,
             float deltaTime)
         {
+            // 模拟真实 Adapter 的两阶段调用：先计算 Frame，再把 Delta 应用到状态快照。
             ElementReactionFrame frame = runtime.Tick(in state, deltaTime);
             return Apply(state, frame);
         }
@@ -245,6 +285,7 @@ namespace Game.Combat.Tests
             ElementStateSnapshot state,
             ElementReactionFrame frame)
         {
+            // 测试侧只实现最小的 [0,100] Clamp，不复制 StatusController 的生命周期逻辑。
             return Snapshot(
                 Clamp(state.Fire + frame.FireDelta),
                 Clamp(state.Water + frame.WaterDelta),

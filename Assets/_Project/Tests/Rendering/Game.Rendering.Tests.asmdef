@@ -6,6 +6,7 @@
         "UnityEditor.TestRunner",
         "Game.Core",
         "Game.Combat",
+        "Game.ElementField",
         "Game.Rendering"
     ],
     "includePlatforms": [

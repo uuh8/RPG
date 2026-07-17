@@ -9,6 +9,7 @@ namespace Game.Combat
     /// </summary>
     public sealed class AreaReactionDamageResolver
     {
+        // NonAlloc API 需要调用方提供数组；容量满时会截断本次查询，这是固定性能预算的取舍。
         private const int MaxColliders = 32;
 
         private readonly Collider[] _colliders = new Collider[MaxColliders];
@@ -20,6 +21,8 @@ namespace Game.Combat
                 return;
 
             _damagedTargetIds.Clear();
+
+            // OverlapSphereNonAlloc 把命中写入复用数组，不像 OverlapSphere 那样每次返回新数组并产生 GC Alloc。
             int count = Physics.OverlapSphereNonAlloc(
                 center,
                 command.Radius,
@@ -44,6 +47,8 @@ namespace Game.Combat
                     continue;
 
                 Vector3 direction = targetComponent.transform.position - center;
+
+                // sqrMagnitude 避免只为判零执行开方；非零时再 Normalize 得到单位受击方向。
                 if (direction.sqrMagnitude > 0.000001f)
                     direction.Normalize();
                 else
@@ -56,6 +61,7 @@ namespace Game.Combat
                     DamageType.Magical,
                     center,
                     direction,
+                    // 范围反应可能同时命中多个对象，不触发 Hit Reaction 可避免连锁硬直滥用。
                     triggerHitReaction: false);
                 target.ReceiveHit(in request);
             }

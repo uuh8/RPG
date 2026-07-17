@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 151abc8c9c42c984ca351c21ebd93aa1, type: 3}
+  m_Name: ElementFieldProfile_P6A
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.ElementFieldProfile
+  _dimensions: {x: 32, y: 16, z: 32}
+  _cellSize: 0.25
+  _chunkSize: 8
+  _maximumCellCount: 131072
+  _tickRate: 10
+  _maxPendingWrites: 128
+  _maxCatchUpTicks: 3
+  _maxDownFlowPerTick: 64
+  _maxLateralFlowPerTick: 16
+  _fireDecayPerTick: 1
+  _reactionProfile: {fileID: 11400000, guid: 2050fb1db1a3dc54ebdd737e0413a8b2, type: 2}
