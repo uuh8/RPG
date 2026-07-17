@@ -52,6 +52,10 @@ namespace Game.ElementField
         public int MaximumResidentChunks { get; }
         public int ResidentChunkCount => _chunks.Count;
 
+        // 只在 Game.ElementField 内部提供具体 Dictionary，以便 Runtime 使用其 struct Enumerator 做零分配遍历。
+        // 上层 Rendering 不会获得这个写入口；公开消费者仍应使用后续只读 World 接口。
+        internal Dictionary<ElementChunkKey, ElementWorldChunk> Chunks => _chunks;
+
         public bool TryGetChunk(ElementChunkKey key, out ElementWorldChunk chunk)
         {
             return _chunks.TryGetValue(key, out chunk);

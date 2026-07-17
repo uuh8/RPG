@@ -564,6 +564,59 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 97800896}
   m_CullTransparentMesh: 1
+--- !u!1 &107819194
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 107819196}
+  - component: {fileID: 107819195}
+  m_Layer: 0
+  m_Name: ElementWorldLabRoot
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &107819195
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 107819194}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 70bac533a845ec14b82b33078f2e6ee0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.ElementWorldRuntime
+  _profile: {fileID: 11400000, guid: febd475ae1d3eab48b813b17c279c321, type: 2}
+  _interestPoint: {fileID: 6283186940027858164}
+  _interestGlobalCell: {x: 0, y: 0, z: 0}
+  _interestChunkKey: {x: 0, y: 0, z: 0}
+  _worldTick: 0
+  _residentChunkCount: 0
+  _activeChunkCount: 0
+  _sleepingChunkCount: 0
+  _reclaimedChunkCountLastTick: 0
+--- !u!4 &107819196
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 107819194}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &113712828
 GameObject:
   m_ObjectHideFlags: 0
@@ -22638,6 +22691,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+--- !u!4 &6283186940027858164 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 8499579908388173021, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+  m_PrefabInstance: {fileID: 6283186940027858163}
+  m_PrefabAsset: {fileID: 0}
 --- !u!114 &6283186940027858166 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 3987539793705208710, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
@@ -22675,3 +22733,4 @@ SceneRoots:
   - {fileID: 418835274}
   - {fileID: 2080043865}
   - {fileID: 977804780}
+  - {fileID: 107819196}

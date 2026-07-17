@@ -25,6 +25,8 @@ namespace Game.ElementField
         public int ChunkSize { get; }
         public int CellCount => _grid.CellCount;
         public bool HasAnyElement => _nonEmptyCellCount > 0;
+        public ElementChunkActivityState ActivityState { get; internal set; }
+        public long LastRelevantTick { get; private set; }
 
         // 这些 Buffer 只向本程序集和测试程序集开放，外部模块不能绕过 ElementField 的写入规则。
         internal ElementCell[] CurrentCells => _grid.CurrentCells;
@@ -55,6 +57,18 @@ namespace Game.ElementField
 
             // 将“有种类但 Amount=0”一类中间无效值规范成真正的 Empty，避免休眠回收判断被脏数据干扰。
             _grid.SetCell(localCell, isEmpty ? default : cell);
+        }
+
+        internal void MarkRelevant(long worldTick)
+        {
+            if (worldTick < 0)
+                throw new System.ArgumentOutOfRangeException(nameof(worldTick));
+
+            // Tick 只允许单调前进；重复标记同一 Tick 合法，倒退则说明 Runtime 时间源发生错误。
+            if (worldTick < LastRelevantTick)
+                throw new System.ArgumentOutOfRangeException(nameof(worldTick));
+
+            LastRelevantTick = worldTick;
         }
     }
 }
