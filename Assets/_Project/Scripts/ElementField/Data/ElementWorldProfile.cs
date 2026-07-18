@@ -25,6 +25,8 @@ namespace Game.ElementField
         [SerializeField, Min(0.1f)] private float _tickRate = 10f;
         [SerializeField, Min(1)] private int _maxPendingWrites = 256;
         [SerializeField, Min(1)] private int _maxCatchUpTicks = 3;
+        [Tooltip("连续多少个 Simulation Tick 没有 Cell 变化后，将非空 Chunk 视为稳定并移出 Solver。")]
+        [SerializeField, Min(1)] private int _settleAfterUnchangedTicks = 2;
         [SerializeField, Range(0, byte.MaxValue)] private int _maxDownFlowPerTick = 64;
         [SerializeField, Range(0, byte.MaxValue)] private int _maxLateralFlowPerTick = 16;
         [SerializeField, Range(0, byte.MaxValue)] private int _fireDecayPerTick = 1;
@@ -41,6 +43,7 @@ namespace Game.ElementField
         public float TickRate => _tickRate;
         public int MaxPendingWrites => _maxPendingWrites;
         public int MaxCatchUpTicks => _maxCatchUpTicks;
+        public int SettleAfterUnchangedTicks => _settleAfterUnchangedTicks;
         public byte MaxDownFlowPerTick => (byte)_maxDownFlowPerTick;
         public byte MaxLateralFlowPerTick => (byte)_maxLateralFlowPerTick;
         public byte FireDecayPerTick => (byte)_fireDecayPerTick;
@@ -83,6 +86,7 @@ namespace Game.ElementField
             _tickRate = Mathf.Max(0.1f, _tickRate);
             _maxPendingWrites = Mathf.Max(1, _maxPendingWrites);
             _maxCatchUpTicks = Mathf.Max(1, _maxCatchUpTicks);
+            _settleAfterUnchangedTicks = Mathf.Max(1, _settleAfterUnchangedTicks);
             _maxDownFlowPerTick = Mathf.Clamp(_maxDownFlowPerTick, 0, byte.MaxValue);
             _maxLateralFlowPerTick = Mathf.Clamp(_maxLateralFlowPerTick, 0, byte.MaxValue);
             _fireDecayPerTick = Mathf.Clamp(_fireDecayPerTick, 0, byte.MaxValue);

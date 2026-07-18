@@ -50,6 +50,48 @@ namespace Game.Rendering.Tests
         }
 
         [Test]
+        public void GlobalCellHash_IsStableAndUsesAllThreeWorldAxes()
+        {
+            var globalCell = new Vector3Int(-17, 3, 42);
+            float expected = FireCellEmissionSampler.Hash01(
+                globalCell,
+                visualSequence: 7u,
+                layerSeed: BodySeed,
+                channel: 0u);
+
+            Assert.That(FireCellEmissionSampler.Hash01(
+                globalCell, 7u, BodySeed, 0u), Is.EqualTo(expected));
+            Assert.That(FireCellEmissionSampler.Hash01(
+                new Vector3Int(-16, 3, 42), 7u, BodySeed, 0u), Is.Not.EqualTo(expected));
+            Assert.That(FireCellEmissionSampler.Hash01(
+                new Vector3Int(-17, 4, 42), 7u, BodySeed, 0u), Is.Not.EqualTo(expected));
+            Assert.That(FireCellEmissionSampler.Hash01(
+                new Vector3Int(-17, 3, 43), 7u, BodySeed, 0u), Is.Not.EqualTo(expected));
+        }
+
+        [Test]
+        public void GlobalCellJitter_DoesNotDependOnChunkIterationOrdinal()
+        {
+            var globalCell = new Vector3Int(8, 0, -1);
+            Vector3 first = FireCellEmissionSampler.CalculateJitter(
+                globalCell,
+                visualSequence: 19u,
+                layerSeed: BodySeed,
+                cellSize: 0.25f,
+                verticalJitter: 0.08f);
+
+            // 同一个 Global Cell 即使后来由另一次 Chunk 枚举访问，也必须得到相同位置抖动。
+            Vector3 second = FireCellEmissionSampler.CalculateJitter(
+                globalCell,
+                visualSequence: 19u,
+                layerSeed: BodySeed,
+                cellSize: 0.25f,
+                verticalJitter: 0.08f);
+
+            Assert.That(second, Is.EqualTo(first));
+        }
+
+        [Test]
         public void ShouldEmit_HandlesFullAmountAndEmptyProbabilityBoundaries()
         {
             Assert.That(FireCellEmissionSampler.ShouldEmit(

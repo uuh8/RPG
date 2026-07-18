@@ -29,6 +29,31 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
+        public void TryGetOrCreateChunk_InitializesNewChunkBeforeReturningIt()
+        {
+            int initializationCount = 0;
+            var store = new ElementWorldStore(
+                chunkSize: 2,
+                maximumResidentChunks: 4,
+                chunkInitializer: chunk =>
+                {
+                    initializationCount++;
+                    chunk.SolidMask[0] = true;
+                });
+            var key = new ElementChunkKey(-1, 0, 2);
+
+            Assert.That(store.TryGetOrCreateChunk(key, out ElementWorldChunk first), Is.True);
+            Assert.That(first.SolidMask[0], Is.True,
+                "Store 返回新 Chunk 前必须先完成 Solid Bake，否则同一 Tick 的 Deposit 会写进地面。");
+            Assert.That(initializationCount, Is.EqualTo(1));
+
+            Assert.That(store.TryGetOrCreateChunk(key, out ElementWorldChunk second), Is.True);
+            Assert.That(second, Is.SameAs(first));
+            Assert.That(initializationCount, Is.EqualTo(1),
+                "读取已存在 Chunk 不应重复执行昂贵的 Physics Bake。");
+        }
+
+        [Test]
         public void TryGetOrCreateChunk_RejectsNewKeyAtResidentCapacity()
         {
             var store = new ElementWorldStore(chunkSize: 8, maximumResidentChunks: 1);

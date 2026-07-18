@@ -132,17 +132,46 @@ namespace Game.Combat.Tests
             projectile.Init(1, 10, 5f, DamageType.Magical, Vector3.forward * 20f, null, false);
 
             ProjectileDebugSnapshot snapshot = default;
-            for (int i = 0; i < 20 && !snapshot.HasRecentReflection; i++)
+            SimulationMode originalSimulationMode = Physics.simulationMode;
+            try
             {
-                yield return new WaitForFixedUpdate();
-                snapshot = projectile.GetDebugSnapshot();
+                // Run All 时，EditMode 测试协程的 WaitForFixedUpdate 不一定会让 Physics 真正走一步。
+                // 切换到 Script 模式并显式 Simulate，测试结果便只由输入场景决定，而不依赖 Editor PlayerLoop。
+                Physics.simulationMode = SimulationMode.Script;
+                Physics.SyncTransforms();
+
+                for (int i = 0; i < 20 && !snapshot.HasRecentReflection; i++)
+                {
+                    Physics.Simulate(Time.fixedDeltaTime);
+                    snapshot = projectile.GetDebugSnapshot();
+                }
             }
+            finally
+            {
+                // Physics.simulationMode 是全局状态；不恢复会污染后续测试和当前打开的场景。
+                Physics.simulationMode = originalSimulationMode;
+            }
+
+            // 失败时保留销毁前的 Physics 事实。测试原先只报告 Expected True，无法判断是
+            // FixedUpdate 未推进、Rigidbody 未移动，还是高速物体穿过了碰撞器。
+            Rigidbody projectileBody = projectile.GetComponent<Rigidbody>();
+            Vector3 finalPosition = projectile.transform.position;
+            Vector3 finalVelocity = projectileBody.linearVelocity;
+            bool wasSleeping = projectileBody.IsSleeping();
+            bool wasKinematic = projectileBody.isKinematic;
+            bool detectedCollisions = projectileBody.detectCollisions;
+            SimulationMode simulationMode = Physics.simulationMode;
 
             DestroyTrackedObjects();
             yield return null;
             yield return new ExitPlayMode();
 
-            Assert.IsTrue(snapshot.HasRecentReflection);
+            Assert.IsTrue(
+                snapshot.HasRecentReflection,
+                "投射物在 20 个 FixedUpdate 内没有记录反射。销毁前诊断："
+                + $"position={finalPosition}, velocity={finalVelocity}, sleeping={wasSleeping}, "
+                + $"isKinematic={wasKinematic}, detectCollisions={detectedCollisions}, "
+                + $"simulationMode={simulationMode}, fixedDeltaTime={Time.fixedDeltaTime}");
             Assert.Greater(snapshot.LastCollisionPoint.z, 0f);
             Assert.Greater(Vector3.Dot(snapshot.LastCollisionNormal, Vector3.back), 0.99f);
             Assert.Greater(Vector3.Dot(snapshot.LastReflectedDirection, Vector3.back), 0.99f);

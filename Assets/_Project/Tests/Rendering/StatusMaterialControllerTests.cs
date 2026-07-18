@@ -34,7 +34,7 @@ namespace Game.Rendering.Tests
                 "其他角色的事件不应改变当前角色的状态材质参数。");
 
             PublishStatus(targetId, StatusKind.Burning, 150f);
-            yield return WaitUntilSettled(controller);
+            AdvanceUntilSettled(controller);
 
             var block = new MaterialPropertyBlock();
             targetRenderer.GetPropertyBlock(block);
@@ -56,7 +56,7 @@ namespace Game.Rendering.Tests
             targetRenderer.SetPropertyBlock(block);
 
             PublishStatus(controller.gameObject.GetInstanceID(), StatusKind.Wet, 50f);
-            yield return WaitUntilSettled(controller);
+            AdvanceUntilSettled(controller);
 
             targetRenderer.GetPropertyBlock(block);
             Assert.AreEqual(0.5f, controller.WetVisualIntensity, 0.0001f);
@@ -77,7 +77,7 @@ namespace Game.Rendering.Tests
 
             PublishStatus(first.gameObject.GetInstanceID(), StatusKind.Burning, 100f);
             PublishStatus(second.gameObject.GetInstanceID(), StatusKind.Burning, 25f);
-            yield return WaitUntilSettled(first, second);
+            AdvanceUntilSettled(first, second);
 
             var firstBlock = new MaterialPropertyBlock();
             var secondBlock = new MaterialPropertyBlock();
@@ -100,7 +100,7 @@ namespace Game.Rendering.Tests
             StatusMaterialController controller = CreateCharacter("Disabled", out Renderer targetRenderer);
             int targetId = controller.gameObject.GetInstanceID();
             PublishStatus(targetId, StatusKind.Burning, 100f);
-            yield return WaitUntilSettled(controller);
+            AdvanceUntilSettled(controller);
             Assert.AreEqual(1f, controller.BurningVisualIntensity, 0.0001f);
 
             controller.enabled = false;
@@ -158,22 +158,39 @@ namespace Game.Rendering.Tests
             Time.timeScale = 1f;
         }
 
-        private static IEnumerator WaitUntilSettled(params StatusMaterialController[] controllers)
+        private static void AdvanceUntilSettled(params StatusMaterialController[] controllers)
         {
             const int maxFrames = 180;
+
+            // EditMode Test Runner 的 EnterPlayMode 只保证 Application.isPlaying，Run All 时不保证
+            // Editor PlayerLoop 会真的推进 MonoBehaviour.Update。这里显式发送 Unity 的 Update 消息，
+            // 仍然测试生产组件原本的 Update 路径，同时消除测试对 Editor 窗口调度时序的依赖。
             for (int frame = 0; frame < maxFrames; frame++)
             {
                 bool allSettled = true;
                 for (int i = 0; i < controllers.Length; i++)
-                    allSettled &= !controllers[i].IsTransitioning;
+                {
+                    StatusMaterialController controller = controllers[i];
+                    if (controller.IsTransitioning)
+                        controller.SendMessage("Update", SendMessageOptions.RequireReceiver);
+
+                    allSettled &= !controller.IsTransitioning;
+                }
 
                 if (allSettled)
-                    yield break;
-
-                yield return null;
+                    return;
             }
 
-            Assert.Fail("状态材质强度在限定帧数内没有收敛，可能是 Update 或平滑逻辑失效。");
+            StatusMaterialController first = controllers.Length > 0 ? controllers[0] : null;
+            Assert.Fail(
+                "状态材质强度在显式推进 180 次 Update 后仍未收敛。\n"
+                + $"Application.isPlaying={Application.isPlaying}, Time.timeScale={Time.timeScale}, "
+                + $"Time.deltaTime={Time.deltaTime}, FrameCount={Time.frameCount}\n"
+                + (first == null
+                    ? "Controller=<null>"
+                    : $"Controller.activeInHierarchy={first.gameObject.activeInHierarchy}, enabled={first.enabled}, "
+                      + $"IsTransitioning={first.IsTransitioning}, Burning={first.BurningVisualIntensity}, "
+                      + $"Wet={first.WetVisualIntensity}, Poisoned={first.PoisonedVisualIntensity}, Sticky={first.StickyVisualIntensity}"));
         }
 
         private static void PublishStatus(int targetId, StatusKind kind, float intensity)

@@ -99,22 +99,21 @@ namespace Game.ElementField
             if (!TryBuildRequest(worldPosition, out ElementWriteRequest request))
                 return false;
 
-            ElementFieldRuntime runtime = ElementFieldRuntime.Active;
-            if (runtime == null)
+            if (ElementRuntimeRegistry.ActiveSink == null)
             {
                 // 缺少场系统属于场景装配问题。只警告一次，避免大量 Projectile 造成 Console Spam。
                 if (!_missingFieldWarningIssued)
                 {
                     _missingFieldWarningIssued = true;
                     GameLog.Warn(
-                        "元素沉积已忽略：当前场景中不存在可用的 ElementFieldRuntime。",
+                        "元素沉积已忽略：当前场景中不存在可用的 Element Write Sink。",
                         "ElementField");
                 }
 
                 return false;
             }
 
-            return runtime.TryEnqueueWrite(in request);
+            return ElementRuntimeRegistry.TryEnqueueWrite(in request);
         }
 
         private void OnProjectileImpacted(Vector3 hitPoint, Vector3 hitDirection)

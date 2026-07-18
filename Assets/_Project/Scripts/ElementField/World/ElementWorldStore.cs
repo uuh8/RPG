@@ -12,8 +12,12 @@ namespace Game.ElementField
     {
         private readonly Dictionary<ElementChunkKey, ElementWorldChunk> _chunks;
         private readonly int _cellCountPerChunk;
+        private readonly Action<ElementWorldChunk> _chunkInitializer;
 
-        public ElementWorldStore(int chunkSize, int maximumResidentChunks)
+        public ElementWorldStore(
+            int chunkSize,
+            int maximumResidentChunks,
+            Action<ElementWorldChunk> chunkInitializer = null)
         {
             if (chunkSize <= 0)
             {
@@ -45,6 +49,7 @@ namespace Game.ElementField
 
             ChunkSize = chunkSize;
             MaximumResidentChunks = maximumResidentChunks;
+            _chunkInitializer = chunkInitializer;
             _chunks = new Dictionary<ElementChunkKey, ElementWorldChunk>(maximumResidentChunks);
         }
 
@@ -76,6 +81,10 @@ namespace Game.ElementField
             }
 
             chunk = new ElementWorldChunk(key, ChunkSize, _cellCountPerChunk);
+
+            // 初始化器必须在 Add/return 之前执行：同一 Tick 中，WriteProcessor 会在拿到 Chunk 后立刻
+            // 检查 SolidMask。若先返回再 Bake，Deposit 可能先写进 Collider，水也会穿过尚未初始化的地面。
+            _chunkInitializer?.Invoke(chunk);
             _chunks.Add(key, chunk);
             return true;
         }

@@ -83,6 +83,199 @@ namespace Game.Rendering
             }
         }
 
+        /// <summary>
+        /// 为稀疏世界的一个 Chunk 生成 Local Space Water Mesh。
+        /// 与有限 Field 版本的核心差别有两点：邻居查询使用 Global Cell，因此能跨 Chunk 剔除内部面；
+        /// UV 使用固定世界米制坐标，因此相邻 Chunk 的噪声纹理不会在边界重新从零开始。
+        /// </summary>
+        public static void BuildWorldChunk(
+            IElementWorldReadOnly world,
+            ElementChunkKey chunkKey,
+            List<Vector3> vertices,
+            List<Vector2> uvs,
+            List<int> indices)
+        {
+            if (world == null)
+                throw new ArgumentNullException(nameof(world));
+            if (vertices == null)
+                throw new ArgumentNullException(nameof(vertices));
+            if (uvs == null)
+                throw new ArgumentNullException(nameof(uvs));
+            if (indices == null)
+                throw new ArgumentNullException(nameof(indices));
+
+            vertices.Clear();
+            uvs.Clear();
+            indices.Clear();
+
+            if (!world.IsInitialized || world.CellSize <= 0f || world.ChunkSize <= 0)
+                return;
+
+            int chunkSize = world.ChunkSize;
+            for (int z = 0; z < chunkSize; z++)
+            for (int y = 0; y < chunkSize; y++)
+            for (int x = 0; x < chunkSize; x++)
+            {
+                var localCell = new Vector3Int(x, y, z);
+                Vector3Int globalCell = ElementWorldCoordinates.ComposeGlobalCell(
+                    chunkKey,
+                    localCell,
+                    chunkSize);
+                if (!TryGetWorldWaterAmount(world, globalCell, out byte amount))
+                    continue;
+
+                AddWorldCellSurface(
+                    world,
+                    localCell,
+                    globalCell,
+                    amount,
+                    vertices,
+                    uvs,
+                    indices);
+            }
+        }
+
+        private static void AddWorldCellSurface(
+            IElementWorldReadOnly world,
+            Vector3Int localCell,
+            Vector3Int globalCell,
+            byte amount,
+            List<Vector3> vertices,
+            List<Vector2> uvs,
+            List<int> indices)
+        {
+            float cellSize = world.CellSize;
+            float x0 = localCell.x * cellSize;
+            float x1 = x0 + cellSize;
+            float z0 = localCell.z * cellSize;
+            float z1 = z0 + cellSize;
+            float bottomY = localCell.y * cellSize;
+            float fillRatio = amount / (float)byte.MaxValue;
+            float surfaceY = bottomY + cellSize * fillRatio;
+
+            // UV 的单位是 World Meter，而不是 Local Cell Index：
+            // uv = globalCellXZ * cellSize。Shader 中的 Noise Scale 因而跨 Chunk 连续。
+            float globalX0 = globalCell.x * cellSize;
+            float globalX1 = globalX0 + cellSize;
+            float globalZ0 = globalCell.z * cellSize;
+            float globalZ1 = globalZ0 + cellSize;
+            float globalBottomY = globalCell.y * cellSize;
+            float globalSurfaceY = globalBottomY + cellSize * fillRatio;
+
+            if (!TryGetWorldWaterAmount(world, globalCell + Vector3Int.up, out _))
+            {
+                AddQuad(
+                    new Vector3(x0, surfaceY, z0),
+                    new Vector3(x0, surfaceY, z1),
+                    new Vector3(x1, surfaceY, z1),
+                    new Vector3(x1, surfaceY, z0),
+                    new Vector2(globalX0, globalZ0),
+                    new Vector2(globalX0, globalZ1),
+                    new Vector2(globalX1, globalZ1),
+                    new Vector2(globalX1, globalZ0),
+                    vertices,
+                    uvs,
+                    indices);
+            }
+
+            float negativeX = GetWorldNeighborSurfaceY(
+                world, globalCell + Vector3Int.left, bottomY, cellSize);
+            if (surfaceY - negativeX > HeightEpsilon)
+            {
+                float neighborWorldY = globalBottomY + (negativeX - bottomY);
+                AddQuad(
+                    new Vector3(x0, negativeX, z0),
+                    new Vector3(x0, negativeX, z1),
+                    new Vector3(x0, surfaceY, z1),
+                    new Vector3(x0, surfaceY, z0),
+                    new Vector2(globalZ0, neighborWorldY),
+                    new Vector2(globalZ1, neighborWorldY),
+                    new Vector2(globalZ1, globalSurfaceY),
+                    new Vector2(globalZ0, globalSurfaceY),
+                    vertices, uvs, indices);
+            }
+
+            float positiveX = GetWorldNeighborSurfaceY(
+                world, globalCell + Vector3Int.right, bottomY, cellSize);
+            if (surfaceY - positiveX > HeightEpsilon)
+            {
+                float neighborWorldY = globalBottomY + (positiveX - bottomY);
+                AddQuad(
+                    new Vector3(x1, positiveX, z1),
+                    new Vector3(x1, positiveX, z0),
+                    new Vector3(x1, surfaceY, z0),
+                    new Vector3(x1, surfaceY, z1),
+                    new Vector2(globalZ1, neighborWorldY),
+                    new Vector2(globalZ0, neighborWorldY),
+                    new Vector2(globalZ0, globalSurfaceY),
+                    new Vector2(globalZ1, globalSurfaceY),
+                    vertices, uvs, indices);
+            }
+
+            float negativeZ = GetWorldNeighborSurfaceY(
+                world, globalCell + new Vector3Int(0, 0, -1), bottomY, cellSize);
+            if (surfaceY - negativeZ > HeightEpsilon)
+            {
+                float neighborWorldY = globalBottomY + (negativeZ - bottomY);
+                AddQuad(
+                    new Vector3(x1, negativeZ, z0),
+                    new Vector3(x0, negativeZ, z0),
+                    new Vector3(x0, surfaceY, z0),
+                    new Vector3(x1, surfaceY, z0),
+                    new Vector2(globalX1, neighborWorldY),
+                    new Vector2(globalX0, neighborWorldY),
+                    new Vector2(globalX0, globalSurfaceY),
+                    new Vector2(globalX1, globalSurfaceY),
+                    vertices, uvs, indices);
+            }
+
+            float positiveZ = GetWorldNeighborSurfaceY(
+                world, globalCell + new Vector3Int(0, 0, 1), bottomY, cellSize);
+            if (surfaceY - positiveZ > HeightEpsilon)
+            {
+                float neighborWorldY = globalBottomY + (positiveZ - bottomY);
+                AddQuad(
+                    new Vector3(x0, positiveZ, z1),
+                    new Vector3(x1, positiveZ, z1),
+                    new Vector3(x1, surfaceY, z1),
+                    new Vector3(x0, surfaceY, z1),
+                    new Vector2(globalX0, neighborWorldY),
+                    new Vector2(globalX1, neighborWorldY),
+                    new Vector2(globalX1, globalSurfaceY),
+                    new Vector2(globalX0, globalSurfaceY),
+                    vertices, uvs, indices);
+            }
+        }
+
+        private static float GetWorldNeighborSurfaceY(
+            IElementWorldReadOnly world,
+            Vector3Int globalCell,
+            float currentLocalBottomY,
+            float cellSize)
+        {
+            return TryGetWorldWaterAmount(world, globalCell, out byte amount)
+                ? currentLocalBottomY + cellSize * (amount / (float)byte.MaxValue)
+                : currentLocalBottomY;
+        }
+
+        private static bool TryGetWorldWaterAmount(
+            IElementWorldReadOnly world,
+            Vector3Int globalCell,
+            out byte amount)
+        {
+            if (world.IsSolid(globalCell)
+                || !world.TryGetCell(globalCell, out ElementCell cell)
+                || cell.IsEmpty
+                || cell.MaterialKind != ElementMaterialKind.Water)
+            {
+                amount = 0;
+                return false;
+            }
+
+            amount = cell.Amount;
+            return true;
+        }
+
         private static void AddCellSurface(
             IElementFieldReadOnly field,
             int x,

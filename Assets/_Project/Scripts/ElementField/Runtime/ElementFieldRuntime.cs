@@ -65,7 +65,7 @@ namespace Game.ElementField
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(ElementFieldSolidBaker))]
-    public sealed class ElementFieldRuntime : MonoBehaviour, IElementFieldReadOnly
+    public sealed class ElementFieldRuntime : MonoBehaviour, IElementFieldReadOnly, IElementWriteSink
     {
         private const float TransformTolerance = 0.0001f;
         private const float CatchUpWarningCooldown = 5f;
@@ -129,11 +129,21 @@ namespace Game.ElementField
                 return;
             }
 
+            if (!ElementRuntimeRegistry.TryRegister(this))
+            {
+                GameLog.Error(
+                    "Another Element Runtime already owns the scene write sink.",
+                    "ElementField");
+                enabled = false;
+                return;
+            }
+
             Active = this;
         }
 
         private void OnDisable()
         {
+            ElementRuntimeRegistry.Unregister(this);
             if (Active == this)
                 Active = null;
         }

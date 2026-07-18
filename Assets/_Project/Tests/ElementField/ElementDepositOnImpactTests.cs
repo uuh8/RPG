@@ -71,11 +71,31 @@ namespace Game.ElementField.Tests
         {
             Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
 
-            Assert.That(ElementFieldRuntime.Active, Is.Null);
+            Assert.That(ElementRuntimeRegistry.ActiveSink, Is.Null);
             LogAssert.Expect(
                 LogType.Warning,
-                "[ElementField] 元素沉积已忽略：当前场景中不存在可用的 ElementFieldRuntime。");
+                "[ElementField] 元素沉积已忽略：当前场景中不存在可用的 Element Write Sink。");
             Assert.That(_deposit.TryDepositAt(Vector3.zero), Is.False);
+        }
+
+        [Test]
+        public void DepositUsesRegisteredWriteSinkWithoutKnowingRuntimeType()
+        {
+            Configure(ElementMaterialKind.Fire, totalAmount: 180, radius: 0.5f, linearFalloff: false);
+            var sink = new RecordingWriteSink();
+            Assert.That(ElementRuntimeRegistry.TryRegister(sink), Is.True);
+
+            try
+            {
+                Assert.That(_deposit.TryDepositAt(Vector3.one), Is.True);
+                Assert.That(sink.WriteCount, Is.EqualTo(1));
+                Assert.That(sink.LastRequest.MaterialKind, Is.EqualTo(ElementMaterialKind.Fire));
+                Assert.That(sink.LastRequest.WorldPosition, Is.EqualTo(Vector3.one));
+            }
+            finally
+            {
+                ElementRuntimeRegistry.Unregister(sink);
+            }
         }
 
         private void Configure(
@@ -97,6 +117,19 @@ namespace Game.ElementField.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null, $"缺少预期的序列化字段 {fieldName}。");
             field.SetValue(_deposit, value);
+        }
+
+        private sealed class RecordingWriteSink : IElementWriteSink
+        {
+            public int WriteCount { get; private set; }
+            public ElementWriteRequest LastRequest { get; private set; }
+
+            public bool TryEnqueueWrite(in ElementWriteRequest request)
+            {
+                LastRequest = request;
+                WriteCount++;
+                return true;
+            }
         }
     }
 }

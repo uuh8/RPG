@@ -35,19 +35,21 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
-        public void Evaluate_ResidentChunkInsideRegionIsActiveEvenWhenEmpty()
+        public void Evaluate_ResidentChunkInsideRegionSleepsWhenEmpty()
         {
             ElementChunkActivityState state = ElementChunkActivityPlanner.Evaluate(
                 candidate: new ElementChunkKey(2, 0, -1),
                 interest: new ElementChunkKey(2, 0, -1),
                 hasAnyElement: false,
+                requiresSimulation: false,
                 lastRelevantTick: 0,
                 currentTick: 100,
                 sleepGraceTicks: 20,
                 activeRadiusXZ: 6,
                 activeRadiusY: 2);
 
-            Assert.That(state, Is.EqualTo(ElementChunkActivityState.Active));
+            Assert.That(state, Is.EqualTo(ElementChunkActivityState.Sleeping),
+                "Interest Region 决定数据可驻留，不能强迫没有元素的 Chunk 执行四个 Solver Stage。");
         }
 
         [Test]
@@ -57,6 +59,7 @@ namespace Game.ElementField.Tests
                 candidate: new ElementChunkKey(20, 0, 0),
                 interest: new ElementChunkKey(0, 0, 0),
                 hasAnyElement: true,
+                requiresSimulation: false,
                 lastRelevantTick: 1,
                 currentTick: 1000,
                 sleepGraceTicks: 20,
@@ -67,12 +70,31 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
+        public void Evaluate_SettledNonEmptyChunkInsideRegionSleepsButKeepsData()
+        {
+            ElementChunkActivityState state = ElementChunkActivityPlanner.Evaluate(
+                candidate: new ElementChunkKey(0, 0, 0),
+                interest: new ElementChunkKey(0, 0, 0),
+                hasAnyElement: true,
+                requiresSimulation: false,
+                lastRelevantTick: 100,
+                currentTick: 100,
+                sleepGraceTicks: 20,
+                activeRadiusXZ: 6,
+                activeRadiusY: 2);
+
+            Assert.That(state, Is.EqualTo(ElementChunkActivityState.Sleeping),
+                "稳定水仍保存在 Resident Chunk 中，但不应继续参加每个 Solver Tick。");
+        }
+
+        [Test]
         public void Evaluate_RecentlyTouchedChunkOutsidePlayerRegionKeepsTemporaryActiveLease()
         {
             ElementChunkActivityState state = ElementChunkActivityPlanner.Evaluate(
                 candidate: new ElementChunkKey(30, 0, 0),
                 interest: new ElementChunkKey(0, 0, 0),
                 hasAnyElement: true,
+                requiresSimulation: true,
                 lastRelevantTick: 95,
                 currentTick: 100,
                 sleepGraceTicks: 20,
@@ -82,7 +104,7 @@ namespace Game.ElementField.Tests
             Assert.That(state, Is.EqualTo(ElementChunkActivityState.Active));
         }
 
-        [TestCase(119, ElementChunkActivityState.Active)]
+        [TestCase(119, ElementChunkActivityState.Sleeping)]
         [TestCase(120, ElementChunkActivityState.Reclaimable)]
         [TestCase(121, ElementChunkActivityState.Reclaimable)]
         public void Evaluate_EmptyOutsideChunkKeepsLeaseThenReclaimsAtGraceBoundary(
@@ -93,6 +115,7 @@ namespace Game.ElementField.Tests
                 candidate: new ElementChunkKey(20, 0, 0),
                 interest: new ElementChunkKey(0, 0, 0),
                 hasAnyElement: false,
+                requiresSimulation: false,
                 lastRelevantTick: 100,
                 currentTick: currentTick,
                 sleepGraceTicks: 20,
@@ -109,13 +132,13 @@ namespace Game.ElementField.Tests
 
             Assert.Throws<ArgumentOutOfRangeException>(() =>
                 ElementChunkActivityPlanner.Evaluate(
-                    key, key, false, 0, 0, 0, -1, 0));
+                    key, key, false, false, 0, 0, 0, -1, 0));
             Assert.Throws<ArgumentOutOfRangeException>(() =>
                 ElementChunkActivityPlanner.Evaluate(
-                    key, key, false, 0, 0, 0, 0, -1));
+                    key, key, false, false, 0, 0, 0, 0, -1));
             Assert.Throws<ArgumentOutOfRangeException>(() =>
                 ElementChunkActivityPlanner.Evaluate(
-                    key, key, false, 10, 9, 0, 0, 0));
+                    key, key, false, false, 10, 9, 0, 0, 0));
         }
     }
 }

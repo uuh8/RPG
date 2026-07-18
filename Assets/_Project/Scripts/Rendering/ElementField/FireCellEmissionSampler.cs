@@ -24,7 +24,38 @@ namespace Game.Rendering
             uint layerSeed,
             uint channel)
         {
-            uint value = unchecked((uint)cellIndex);
+            return Hash01(
+                unchecked((uint)cellIndex),
+                visualSequence,
+                layerSeed,
+                channel);
+        }
+
+        /// <summary>
+        /// 连续世界版本直接使用 Global Cell 坐标作为随机身份。
+        /// 不能使用 Chunk 的局部 index 或 Dictionary 枚举序号，否则不同 Chunk 会产生同步图案，
+        /// Chunk 加载/回收顺序变化时火焰还会突然换一套随机结果。
+        /// </summary>
+        public static float Hash01(
+            Vector3Int globalCell,
+            uint visualSequence,
+            uint layerSeed,
+            uint channel)
+        {
+            return Hash01(
+                HashGlobalCell(globalCell),
+                visualSequence,
+                layerSeed,
+                channel);
+        }
+
+        private static float Hash01(
+            uint cellIdentity,
+            uint visualSequence,
+            uint layerSeed,
+            uint channel)
+        {
+            uint value = cellIdentity;
             value ^= unchecked(visualSequence * 0x9E3779B9u);
             value ^= layerSeed;
             value ^= unchecked(channel * 0x85EBCA6Bu);
@@ -46,6 +77,18 @@ namespace Game.Rendering
             float threshold = Mathf.Clamp01(probabilityAtFullAmount) * NormalizeAmount(amount);
             return threshold > 0f
                 && Hash01(cellIndex, visualSequence, layerSeed, channel: 0u) < threshold;
+        }
+
+        public static bool ShouldEmit(
+            Vector3Int globalCell,
+            uint visualSequence,
+            uint layerSeed,
+            byte amount,
+            float probabilityAtFullAmount)
+        {
+            float threshold = Mathf.Clamp01(probabilityAtFullAmount) * NormalizeAmount(amount);
+            return threshold > 0f
+                && Hash01(globalCell, visualSequence, layerSeed, channel: 0u) < threshold;
         }
 
         /// <summary>
@@ -104,6 +147,27 @@ namespace Game.Rendering
             return new Vector3(x, y, z);
         }
 
+        public static Vector3 CalculateJitter(
+            Vector3Int globalCell,
+            uint visualSequence,
+            uint layerSeed,
+            float cellSize,
+            float verticalJitter)
+        {
+            float safeCellSize = IsFinitePositive(cellSize) ? cellSize : 0f;
+            float safeVerticalJitter = IsFiniteNonNegative(verticalJitter)
+                ? verticalJitter
+                : 0f;
+            float horizontalRange = safeCellSize * HorizontalJitterCellFraction;
+            float x = (Hash01(globalCell, visualSequence, layerSeed, channel: 1u) * 2f - 1f)
+                * horizontalRange;
+            float y = Hash01(globalCell, visualSequence, layerSeed, channel: 2u)
+                * safeVerticalJitter;
+            float z = (Hash01(globalCell, visualSequence, layerSeed, channel: 3u) * 2f - 1f)
+                * horizontalRange;
+            return new Vector3(x, y, z);
+        }
+
         public static float NormalizeAmount(byte amount)
         {
             return amount / (float)byte.MaxValue;
@@ -135,6 +199,20 @@ namespace Game.Rendering
                 value *= 0x846CA68Bu;
                 value ^= value >> 16;
                 return value;
+            }
+        }
+
+        private static uint HashGlobalCell(Vector3Int globalCell)
+        {
+            // FNV-1a 先把三个有符号坐标的 bit pattern 合并，再由 Avalanche 扩散。
+            // unchecked 允许负坐标按二进制补码参与混合，也允许乘法溢出形成 32-bit wrap-around。
+            unchecked
+            {
+                uint value = 2166136261u;
+                value = (value ^ (uint)globalCell.x) * 16777619u;
+                value = (value ^ (uint)globalCell.y) * 16777619u;
+                value = (value ^ (uint)globalCell.z) * 16777619u;
+                return Avalanche(value);
             }
         }
 
