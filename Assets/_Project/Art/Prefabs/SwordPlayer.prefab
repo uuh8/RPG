@@ -46,7 +46,7 @@ GameObject:
   - component: {fileID: 5238183171307611784}
   - component: {fileID: 1021952830898843353}
   - component: {fileID: 1672150344413721558}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: SwordPlayer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -201,7 +201,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.StatusController
   _database: {fileID: 11400000, guid: 28a8df9509d99744e824b08680571ad2, type: 2}
-  _wetExtinguishBurningPerSecond: 35
+  _reactionProfile: {fileID: 11400000, guid: 2050fb1db1a3dc54ebdd737e0413a8b2, type: 2}
 --- !u!1 &6938173354117416847
 GameObject:
   m_ObjectHideFlags: 0

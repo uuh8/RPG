@@ -12,6 +12,17 @@ namespace Game.UI
         [SerializeField] private Transform _container;     // 法术格父节点（建议挂 Layout Group）
         [SerializeField] private SpellSlotView _slotPrefab;
 
+        public SpellLibrary Library => _library;
+
+        /// <summary>
+        /// 由 WandEditorController 注入本局 Runtime Library。
+        /// View 不负责寻找或创建数据，避免 UI 同时成为数据所有者。
+        /// </summary>
+        public void BindLibrary(SpellLibrary library)
+        {
+            _library = library;
+        }
+
         public void Rebuild(IWandDragHandler handler)
         {
             if (_container == null || _slotPrefab == null) return;

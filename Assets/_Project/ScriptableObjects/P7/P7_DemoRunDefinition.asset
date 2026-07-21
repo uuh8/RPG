@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d2023a73fcf066f49a1e9d0feeadd111, type: 3}
+  m_Name: P7_DemoRunDefinition
+  m_EditorClassIdentifier: Game.Run::Game.Run.DemoRunDefinition
+  _encounters:
+  - _displayName: "\u57FA\u7840\u6218\u6597\u533A\u57DF"
+    _objectiveText: "\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
+    _rewardSpell: {fileID: 0}
+  - _displayName: "\u5143\u7D20\u53CD\u5E94\u533A\u57DF"
+    _objectiveText: "\u5229\u7528\u6C34\u706B\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
+    _rewardSpell: {fileID: 0}
+  - _displayName: "\u5143\u7D20\u53CD\u5E94\u533A\u57DF2"
+    _objectiveText: "\u5229\u7528\u6C34\u706B\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
+    _rewardSpell: {fileID: 0}
+  - _displayName: "Boss\u533A\u57DF"
+    _objectiveText: "\u51FB\u8D25Boss"
+    _rewardSpell: {fileID: 0}

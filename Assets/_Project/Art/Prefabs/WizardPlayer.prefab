@@ -49,7 +49,7 @@ GameObject:
   - component: {fileID: 3987539793705208710}
   - component: {fileID: 6991273463886653909}
   - component: {fileID: 5988198088383261155}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: WizardPlayer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -245,7 +245,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.StatusController
   _database: {fileID: 11400000, guid: 28a8df9509d99744e824b08680571ad2, type: 2}
-  _wetExtinguishBurningPerSecond: 35
+  _reactionProfile: {fileID: 11400000, guid: 2050fb1db1a3dc54ebdd737e0413a8b2, type: 2}
 --- !u!114 &5988198088383261155
 MonoBehaviour:
   m_ObjectHideFlags: 0

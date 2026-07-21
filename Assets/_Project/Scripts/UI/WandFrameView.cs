@@ -19,6 +19,15 @@ namespace Game.UI
         private readonly List<SpellDefinition> _work = new List<SpellDefinition>(16);
 
         public int Capacity => _capacity;
+        public WandLoadout Wand => _wand;
+
+        /// <summary>
+        /// 接收本局 Runtime Wand。后续拖放只改这份 Clone，因此退出本局不会污染 Project Asset。
+        /// </summary>
+        public void BindWand(WandLoadout wand)
+        {
+            _wand = wand;
+        }
 
         public void Rebuild(IWandDragHandler handler)
         {

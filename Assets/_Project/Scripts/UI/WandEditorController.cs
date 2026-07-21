@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using Game.Run;
 using Game.Skills;
 
 namespace Game.UI
@@ -16,7 +17,10 @@ namespace Game.UI
         [SerializeField] private GameObject _panelRoot;        // 整个编程界面根（开关其 active）
         [SerializeField] private SpellPaletteView _palette;
         [SerializeField] private WandFrameView _frame;
-        [SerializeField] private WandLoadout _wand;            // 仅用于 header 显示施放数
+        [SerializeField] private WandLoadout _wand;            // 旧场景回退数据；P7 会替换为 Runtime Wand
+        [SerializeField]
+        [Tooltip("P7 单局法术数据源；Palette、Frame 和 Header 都从同一份 Runtime Clone 读取。")]
+        private RunSpellSession _runSpellSession;
         [SerializeField] private Image _dragGhost;            // 跟随光标的拖拽影像（raycastTarget 关、置顶层、默认隐藏）
 
         [Header("Header (只读展示)")]
@@ -52,6 +56,7 @@ namespace Game.UI
 
         private void Start()
         {
+            BindRuntimeData();
             if (_panelRoot != null) _panelRoot.SetActive(false);
             _open = false;
         }
@@ -66,6 +71,8 @@ namespace Game.UI
 
         private void Open()
         {
+            // 每次打开都重新绑定，既规避 Script Execution Order，也能覆盖重开一局后的新 Runtime Clone。
+            BindRuntimeData();
             _open = true;
             if (_panelRoot != null) _panelRoot.SetActive(true);
             RebuildViews();
@@ -104,6 +111,28 @@ namespace Game.UI
             {
                 int baseDraws = _wand != null ? _wand.BaseDraws : 1;
                 _castCountLabel.text = $"施放数：{baseDraws}";
+            }
+        }
+
+        private void BindRuntimeData()
+        {
+            if (_runSpellSession == null ||
+                !_runSpellSession.IsInitialized ||
+                _runSpellSession.RuntimeLibrary == null ||
+                _runSpellSession.RuntimeWand == null)
+            {
+                return;
+            }
+
+            _wand = _runSpellSession.RuntimeWand;
+            if (_palette != null)
+            {
+                _palette.BindLibrary(_runSpellSession.RuntimeLibrary);
+            }
+
+            if (_frame != null)
+            {
+                _frame.BindWand(_runSpellSession.RuntimeWand);
             }
         }
 

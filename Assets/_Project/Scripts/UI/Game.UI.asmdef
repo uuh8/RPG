@@ -5,6 +5,7 @@
         "Game.Core",
         "Game.Combat",
         "Game.Skills",
+        "Game.Run",
         "UnityEngine.UI",
         "Unity.InputSystem"
     ],

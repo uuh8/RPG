@@ -4,6 +4,7 @@ using UnityEngine;
 using Unity.Profiling;
 using Game.Core;
 using Game.Combat;
+using Game.Run;
 using Game.Skills;
 
 namespace Game.Character
@@ -14,6 +15,11 @@ namespace Game.Character
     /// </summary>
     public class SpellCaster : MonoBehaviour
     {
+        [Header("Run Data Source")]
+        [SerializeField]
+        [Tooltip("P7 单局模式的数据源；配置后优先使用它的 Runtime Wand，旧场景仍可回退到下方 Wand。")]
+        private RunSpellSession _runSpellSession;
+
         [SerializeField] private WandLoadout _wand;
         [Tooltip("可用法力值")]
         [SerializeField] private ManaComponent _mana;
@@ -29,7 +35,11 @@ namespace Game.Character
         private readonly CastTraceCollector _traceCollector = new CastTraceCollector(64);
 #endif
 
-        public WandLoadout Wand => _wand;
+        /// <summary>
+        /// 返回当前真正参与求值的法杖。P7 使用 Runtime Clone，旧实验场景仍兼容 Inspector 中的模板 Wand。
+        /// 这里按需解析而不在 Awake 缓存，避免依赖不同 GameObject 之间不可保证的 Awake 执行顺序。
+        /// </summary>
+        public WandLoadout Wand => ResolveWand();
         public CastTraceLevel TraceLevel
         {
             get
@@ -51,7 +61,8 @@ namespace Game.Character
         /// <summary>运行当前法杖：从 spawnPos 朝 aimPoint 施放。返回本次求值产出数量。</summary>
         public int CastWand(Vector3 spawnPos, Vector3 aimPoint, byte team, int attackerId, Collider casterCollider)
         {
-            if (_wand == null || _wand.Spells == null || _wand.Spells.Length == 0)
+            WandLoadout activeWand = ResolveWand();
+            if (activeWand == null || activeWand.Spells == null || activeWand.Spells.Length == 0)
             {
                 GameLog.Warn("SpellCaster 未配置 WandLoadout 或法杖为空，无法施放", "Skills");
                 return 0;
@@ -63,8 +74,20 @@ namespace Game.Character
             baseDir.Normalize();
 
             int castId = ++s_nextCastId;
-            return RunCast(_wand.Spells, _wand.BaseDraws, CastModifierState.Default,
+            return RunCast(activeWand.Spells, activeWand.BaseDraws, CastModifierState.Default,
                            spawnPos, baseDir, team, attackerId, casterCollider, castId, 0);
+        }
+
+        private WandLoadout ResolveWand()
+        {
+            if (_runSpellSession != null &&
+                _runSpellSession.IsInitialized &&
+                _runSpellSession.RuntimeWand != null)
+            {
+                return _runSpellSession.RuntimeWand;
+            }
+
+            return _wand;
         }
 
         /// <summary>

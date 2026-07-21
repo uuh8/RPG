@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3391d3abca211044aac16fa190ad11b2, type: 3}
   m_Name: Enemy_Wizard
   m_EditorClassIdentifier: Game.Combat::Game.Combat.AttackDefinition
-  BaseAmount: 15
+  BaseAmount: 10
   Type: 1
   HalfExtents: {x: 0.17, y: 0.83, z: 0.12}
   HitActiveStart: 0.149

@@ -15,7 +15,7 @@ GameObject:
   - component: {fileID: 5289944598073839073}
   - component: {fileID: 7407154770750940856}
   - component: {fileID: 3254391564459236209}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: BowPlayer
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -176,7 +176,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.StatusController
   _database: {fileID: 11400000, guid: 28a8df9509d99744e824b08680571ad2, type: 2}
-  _wetExtinguishBurningPerSecond: 35
+  _reactionProfile: {fileID: 11400000, guid: 2050fb1db1a3dc54ebdd737e0413a8b2, type: 2}
 --- !u!1 &7951692776455586140
 GameObject:
   m_ObjectHideFlags: 0
