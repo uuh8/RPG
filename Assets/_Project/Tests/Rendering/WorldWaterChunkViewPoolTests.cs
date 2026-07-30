@@ -20,7 +20,15 @@ namespace Game.Rendering.Tests
             _pool = new WorldWaterChunkViewPool(
                 _root.transform,
                 sharedMaterial: null,
-                maximumViews: 1);
+                maximumViews: 1,
+                new WaterVolumeMeshingSettings(
+                    samplesPerCell: 2,
+                    supportedCornerRadius: 0.16f,
+                    minimumSupportedHeight: 0.08f,
+                    minimumAirborneRadius: 0.30f,
+                    maximumAirborneRadius: 0.48f,
+                    smoothUnionRadius: 0.16f),
+                chunkSize: 2);
         }
 
         [TearDown]
@@ -51,6 +59,10 @@ namespace Game.Rendering.Tests
 
             Assert.That(second, Is.SameAs(first),
                 "重新进入显示范围时必须复用已有 Mesh/GameObject，不能反复 Instantiate。");
+            Assert.That(second.Normals, Is.SameAs(first.Normals),
+                "回收 View 只能清空 List.Count，不能替换 Normal Buffer。");
+            Assert.That(second.MeshingWorkspace, Is.SameAs(first.MeshingWorkspace),
+                "Surface Nets Workspace 含固定数组，Streaming 时必须复用而不能重新分配。");
             Assert.That(second.Key, Is.EqualTo(secondKey));
             Assert.That(second.Transform.position, Is.EqualTo(new Vector3(6f, 0f, 8f)));
             Assert.That(_pool.CreatedCount, Is.EqualTo(1));

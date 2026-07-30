@@ -15,6 +15,11 @@ namespace Game.Combat.Tests
             _rb.useGravity = useGravity;
             _rb.linearVelocity = velocity;
         }
+
+        public Vector3 ResolveHomingTargetPointForTest(Collider target)
+        {
+            return ResolveHomingTargetPoint(target);
+        }
     }
 
     public sealed class ProjectileDebugSnapshotTests
@@ -95,6 +100,86 @@ namespace Game.Combat.Tests
             Assert.IsTrue(snapshot.OrbitEnabled);
             Assert.AreEqual(2f, snapshot.OrbitRadius, 1e-4f);
             Object.DestroyImmediate(go);
+        }
+
+        [Test]
+        public void ResolveHomingTargetPoint_UsesColliderBoundsCenterInsteadOfRoot()
+        {
+            GameObject projectileObject =
+                CreateProjectile(out ProjectileDebugTestProjectile projectile);
+            GameObject targetRoot = new GameObject("Homing Target Root");
+            targetRoot.transform.position = new Vector3(5f, 0f, -2f);
+            GameObject hitVolume = new GameObject("Homing Hit Volume");
+            hitVolume.transform.SetParent(targetRoot.transform, false);
+            hitVolume.transform.localPosition = new Vector3(0f, 1.5f, 0f);
+            BoxCollider targetCollider = hitVolume.AddComponent<BoxCollider>();
+            targetCollider.size = new Vector3(1f, 3f, 1f);
+            _createdObjects.Add(targetRoot);
+            Physics.SyncTransforms();
+
+            Vector3 targetPoint =
+                projectile.ResolveHomingTargetPointForTest(targetCollider);
+
+            Assert.That(
+                targetPoint,
+                Is.EqualTo(targetCollider.bounds.center));
+            Assert.That(
+                targetPoint,
+                Is.Not.EqualTo(targetRoot.transform.position));
+            Object.DestroyImmediate(projectileObject);
+            Object.DestroyImmediate(targetRoot);
+            _createdObjects.Clear();
+        }
+
+        [UnityTest]
+        public IEnumerator Homing_AcquiredTarget_ReportsMovingColliderCenter()
+        {
+            yield return new EnterPlayMode();
+
+            CreateProjectile(out ProjectileDebugTestProjectile projectile);
+            GameObject targetRoot = CreateHomingTarget(
+                new Vector3(5f, 0f, 0f),
+                out BoxCollider targetCollider);
+            projectile.ConfigureHoming(12f, 2f, 180f);
+            projectile.Init(
+                1,
+                10,
+                5f,
+                DamageType.Magical,
+                Vector3.forward * 10f,
+                null,
+                false);
+            Physics.SyncTransforms();
+
+            // EditMode Test Runner 的 Run All 不保证 WaitForFixedUpdate 会真正调度
+            // MonoBehaviour.FixedUpdate。显式发送生产 FixedUpdate，既保留真实 Homing 路径，
+            // 又让测试结果只由当前夹具决定，不依赖 Editor 窗口的 PlayerLoop 时序。
+            projectile.SendMessage(
+                "FixedUpdate",
+                SendMessageOptions.RequireReceiver);
+            ProjectileDebugSnapshot acquiredSnapshot =
+                projectile.GetDebugSnapshot();
+
+            targetRoot.transform.position += Vector3.up;
+            Physics.SyncTransforms();
+            projectile.SendMessage(
+                "FixedUpdate",
+                SendMessageOptions.RequireReceiver);
+            ProjectileDebugSnapshot movedSnapshot =
+                projectile.GetDebugSnapshot();
+            Vector3 expectedMovedCenter = targetCollider.bounds.center;
+
+            DestroyTrackedObjects();
+            yield return null;
+            yield return new ExitPlayMode();
+
+            Assert.That(acquiredSnapshot.HasHomingTarget, Is.True);
+            Assert.That(
+                acquiredSnapshot.HomingTargetPosition.y,
+                Is.GreaterThan(0f));
+            Assert.That(
+                movedSnapshot.HomingTargetPosition,
+                Is.EqualTo(expectedMovedCenter));
         }
 
         [UnityTest]
@@ -207,6 +292,24 @@ namespace Game.Combat.Tests
             go.transform.localScale = new Vector3(10f, 10f, 0.1f);
             go.AddComponent<BoxCollider>();
             _createdObjects.Add(go);
+        }
+
+        private GameObject CreateHomingTarget(
+            Vector3 position,
+            out BoxCollider targetCollider)
+        {
+            var root = new GameObject("Homing Target Root");
+            root.transform.position = position;
+            root.AddComponent<HealthComponent>();
+
+            var hitVolume = new GameObject("Homing Hit Volume");
+            hitVolume.transform.SetParent(root.transform, false);
+            hitVolume.transform.localPosition = new Vector3(0f, 1.5f, 0f);
+            targetCollider = hitVolume.AddComponent<BoxCollider>();
+            targetCollider.size = new Vector3(1f, 3f, 1f);
+
+            _createdObjects.Add(root);
+            return root;
         }
 
         private void DestroyTrackedObjects()

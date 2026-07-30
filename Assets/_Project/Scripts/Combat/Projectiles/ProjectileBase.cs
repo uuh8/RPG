@@ -46,7 +46,7 @@ namespace Game.Combat
         private bool _homingAcquired;
         private float _homingRemaining;
         private float _homingScanTimer;
-        private Transform _homingTarget;
+        private Collider _homingTargetCollider;
         private IDamageable _homingTargetDamageable;
         private float _orbitRadius;
         private float _orbitAngularSpeedDegrees;
@@ -205,7 +205,7 @@ namespace Game.Combat
             _homingAcquired = false;
             _homingRemaining = 0f;
             _homingScanTimer = 0f;
-            _homingTarget = null;
+            _homingTargetCollider = null;
             _homingTargetDamageable = null;
         }
 
@@ -252,7 +252,7 @@ namespace Game.Combat
             _orbitEnabled = false;
             _homingEnabled = false;
             _homingAcquired = false;
-            _homingTarget = null;
+            _homingTargetCollider = null;
             _homingTargetDamageable = null;
 
             _rb.position += normal * 0.03f;
@@ -420,7 +420,11 @@ namespace Game.Combat
             if (_homingRemaining <= 0f)
                 return;
 
-            if (_homingTarget == null || _homingTargetDamageable == null || !_homingTargetDamageable.IsAlive)
+            if (_homingTargetCollider == null ||
+                !_homingTargetCollider.enabled ||
+                !_homingTargetCollider.gameObject.activeInHierarchy ||
+                _homingTargetDamageable == null ||
+                !_homingTargetDamageable.IsAlive)
             {
                 _homingRemaining = 0f;
                 return;
@@ -433,7 +437,11 @@ namespace Game.Combat
             if (speed <= 1e-6f)
                 return;
 
-            Vector3 toTarget = _homingTarget.position - transform.position;
+            // Character Root 通常位于脚底。持续读取实际命中 Collider 的 Bounds Center，
+            // 才能在不同身高、不同 Collider 类型的目标之间保持通用且可命中的追踪点。
+            Vector3 toTarget =
+                ResolveHomingTargetPoint(_homingTargetCollider) -
+                transform.position;
             if (toTarget.sqrMagnitude <= 1e-6f)
                 return;
 
@@ -448,7 +456,7 @@ namespace Game.Combat
         {
             int hitCount = Physics.OverlapSphereNonAlloc(transform.position, _homingRadius, s_homingHits);
             float bestSqrDistance = float.MaxValue;
-            Transform bestTarget = null;
+            Collider bestTargetCollider = null;
             IDamageable bestDamageable = null;
 
             for (int i = 0; i < hitCount; i++)
@@ -461,23 +469,36 @@ namespace Game.Combat
                 if (damageable == null || !damageable.IsAlive || damageable.TeamId == _attackerTeam)
                     continue;
 
-                Vector3 targetPoint = hit.bounds.center;
+                Vector3 targetPoint =
+                    ResolveHomingTargetPoint(hit);
                 float sqrDistance = (targetPoint - transform.position).sqrMagnitude;
                 if (sqrDistance >= bestSqrDistance)
                     continue;
 
                 bestSqrDistance = sqrDistance;
-                bestTarget = damageable is Component component ? component.transform : hit.transform;
+                bestTargetCollider = hit;
                 bestDamageable = damageable;
             }
 
-            if (bestTarget == null)
+            if (bestTargetCollider == null)
                 return;
 
-            _homingTarget = bestTarget;
+            _homingTargetCollider = bestTargetCollider;
             _homingTargetDamageable = bestDamageable;
             _homingAcquired = true;
             _homingRemaining = _homingDuration;
+        }
+
+        /// <summary>
+        /// Homing 的命中目标必须来自真实 Physics 体积，而不是通常位于角色脚底的 Root。
+        /// Bounds 是 struct，逐个 FixedUpdate 读取不会产生 GC Alloc，并会随 Collider 移动更新。
+        /// </summary>
+        protected static Vector3 ResolveHomingTargetPoint(
+            Collider targetCollider)
+        {
+            return targetCollider != null
+                ? targetCollider.bounds.center
+                : Vector3.zero;
         }
 
         public ProjectileDebugSnapshot GetDebugSnapshot()
@@ -491,7 +512,7 @@ namespace Game.Combat
             }
 
             Vector3 velocity = _rb != null ? _rb.linearVelocity : Vector3.zero;
-            bool hasTarget = _homingTarget != null;
+            bool hasTarget = _homingTargetCollider != null;
 
             return new ProjectileDebugSnapshot(
                 transform.position,
@@ -500,7 +521,10 @@ namespace Game.Combat
                 _homingEnabled,
                 _homingRadius,
                 hasTarget,
-                hasTarget ? _homingTarget.position : Vector3.zero,
+                hasTarget
+                    ? ResolveHomingTargetPoint(
+                        _homingTargetCollider)
+                    : Vector3.zero,
                 _orbitEnabled,
                 _orbitCenter,
                 _orbitForward,

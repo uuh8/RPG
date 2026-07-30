@@ -13,7 +13,10 @@ MonoBehaviour:
   m_Name: Spell_Mdy_SpeedUp
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 1
-  DisplayName: "\u6295\u5C04\u7269\u52A0\u901F"
+  DisplayName: "\u52A0\u901F_\u4FEE\u6B63"
+  Description: "\u5C06\u540E\u7EED\u6295\u5C04\u7269\u7684\u98DE\u884C\u901F\u5EA6\u63D0\u9AD8\u81F3
+    1.5 \u500D\uFF0C\u4F7F\u6CD5\u672F\u66F4\u5FEB\u547D\u4E2D\u76EE\u6807\uFF0C\u4F46\u4E5F\u66F4\u96BE\u89C2\u5BDF\u5176\u98DE\u884C\u8F68\u8FF9\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: 3a6ac42e84d6ac64cac74c442ededbaa, type: 3}
   ManaCost: 10
   ProjectilePrefab: {fileID: 0}
@@ -28,6 +31,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

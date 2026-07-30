@@ -13,7 +13,9 @@ MonoBehaviour:
   m_Name: Spell_Mdy_Gravity
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 1
-  DisplayName: "\u91CD\u529B\u4FEE\u6B63"
+  DisplayName: "\u91CD\u529B_\u4FEE\u6B63"
+  Description: "\u8BA9\u540E\u7EED\u6295\u5C04\u7269\u53D7\u5230\u91CD\u529B\u5F71\u54CD\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: 2b8948eb04fcca24ead6bf66825cf6b0, type: 3}
   ManaCost: 5
   ProjectilePrefab: {fileID: 0}
@@ -28,6 +30,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

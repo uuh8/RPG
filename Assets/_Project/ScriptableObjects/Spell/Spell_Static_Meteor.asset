@@ -14,20 +14,27 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 3
   DisplayName: "\u9668\u77F3"
+  Description: "\u4EE5\u7784\u51C6\u70B9\u4E3A\u843D\u70B9\uFF0C\u5728\u77ED\u6682\u9884\u8B66\u540E\u4ECE\u9AD8\u7A7A\u53EC\u6765\u9668\u77F3\u5E76\u9020\u6210\u8303\u56F4\u4F24\u5BB3\u3002"
+  Element: 1
   Icon: {fileID: 21300000, guid: e6cdac74db26a3c40994c22fa6f3e719, type: 3}
   ManaCost: 30
   ProjectilePrefab: {fileID: 7306172122243908268, guid: eba29ceb87e4a0448863a214536f6573, type: 3}
-  BaseDamage: 25
+  BaseDamage: 30
   BaseSpeed: 18
   DamageType: 1
   CastSfx: {fileID: 8300000, guid: 5cd691c7632755d499fbbb55bc1f0fac, type: 3}
   PayloadTrigger: 0
   PayloadDelaySeconds: 1
-  SpawnMode: 1
+  SpawnMode: 0
   LandingSitePrefab: {fileID: 72791106268204831, guid: 12b7fadf73dea6e438f34f19557d5b1a, type: 3}
   SkyfallHeight: 20
   SkyfallBackOffset: 20
   LandingSiteDuration: 1.5
+  ExplosionDamage: 20
+  FireFieldDamagePerTick: 3
+  FireFieldTickInterval: 0.5
+  FireFieldDuration: 5
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0
@@ -43,4 +50,4 @@ MonoBehaviour:
   ModOrbitAngularSpeedDegrees: 0
   ModOrbitPhaseOffsetDegrees: 0
   ModOrbitPlaneTiltDegrees: 0
-  ExtraDraws: 2
+  ExtraDraws: 0

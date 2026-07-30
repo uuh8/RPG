@@ -1,4 +1,5 @@
 using System;
+using Game.Combat;
 using Game.Core;
 using UnityEngine;
 
@@ -21,6 +22,10 @@ namespace Game.Run
         private DemoEncounterController[] _encounters =
             Array.Empty<DemoEncounterController>();
 
+        [SerializeField]
+        [Tooltip("用于精确识别 Player Death。Run 只比较 DeathEvent.TargetId，不把 Enemy Death 误判为失败。")]
+        private HealthComponent _playerHealth;
+
         private readonly RunProgressTracker _tracker = new RunProgressTracker();
         private bool _isInitialized;
 
@@ -28,12 +33,15 @@ namespace Game.Run
 
         public int CurrentEncounterIndex => _tracker.CurrentEncounterIndex;
 
+        public DemoRunDefinition Definition => _definition;
+
         private void OnEnable()
         {
             // Encounter Controller 只发布已经发生的事实；整局控制器在这里消费事实并推进顺序。
             // 使用 OnEnable/OnDisable 对称订阅，避免换 Scene 或禁用对象后留下 stale subscriber。
             EventBus<EncounterStartedEvent>.Subscribe(OnEncounterStarted);
             EventBus<EncounterCompletedEvent>.Subscribe(OnEncounterCompleted);
+            EventBus<DeathEvent>.Subscribe(OnDeath);
         }
 
         private void Start()
@@ -50,6 +58,7 @@ namespace Game.Run
         {
             EventBus<EncounterStartedEvent>.Unsubscribe(OnEncounterStarted);
             EventBus<EncounterCompletedEvent>.Unsubscribe(OnEncounterCompleted);
+            EventBus<DeathEvent>.Unsubscribe(OnDeath);
         }
 
         /// <summary>
@@ -68,7 +77,7 @@ namespace Game.Run
 
             int encounterCount = _definition.EncounterCount;
             RunState previousState = _tracker.State;
-            if (!_tracker.StartRun(encounterCount))
+            if (!_tracker.StartRun(encounterCount, _definition.CompletionMode))
             {
                 return false;
             }
@@ -129,8 +138,8 @@ namespace Game.Run
 
             if (_tracker.State != RunState.Running)
             {
-                // 最终 Encounter 会让纯状态机进入 Completed。这里只发布一次事实，
-                // 后续 Victory UI 通过 EventBus 响应，无需在 Update 中逐帧轮询 RunState。
+                // 最终 Encounter 根据 Definition 进入 Completed 或 StageCleared。
+                // UI 只把 Completed/Failed 当 Terminal；StageCleared 继续允许 Reward、Portal 与玩家操作。
                 EventBus<RunStateChangedEvent>.Publish(new RunStateChangedEvent
                 {
                     PreviousState = previousState,
@@ -147,6 +156,30 @@ namespace Game.Run
                 throw new InvalidOperationException(
                     "The next encounter could not enter the Armed state.");
             }
+        }
+
+        private void OnDeath(DeathEvent deathEvent)
+        {
+            if (!_isInitialized ||
+                _playerHealth == null ||
+                deathEvent.TargetId != _playerHealth.Id)
+            {
+                return;
+            }
+
+            RunState previousState = _tracker.State;
+            if (!_tracker.FailRun())
+            {
+                return;
+            }
+
+            // RunProgressTracker 负责保证 Failed 是 Terminal State；这里只把唯一有效状态变化通知给 UI。
+            EventBus<RunStateChangedEvent>.Publish(new RunStateChangedEvent
+            {
+                PreviousState = previousState,
+                CurrentState = _tracker.State,
+                CurrentEncounterIndex = _tracker.CurrentEncounterIndex
+            });
         }
 
         private void ValidateConfiguration()
@@ -175,6 +208,13 @@ namespace Game.Run
                     "Run");
                 throw new InvalidOperationException(
                     "Definition encounter count must match Scene encounter count.");
+            }
+
+            if (_playerHealth == null)
+            {
+                GameLog.Error($"DemoRunController '{name}' has no Player Health.", "Run");
+                throw new InvalidOperationException(
+                    "DemoRunController requires the player's HealthComponent.");
             }
 
             for (int i = 0; i < _encounters.Length; i++)

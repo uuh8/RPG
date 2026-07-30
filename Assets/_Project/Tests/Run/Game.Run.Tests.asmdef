@@ -7,7 +7,8 @@
         "Game.Run",
         "Game.Core",
         "Game.Combat",
-        "Game.Skills"
+        "Game.Skills",
+        "Game.UI"
     ],
     "includePlatforms": [
         "Editor"

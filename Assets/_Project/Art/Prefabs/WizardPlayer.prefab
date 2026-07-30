@@ -49,6 +49,7 @@ GameObject:
   - component: {fileID: 3987539793705208710}
   - component: {fileID: 6991273463886653909}
   - component: {fileID: 5988198088383261155}
+  - component: {fileID: 5480448989569707078}
   m_Layer: 6
   m_Name: WizardPlayer
   m_TagString: Untagged
@@ -131,6 +132,7 @@ MonoBehaviour:
   _fallGravityMultiplier: 3.5
   _coyoteTime: 0.15
   _jumpBufferTime: 0.15
+  _extraAirJumps: 1
   _slideSpeed: 6
   _pushForce: 3
   _cameraRoot: {fileID: 743854215560039471}
@@ -138,12 +140,14 @@ MonoBehaviour:
   _pitchMin: -30
   _pitchMax: 70
   _attackBufferTime: 0.15
-  _dashSpeed: 20
+  _dashSpeed: 18
   _dashDuration: 0.4
-  _dashCooldown: 1
-  _dashBufferTime: 0.15
-  _dashMoveDelay: 0.2
+  _dashCooldown: 0.4
+  _dashBufferTime: 0.5
+  _airDashesPerAirborne: 1
+  _dashMoveDelay: 0.07
   _dashStateName: DashForward_MagicWand
+  _airDashStateName: AirDashForward_MagicWand
   _combo: {fileID: 11400000, guid: 1132d5698b014594ba2b8613ece95ecf, type: 2}
   _fireballSpawnPoint: {fileID: 6318963051049183416}
   _airAttackStateName: JumpAttack_MagicWand
@@ -214,6 +218,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b71d53b750a96b14d8c0b91369309296, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Character::Game.Character.SpellCaster
+  _runSpellSession: {fileID: 0}
   _wand: {fileID: 11400000, guid: 0cf330fcb9e847a4fabbea8d9c7b65eb, type: 2}
   _mana: {fileID: 3987539793705208710}
   _traceLevel: 0
@@ -230,7 +235,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.ManaComponent
   _maxMana: 200
-  _manaRegenPerSecond: 20
+  _manaRegenPerSecond: 25
   _startFull: 1
 --- !u!114 &6991273463886653909
 MonoBehaviour:
@@ -260,6 +265,20 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Rendering::Game.Rendering.StatusMaterialController
   _targetRenderers: []
   _responseSpeed: 4
+--- !u!114 &5480448989569707078
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4017091017364392535}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5d6e0ca0e1dea9d47870eae93d0a1681, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Character::Game.Character.PlayerPortalTraveler
+  _visualRoot: {fileID: 7659679196294698416}
+  _targetScaleMultiplier: 0.1
 --- !u!1 &7659679194342627040
 GameObject:
   m_ObjectHideFlags: 0

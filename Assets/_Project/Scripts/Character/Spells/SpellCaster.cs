@@ -15,6 +15,8 @@ namespace Game.Character
     /// </summary>
     public class SpellCaster : MonoBehaviour
     {
+        private const int MaxRuntimeTriggerDepth = CastEvaluator.MaxActionDepth;
+
         [Header("Run Data Source")]
         [SerializeField]
         [Tooltip("P7 单局模式的数据源；配置后优先使用它的 Runtime Wand，旧场景仍可回退到下方 Wand。")]
@@ -75,19 +77,83 @@ namespace Game.Character
 
             int castId = ++s_nextCastId;
             return RunCast(activeWand.Spells, activeWand.BaseDraws, CastModifierState.Default,
-                           spawnPos, baseDir, team, attackerId, casterCollider, castId, 0);
+                           spawnPos, baseDir, team, attackerId, casterCollider, castId, 0,
+                           SpellManaPolicy.SpendCasterMana);
+        }
+
+        /// <summary>
+        /// 运行调用方显式提供的 Wand Program。Boss 使用 IgnoreMana，但仍复用同一个
+        /// CastEvaluator、EmitCommand、Projectile 与 Payload 递归链路。
+        /// </summary>
+        public int CastProgram(
+            WandLoadout program,
+            Vector3 spawnPos,
+            Vector3 aimPoint,
+            byte team,
+            int attackerId,
+            Collider casterCollider,
+            SpellManaPolicy manaPolicy)
+        {
+            if (program == null ||
+                program.Spells == null ||
+                program.Spells.Length == 0)
+            {
+                GameLog.Warn(
+                    "SpellCaster 收到空的显式 Wand Program，无法施放",
+                    "Skills");
+                return 0;
+            }
+
+            Vector3 baseDir = aimPoint - spawnPos;
+            if (baseDir.sqrMagnitude < 1e-6f)
+                baseDir = transform.forward;
+            baseDir.Normalize();
+
+            int castId = ++s_nextCastId;
+            return RunCast(
+                program.Spells,
+                program.BaseDraws,
+                CastModifierState.Default,
+                spawnPos,
+                baseDir,
+                team,
+                attackerId,
+                casterCollider,
+                castId,
+                0,
+                manaPolicy);
         }
 
         private WandLoadout ResolveWand()
         {
-            if (_runSpellSession != null &&
-                _runSpellSession.IsInitialized &&
-                _runSpellSession.RuntimeWand != null)
-            {
+            if (TryBindCurrentRunSession())
                 return _runSpellSession.RuntimeWand;
-            }
 
             return _wand;
+        }
+
+        /// <summary>
+        /// 跨 Scene 后重新绑定由 DontDestroyOnLoad 保留的单局数据。
+        /// Scene Asset 不能序列化指向运行时对象的引用，因此后续关卡必须通过 Current 找回同一局 Session。
+        /// </summary>
+        public bool TryBindCurrentRunSession()
+        {
+            if (IsUsableRunSession(_runSpellSession))
+                return true;
+
+            RunSpellSession current = RunSpellSession.Current;
+            if (!IsUsableRunSession(current))
+                return false;
+
+            _runSpellSession = current;
+            return true;
+        }
+
+        private static bool IsUsableRunSession(RunSpellSession session)
+        {
+            return session != null &&
+                   session.IsInitialized &&
+                   session.RuntimeWand != null;
         }
 
         /// <summary>
@@ -96,11 +162,21 @@ namespace Game.Character
         /// </summary>
         private int RunCast(IReadOnlyList<SpellDefinition> spells, int baseDraws, CastModifierState incomingMods,
                             Vector3 spawnPos, Vector3 baseDir, byte team, int attackerId, Collider casterCollider,
-                            int castId, int depth)
+                            int castId, int depth, SpellManaPolicy manaPolicy)
         {
+            if (depth >= MaxRuntimeTriggerDepth)
+            {
+                // 解释器的 Payload 本身会严格缩短，但运行时仍设置硬上限：
+                // 即使未来 Authoring 语义扩展，也不会让命中回调形成无界递归。
+                GameLog.Warn(
+                    $"Cast #{castId} 的 Trigger 深度达到 {MaxRuntimeTriggerDepth}，已停止继续展开 Payload。",
+                    "Skills");
+                return 0;
+            }
+
             float requiredMana = CastEvaluator.EstimateManaCost(spells, baseDraws, incomingMods);
             float availableMana = _mana != null ? _mana.CurrentMana : float.PositiveInfinity;
-            if (!TrySpendMana(requiredMana))
+            if (!TrySpendMana(requiredMana, manaPolicy))
             {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
                 LogManaPreflightFailure(
@@ -149,7 +225,9 @@ namespace Game.Character
                     switch (cmd.SpawnMode)
                     {
                         case SpellSpawnMode.SkyfallAtPoint:
-                            SpawnSkyfallProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider, castId, depth);
+                            SpawnSkyfallProjectile(
+                                cmd, spawnPos, baseDir, i, count, team, attackerId,
+                                casterCollider, castId, depth, manaPolicy);
                             break;
 
                         case SpellSpawnMode.StaticAtPoint:
@@ -157,7 +235,9 @@ namespace Game.Character
                             break;
 
                         default:
-                            SpawnForwardProjectile(cmd, spawnPos, baseDir, i, count, team, attackerId, casterCollider, castId, depth);
+                            SpawnForwardProjectile(
+                                cmd, spawnPos, baseDir, i, count, team, attackerId,
+                                casterCollider, castId, depth, manaPolicy);
                             break;
                     }
                 }
@@ -166,8 +246,13 @@ namespace Game.Character
             return count;
         }
 
-        private bool TrySpendMana(float requiredMana)
+        private bool TrySpendMana(
+            float requiredMana,
+            SpellManaPolicy manaPolicy)
         {
+            if (manaPolicy == SpellManaPolicy.IgnoreMana)
+                return true;
+
             if (requiredMana <= 0f)
                 return true;
 
@@ -187,7 +272,8 @@ namespace Game.Character
         }
 
         private void SpawnForwardProjectile(EmitCommand cmd, Vector3 spawnPos, Vector3 baseDir, int index, int count,
-                                            byte team, int attackerId, Collider casterCollider, int castId, int depth)
+                                            byte team, int attackerId, Collider casterCollider, int castId, int depth,
+                                            SpellManaPolicy manaPolicy)
         {
             float yaw = SpellAiming.SpreadOffsetDegrees(index, count, cmd.SpreadDegrees);
             Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;
@@ -201,7 +287,16 @@ namespace Game.Character
                 return;
             }
 
-            WirePayload(proj, cmd, team, attackerId, casterCollider, castId, depth);
+            WirePayload(
+                proj,
+                cmd,
+                team,
+                attackerId,
+                casterCollider,
+                castId,
+                depth,
+                manaPolicy);
+            ConfigureCompositeDamage(proj, in cmd);
             ConfigureProjectileMotion(proj, cmd, index, count);
             if (proj is ShieldProjectile shieldProjectile)
                 shieldProjectile.ConfigureShield(cmd.ShieldReflectCount);
@@ -228,8 +323,15 @@ namespace Game.Character
             GameLog.Warn($"StaticAtPoint prefab {cmd.ProjectilePrefab.name} has no ProjectileShield component", "Skills");
         }
 
-        private void WirePayload(ProjectileBase proj, EmitCommand cmd, byte team, int attackerId, Collider casterCollider,
-                                 int castId, int depth)
+        private void WirePayload(
+            ProjectileBase proj,
+            EmitCommand cmd,
+            byte team,
+            int attackerId,
+            Collider casterCollider,
+            int castId,
+            int depth,
+            SpellManaPolicy manaPolicy)
         {
             if (!cmd.HasPayload)
                 return;
@@ -241,12 +343,34 @@ namespace Game.Character
             {
                 case PayloadTriggerMode.OnImpact:
                     proj.Impacted += (hitPoint, hitDir) =>
-                        RunCast(payload, 1, payloadMods, hitPoint, hitDir, team, attackerId, casterCollider, castId, depth + 1);
+                        RunCast(
+                            payload,
+                            1,
+                            payloadMods,
+                            hitPoint,
+                            hitDir,
+                            team,
+                            attackerId,
+                            casterCollider,
+                            castId,
+                            depth + 1,
+                            manaPolicy);
                     break;
 
                 case PayloadTriggerMode.AfterDelay:
                     proj.TimedTriggerElapsed += (position, direction) =>
-                        RunCast(payload, 1, payloadMods, position, direction, team, attackerId, casterCollider, castId, depth + 1);
+                        RunCast(
+                            payload,
+                            1,
+                            payloadMods,
+                            position,
+                            direction,
+                            team,
+                            attackerId,
+                            casterCollider,
+                            castId,
+                            depth + 1,
+                            manaPolicy);
                     proj.ArmTimedTrigger(cmd.PayloadDelaySeconds);
                     break;
             }
@@ -419,7 +543,8 @@ namespace Game.Character
         }
 
         private void SpawnSkyfallProjectile(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
-                                            byte team, int attackerId, Collider casterCollider, int castId, int depth)
+                                            byte team, int attackerId, Collider casterCollider, int castId, int depth,
+                                            SpellManaPolicy manaPolicy)
         {
             landingPoint = ResolveSkyfallLandingPoint(landingPoint, casterCollider);
 
@@ -433,25 +558,50 @@ namespace Game.Character
             if (cmd.LandingSiteDuration > 0f)
             {
                 StartCoroutine(SpawnSkyfallProjectileAfterDelay(
-                    cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider, castId, depth));
+                    cmd, landingPoint, baseDir, index, count, team, attackerId,
+                    casterCollider, castId, depth, manaPolicy));
             }
             else
             {
-                SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider, castId, depth);
+                SpawnSkyfallProjectileNow(
+                    cmd, landingPoint, baseDir, index, count, team, attackerId,
+                    casterCollider, castId, depth, manaPolicy);
+            }
+        }
+
+        /// <summary>
+        /// 把解释器生成的复合伤害纯数据交给具体 Combat Runtime。
+        /// SpellCaster 只做 Assembly 边界上的 Adapter，不在这里查询范围或直接扣血。
+        /// </summary>
+        private static void ConfigureCompositeDamage(
+            ProjectileBase projectile,
+            in EmitCommand command)
+        {
+            if (projectile is NovaFireball meteor)
+            {
+                meteor.ConfigureImpactDamage(
+                    command.ExplosionDamage,
+                    command.FireFieldDamagePerTick,
+                    command.FireFieldTickInterval,
+                    command.FireFieldDuration);
             }
         }
 
         private IEnumerator SpawnSkyfallProjectileAfterDelay(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir,
                                                              int index, int count,
                                                              byte team, int attackerId, Collider casterCollider,
-                                                             int castId, int depth)
+                                                             int castId, int depth,
+                                                             SpellManaPolicy manaPolicy)
         {
             yield return new WaitForSeconds(cmd.LandingSiteDuration);
-            SpawnSkyfallProjectileNow(cmd, landingPoint, baseDir, index, count, team, attackerId, casterCollider, castId, depth);
+            SpawnSkyfallProjectileNow(
+                cmd, landingPoint, baseDir, index, count, team, attackerId,
+                casterCollider, castId, depth, manaPolicy);
         }
 
         private void SpawnSkyfallProjectileNow(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
-                                               byte team, int attackerId, Collider casterCollider, int castId, int depth)
+                                               byte team, int attackerId, Collider casterCollider, int castId, int depth,
+                                               SpellManaPolicy manaPolicy)
         {
             Vector3 horizontalDir = baseDir;
             horizontalDir.y = 0f;
@@ -475,7 +625,16 @@ namespace Game.Character
                 return;
             }
 
-            WirePayload(proj, cmd, team, attackerId, casterCollider, castId, depth);
+            WirePayload(
+                proj,
+                cmd,
+                team,
+                attackerId,
+                casterCollider,
+                castId,
+                depth,
+                manaPolicy);
+            ConfigureCompositeDamage(proj, in cmd);
             ConfigureProjectileMotion(proj, cmd, index, count);
             proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, fallDir * cmd.Speed, casterCollider, useGravity: cmd.UseGravity);
         }

@@ -13,7 +13,9 @@ MonoBehaviour:
   m_Name: Spell_Emit_TriggerFireball
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 0
-  DisplayName: "\u89E6\u53D1-\u706B\u7403"
+  DisplayName: "\u706B\u7403_\u89E6\u53D1"
+  Description: "\u706B\u7403\u89E6\u78B0\u5230\u76EE\u6807\u540E\uFF0C\u91CA\u653E\u5176\u4E0B\u4E00\u4E2A\u6CD5\u672F\u3002"
+  Element: 1
   Icon: {fileID: 21300000, guid: f64e5036b374f01469a5aef0fc9ef14f, type: 3}
   ManaCost: 25
   ProjectilePrefab: {fileID: 7581999627747165493, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
@@ -28,6 +30,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 1
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

@@ -80,5 +80,49 @@ namespace Game.Run.Tests
             Assert.Throws<ArgumentNullException>(() =>
                 RunSpellInventoryOps.TryAppendUnique(Array.Empty<SpellDefinition>(), null, out _));
         }
+
+        [Test]
+        public void TryMergeUniqueInOrder_AppendsOnlyMissingSpellsInAuthoringOrder()
+        {
+            var current = new[] { _water };
+            var fullLibrary = new[] { _fire, _water };
+
+            bool changed = RunSpellInventoryOps.TryMergeUniqueInOrder(
+                current,
+                fullLibrary,
+                out SpellDefinition[] result);
+
+            Assert.That(changed, Is.True);
+            Assert.That(result, Is.EqualTo(new[] { _water, _fire }),
+                "已有 Runtime 顺序必须保留，缺失法术按完整 Library 的 Authoring 顺序追加。");
+            Assert.That(current, Is.EqualTo(new[] { _water }),
+                "合并不能原地修改调用方持有的 Runtime 数组。");
+        }
+
+        [Test]
+        public void TryMergeUniqueInOrder_AlreadyComplete_ReusesCurrentArray()
+        {
+            var current = new[] { _fire, _water };
+            var fullLibrary = new[] { _fire, _water, _fire };
+
+            bool changed = RunSpellInventoryOps.TryMergeUniqueInOrder(
+                current,
+                fullLibrary,
+                out SpellDefinition[] result);
+
+            Assert.That(changed, Is.False);
+            Assert.That(result, Is.SameAs(current),
+                "没有缺失法术时必须复用原数组，保证重复 Reward/Portal 调用幂等且不分配。");
+        }
+
+        [Test]
+        public void TryMergeUniqueInOrder_NullFullLibrary_ThrowsConfigurationError()
+        {
+            Assert.Throws<ArgumentNullException>(() =>
+                RunSpellInventoryOps.TryMergeUniqueInOrder(
+                    Array.Empty<SpellDefinition>(),
+                    null,
+                    out _));
+        }
     }
 }

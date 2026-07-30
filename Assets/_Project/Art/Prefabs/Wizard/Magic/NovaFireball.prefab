@@ -19461,11 +19461,10 @@ MonoBehaviour:
   _modelForwardOffsetEuler: {x: 0, y: 0, z: 0}
   _impactLingerTime: 0
   _homingScanInterval: 0.1
-  _explosionPrefab: {fileID: 52697837145695908, guid: e512e8e00511f21438b458f2bfd02261, type: 3}
+  _explosionPrefab: {fileID: 7612594589912998389, guid: ff4fb4ea5cdc7a84d8eeca63b6065408, type: 3}
   _explosionLifetime: 1
   _explosionRotationEuler: {x: 90, y: 0, z: 0}
   _fireFieldPrefab: {fileID: 2721181026081694849, guid: 0f30149736f752c4c9c0917a9e652ab4, type: 3}
-  _fireFieldLifetime: 5
   _fireFieldRotationEuler: {x: 90, y: 0, z: 0}
 --- !u!114 &-3005917883522123017
 MonoBehaviour:
@@ -19479,7 +19478,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: aeb1cc9b05ea81b4994427978e1e3f50, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.ElementField::Game.ElementField.ElementDepositOnImpact
-  _materialKind: 1
+  _materialKind: 2
   _totalAmount: 1200
   _radius: 0.75
   _useLinearFalloff: 1

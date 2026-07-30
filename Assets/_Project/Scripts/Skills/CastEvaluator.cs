@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Game.Combat;
 using Unity.Profiling;
+using UnityEngine;
 
 namespace Game.Skills
 {
@@ -27,6 +28,9 @@ namespace Game.Skills
     /// </summary>
     public static class CastEvaluator
     {
+        public const int MaxActionDepth = 16;
+        public const int MaxEmitCommands = 64;
+
         private static readonly ProfilerMarker s_evaluateMarker = new ProfilerMarker("Spell.Evaluate");
 
         public static CastSummary Evaluate(
@@ -83,7 +87,11 @@ namespace Game.Skills
                     return new CastSummary(0f, false);
                 }
 
-                for (int i = 0; i < spells.Count; i++)
+                int i = 0;
+                // Draw Budget 只阻止当前 Emit，不代表解释器应停止读取后续指令。
+                // 例如 Emit → Multicast → Emit：第一个 Emit 把预算降到 0，
+                // 但后面的 Multicast 可以重新增加预算，让第二个 Emit 成为有效输出。
+                while (i < spells.Count && output.Count < MaxEmitCommands)
                 {
                     SpellDefinition spell = spells[i];
                     int budgetBefore = drawBudget;
@@ -96,10 +104,10 @@ namespace Game.Skills
                             CastTraceStepKind.NullSpellSkipped, i, null,
                             budgetBefore, drawBudget, manaBefore, manaLeft,
                             modsBefore, mods));
+                        i++;
                         continue;
                     }
 
-                    bool ended = false;
                     switch (spell.Kind)
                     {
                         case SpellKind.Modify:
@@ -118,6 +126,7 @@ namespace Game.Skills
                                 CastTraceStepKind.ModifyApplied, i, spell,
                                 budgetBefore, drawBudget, manaBefore, manaLeft,
                                 modsBefore, mods));
+                            i++;
                             break;
 
                         case SpellKind.Multicast:
@@ -136,6 +145,7 @@ namespace Game.Skills
                                 CastTraceStepKind.MulticastApplied, i, spell,
                                 budgetBefore, drawBudget, manaBefore, manaLeft,
                                 modsBefore, mods));
+                            i++;
                             break;
 
                         case SpellKind.Emit:
@@ -146,6 +156,9 @@ namespace Game.Skills
                                     CastTraceStepKind.DrawBudgetBlocked, i, spell,
                                     budgetBefore, drawBudget, manaBefore, manaLeft,
                                     modsBefore, mods));
+                                // 被预算阻止的 Emit 已经“读过”，必须前进；否则移除 while
+                                // 的 drawBudget Gate 后会永远停在同一个 Slot。
+                                i++;
                                 break;
                             }
 
@@ -159,14 +172,28 @@ namespace Game.Skills
                                 break;
                             }
 
-                            IReadOnlyList<SpellDefinition> payload =
-                                spell.PayloadTrigger != PayloadTriggerMode.None
-                                    ? CaptureSuffix(spells, i + 1)
-                                    : null;
+                            int payloadStart = i + 1;
+                            int payloadEnd = payloadStart;
+                            IReadOnlyList<SpellDefinition> payload = null;
+                            if (spell.PayloadTrigger != PayloadTriggerMode.None)
+                            {
+                                payloadEnd = FindActionEnd(
+                                    spells,
+                                    payloadStart,
+                                    0);
+                                payload = CaptureRange(
+                                    spells,
+                                    payloadStart,
+                                    payloadEnd);
+                            }
+
                             EmitCommand command = BakeEmit(spell, mods, payload);
                             int emitIndex = output.Count;
                             output.Add(command);
                             drawBudget--;
+                            i = spell.PayloadTrigger != PayloadTriggerMode.None
+                                ? payloadEnd
+                                : i + 1;
 
                             trace?.Record(new CastTraceStep(
                                 CastTraceStepKind.EmitProduced, i, spell,
@@ -179,15 +206,14 @@ namespace Game.Skills
                                     CastTraceStepKind.PayloadCaptured, i, spell,
                                     budgetBefore, drawBudget, manaBefore, manaLeft,
                                     modsBefore, mods, emitIndex, command,
-                                    i + 1,
+                                    payloadStart,
                                     command.HasPayload ? command.Payload.Count : 0,
                                     command.PayloadTrigger));
-                                ended = true;
                             }
                             break;
                     }
 
-                    if (fizzled || ended)
+                    if (fizzled)
                         break;
                 }
 
@@ -214,33 +240,51 @@ namespace Game.Skills
             float manaCost = 0f;
             CastModifierState mods = incomingMods;
 
-            for (int i = 0; i < spells.Count; i++)
+            int i = 0;
+            // 必须镜像 Evaluate：零预算 Emit 不计费但会被跳过，后续 Multicast
+            // 仍可能重新开放预算，因此不能在 drawBudget==0 时提前结束估算。
+            while (i < spells.Count)
             {
                 SpellDefinition spell = spells[i];
-                if (spell == null) continue;
+                if (spell == null)
+                {
+                    i++;
+                    continue;
+                }
 
                 switch (spell.Kind)
                 {
                     case SpellKind.Modify:
                         manaCost += SanitizedManaCost(spell);
                         mods = mods.Apply(spell);
+                        i++;
                         break;
 
                     case SpellKind.Multicast:
                         manaCost += SanitizedManaCost(spell);
                         drawBudget += spell.ExtraDraws;
+                        i++;
                         break;
 
                     case SpellKind.Emit:
                     case SpellKind.StaticProjectile:
                         if (drawBudget <= 0)
+                        {
+                            i++;
                             break;
+                        }
 
                         manaCost += SanitizedManaCost(spell);
                         drawBudget--;
 
                         if (spell.PayloadTrigger != PayloadTriggerMode.None)
-                            return manaCost;
+                        {
+                            i = FindActionEnd(spells, i + 1, 0);
+                        }
+                        else
+                        {
+                            i++;
+                        }
                         break;
                 }
             }
@@ -270,7 +314,19 @@ namespace Game.Skills
         /// </summary>
         private static EmitCommand BakeEmit(SpellDefinition spell, CastModifierState mods, IReadOnlyList<SpellDefinition> payload)
         {
-            float damage = (spell.BaseDamage + mods.DamageAddFlat) * mods.DamageMul;
+            float damageMultiplier = Mathf.Max(0f, mods.DamageMul);
+            float damage = Mathf.Max(
+                0f,
+                (spell.BaseDamage + mods.DamageAddFlat) * damageMultiplier);
+
+            // Flat Bonus 只增加一次性直击；否则同一个 Flat 值会被爆炸和每一次 DoT Tick 重复结算。
+            // Multiplier 表示整颗复合法术的强度缩放，因此同时作用于直击、爆炸和火场每跳。
+            float explosionDamage = Mathf.Max(0f, spell.ExplosionDamage * damageMultiplier);
+            float fireFieldDamagePerTick = Mathf.Max(
+                0f,
+                spell.FireFieldDamagePerTick * damageMultiplier);
+            float fireFieldTickInterval = Mathf.Max(0.05f, spell.FireFieldTickInterval);
+            float fireFieldDuration = Mathf.Max(0f, spell.FireFieldDuration);
             float speed = spell.BaseSpeed * mods.SpeedMul;
             PayloadTriggerMode trigger = payload != null && payload.Count > 0
                 ? spell.PayloadTrigger
@@ -279,7 +335,9 @@ namespace Game.Skills
             return new EmitCommand(spell.ProjectilePrefab, spell.SpawnMode, spell.LandingSitePrefab,
                                    spell.SkyfallHeight, spell.SkyfallBackOffset, spell.LandingSiteDuration,
                                    spell.ShieldReflectCount,
-                                   damage, speed, spell.DamageType,
+                                   damage, explosionDamage,
+                                   fireFieldDamagePerTick, fireFieldTickInterval, fireFieldDuration,
+                                   speed, spell.DamageType,
                                    mods.SpreadDegrees, mods.BounceCount, mods.UseGravity,
                                    mods.HomingRadius, mods.HomingDuration, mods.HomingTurnRateDegrees,
                                    mods.OrbitRadius, mods.OrbitAngularSpeedDegrees, mods.OrbitPhaseOffsetDegrees,
@@ -289,14 +347,62 @@ namespace Game.Skills
         }
 
         /// <summary>
-        /// 捕获触发的载荷 = 序列中 start 起的后缀（跳过 null）。这是一条"比当前序列更短的后缀"——
-        /// 递归（链式触发）据此天然收敛（每深一层、待处理序列更短），所以无需递归护栏。别把它改成整根序列。
-        /// 在"命中"这种离散事件触发，一次性分配可接受。
+        /// 从 start 开始只解析一个完整 Action 的边界。Multicast 扩大该 Action 内部的 Draw Budget；
+        /// Trigger 自己只占一个 Draw，但它的 Payload Action 必须递归越过，外层才能继续抽取下一条并行 Action。
+        /// 深度上限是防御性护栏；正常输入仍因每层至少越过一个 Trigger 而天然收敛。
         /// </summary>
-        private static List<SpellDefinition> CaptureSuffix(IReadOnlyList<SpellDefinition> spells, int start)
+        private static int FindActionEnd(
+            IReadOnlyList<SpellDefinition> spells,
+            int start,
+            int depth)
+        {
+            if (spells == null || start >= spells.Count || depth >= MaxActionDepth)
+                return start;
+
+            int cursor = start;
+            int drawBudget = 1;
+            while (cursor < spells.Count && drawBudget > 0)
+            {
+                SpellDefinition spell = spells[cursor];
+                cursor++;
+                if (spell == null)
+                    continue;
+
+                switch (spell.Kind)
+                {
+                    case SpellKind.Multicast:
+                        drawBudget += Math.Max(0, spell.ExtraDraws);
+                        break;
+
+                    case SpellKind.Emit:
+                    case SpellKind.StaticProjectile:
+                        drawBudget--;
+                        if (spell.PayloadTrigger != PayloadTriggerMode.None)
+                        {
+                            cursor = FindActionEnd(
+                                spells,
+                                cursor,
+                                depth + 1);
+                        }
+                        break;
+                }
+            }
+
+            return cursor;
+        }
+
+        /// <summary>
+        /// Trigger Payload 保存一个 Action 的独立指令切片，而不是吞掉整段剩余 Wand。
+        /// 该分配发生在离散施法求值，不位于 Update/FixedUpdate 热路径。
+        /// </summary>
+        private static List<SpellDefinition> CaptureRange(
+            IReadOnlyList<SpellDefinition> spells,
+            int start,
+            int end)
         {
             var payload = new List<SpellDefinition>();
-            for (int j = start; j < spells.Count; j++)
+            int clampedEnd = Math.Min(end, spells.Count);
+            for (int j = start; j < clampedEnd; j++)
                 if (spells[j] != null) payload.Add(spells[j]);
             return payload;
         }

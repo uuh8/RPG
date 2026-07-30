@@ -18,6 +18,9 @@ namespace Game.Character
 
             // 进入接地状态时，重置垂直速度为 -2f
             _player.VerticalVelocity = -2f;
+            // “落地”是空中能力的新周期边界：二段跳和空中 Dash 各恢复一次。
+            _player.ResetAirActionBudget();
+            _player.IsAirborneForDash = false;
             if (_player.JumpBufferCounter > 0f)
                 ExecuteJump(); // Jump Buffer：如果空中按了跳跃键、buffer 还没过期，落地立刻起跳
         }
@@ -60,6 +63,7 @@ namespace Game.Character
             // 缓冲与冷却正交：DashBufferCounter 给亚帧容错；DashCooldownCounter 把关能力锁。
             if (_player.DashBufferCounter > 0f && _player.DashCooldownCounter <= 0f)
             {
+                _player.IsAirborneForDash = false;
                 _player.StateMachine.ChangeState(_player.DashState);
                 return;
             }

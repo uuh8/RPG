@@ -14,14 +14,16 @@ namespace Game.Rendering
     [DisallowMultipleComponent]
     public sealed class ElementWorldWaterRenderer : MonoBehaviour
     {
-        private const int MaximumQuadsPerCell = 5;
-        private const int VerticesPerQuad = 4;
         private const int IndicesPerQuad = 6;
+        private const int EdgeAxes = 3;
+        private const int VisualNeighborRadiusInChunks = 1;
 
         private static readonly ProfilerMarker SyncViewsMarker =
             new ProfilerMarker("ElementWorldWater.SyncViews");
         private static readonly ProfilerMarker RebuildChunkMarker =
             new ProfilerMarker("ElementWorldWater.RebuildChunk");
+        private static readonly ProfilerMarker UploadMeshMarker =
+            new ProfilerMarker("ElementWorldWater.UploadMesh");
 
         [Header("Read Only World")]
         [Tooltip("拖入场景中的 ElementWorldRuntime；Rendering 只通过 IElementWorldReadOnly 读取。")]
@@ -30,12 +32,14 @@ namespace Game.Rendering
         [Header("Water Presentation")]
         [Tooltip("复用自研 ElementWater.shader 的 shared Material，不为每个 Chunk 克隆材质。")]
         [SerializeField] private Material _waterMaterial;
+        [Tooltip("体积水的 Surface Nets 采样、圆角、空中半径与 Smooth Union 参数。")]
+        [SerializeField] private ElementWaterVolumeRenderProfile _volumeProfile;
 
         [Header("View And Rebuild Budget")]
         [Tooltip("最多同时持有多少个 Water Chunk View。超出后保留 Gameplay 数据，但暂不创建更多视觉对象。")]
         [SerializeField, Min(1)] private int _maximumViews = 256;
         [Tooltip("单帧最多重建多少个 Dirty Chunk，用跨帧延迟换取稳定 Frame Time。")]
-        [SerializeField, Min(1)] private int _maxChunkRebuildsPerFrame = 4;
+        [SerializeField, Min(1)] private int _maxChunkRebuildsPerFrame = 1;
 
         [Header("Runtime Debug (Read Only In Play Mode)")]
         [SerializeField] private int _visibleElementChunkCount;
@@ -48,6 +52,7 @@ namespace Game.Rendering
         private ElementChunkKey[] _visibleKeys;
         private WorldWaterChunkView[] _assignedViews;
         private int _nextRebuildScanIndex;
+        private WaterVolumeMeshingSettings _meshingSettings;
         private bool _isInitialized;
 
         private void Start()
@@ -99,6 +104,15 @@ namespace Game.Rendering
                 GameLog.Error("ElementWorldWaterRenderer requires a Water Material.", "Rendering");
                 return false;
             }
+            if (_volumeProfile == null)
+            {
+                GameLog.Error(
+                    "ElementWorldWaterRenderer requires an Element Water Volume Render Profile. "
+                    + "Create it via Create > Game > Element Field > Water Volume Render Profile, "
+                    + "then bind it to Volume Profile.",
+                    "Rendering");
+                return false;
+            }
 
             _world = _worldRuntime;
             if (!_world.IsInitialized)
@@ -109,10 +123,15 @@ namespace Game.Rendering
 
             try
             {
-                int cellsPerChunk = checked(
-                    _world.ChunkSize * _world.ChunkSize * _world.ChunkSize);
-                int vertexCapacity = checked(cellsPerChunk * MaximumQuadsPerCell * VerticesPerQuad);
-                int indexCapacity = checked(cellsPerChunk * MaximumQuadsPerCell * IndicesPerQuad);
+                _meshingSettings = _volumeProfile.CreateSettings();
+                int sampleResolution = checked(
+                    _world.ChunkSize * _meshingSettings.SamplesPerCell);
+                int dualDimension = checked(sampleResolution + 1);
+                int maximumDualCells = checked(
+                    dualDimension * dualDimension * dualDimension);
+                int vertexCapacity = maximumDualCells;
+                int indexCapacity = checked(
+                    maximumDualCells * EdgeAxes * IndicesPerQuad);
 
                 // Visible Snapshot 必须能容纳全部 Resident Chunk，之后才由 View Cap 截断。
                 // 若数组直接按 View Cap 分配，Dictionary 枚举顺序会随机决定哪些近处 Chunk 被显示。
@@ -122,6 +141,8 @@ namespace Game.Rendering
                     transform,
                     _waterMaterial,
                     _maximumViews,
+                    _meshingSettings,
+                    _world.ChunkSize,
                     vertexCapacity,
                     indexCapacity);
             }
@@ -141,7 +162,8 @@ namespace Game.Rendering
             for (int i = 0; i < assignedCount; i++)
             {
                 ElementChunkKey key = _assignedViews[i].Key;
-                if (!ContainsVisibleKey(key))
+                if (!ContainsVisibleKey(key)
+                    || !WorldWaterChunkRelevance.ContainsWater(_world, key))
                     _pool.Release(key);
             }
         }
@@ -152,6 +174,11 @@ namespace Game.Rendering
             for (int i = 0; i < _visibleElementChunkCount; i++)
             {
                 ElementChunkKey key = _visibleKeys[i];
+                // Broad Phase 先剔除空 Chunk。否则每个 Resident Chunk 都会分配数万个
+                // Surface Nets Buffer，并在首次同步时支付完整 Signed Distance 采样成本。
+                if (!WorldWaterChunkRelevance.ContainsWater(_world, key))
+                    continue;
+
                 Vector3 worldPosition = _world.Origin + new Vector3(
                     key.X * chunkWorldSize,
                     key.Y * chunkWorldSize,
@@ -210,47 +237,45 @@ namespace Game.Rendering
         {
             using (RebuildChunkMarker.Auto())
             {
-                WaterChunkMeshBuilder.BuildWorldChunk(
+                WorldWaterVolumeMeshBuilder.BuildWorldChunk(
                     _world,
                     view.Key,
+                    in _meshingSettings,
+                    view.MeshingWorkspace,
                     view.Vertices,
+                    view.Normals,
                     view.Uvs,
                     view.Indices);
 
-                Mesh mesh = view.Mesh;
-                mesh.Clear(keepVertexLayout: false);
-                if (view.Indices.Count == 0)
+                using (UploadMeshMarker.Auto())
                 {
-                    view.Renderer.enabled = false;
-                    return;
-                }
+                    Mesh mesh = view.Mesh;
+                    mesh.Clear(keepVertexLayout: false);
+                    if (view.Indices.Count == 0)
+                    {
+                        view.Renderer.enabled = false;
+                        return;
+                    }
 
-                mesh.SetVertices(view.Vertices);
-                mesh.SetUVs(0, view.Uvs);
-                mesh.SetTriangles(view.Indices, 0, calculateBounds: false);
-                mesh.RecalculateNormals();
-                mesh.RecalculateTangents();
-                mesh.RecalculateBounds();
-                view.Renderer.enabled = true;
+                    mesh.SetVertices(view.Vertices);
+                    mesh.SetNormals(view.Normals);
+                    mesh.SetUVs(0, view.Uvs);
+                    mesh.SetTriangles(view.Indices, 0, calculateBounds: false);
+                    mesh.RecalculateTangents();
+                    mesh.RecalculateBounds();
+                    view.Renderer.enabled = true;
+                }
             }
         }
 
         private uint CalculateVisualVersion(ElementChunkKey key)
         {
-            // 本 Chunk 的 Side/Top 取决于边界邻居；只比较自己的 Version 会留下旧内部面或裂缝。
-            // 把六邻域版本混入一个签名，任一相邻 Chunk 变化都会触发当前 Mesh 重建。
-            unchecked
-            {
-                uint hash = 2166136261u;
-                hash = Mix(hash, _world.GetChunkVersion(key));
-                hash = Mix(hash, _world.GetChunkVersion(new ElementChunkKey(key.X - 1, key.Y, key.Z)));
-                hash = Mix(hash, _world.GetChunkVersion(new ElementChunkKey(key.X + 1, key.Y, key.Z)));
-                hash = Mix(hash, _world.GetChunkVersion(new ElementChunkKey(key.X, key.Y - 1, key.Z)));
-                hash = Mix(hash, _world.GetChunkVersion(new ElementChunkKey(key.X, key.Y + 1, key.Z)));
-                hash = Mix(hash, _world.GetChunkVersion(new ElementChunkKey(key.X, key.Y, key.Z - 1)));
-                hash = Mix(hash, _world.GetChunkVersion(new ElementChunkKey(key.X, key.Y, key.Z + 1)));
-                return hash;
-            }
+            // SDF Primitive、Sample Halo 与 Gradient 会读取完整三维邻域；
+            // 27-Chunk 签名使对角变化也能使本页失效，避免边界留下旧 Surface。
+            return WorldWaterVisualVersion.Calculate(
+                _world,
+                key,
+                VisualNeighborRadiusInChunks);
         }
 
         private bool ContainsVisibleKey(ElementChunkKey key)
@@ -265,9 +290,5 @@ namespace Game.Rendering
             return false;
         }
 
-        private static uint Mix(uint hash, uint value)
-        {
-            return (hash ^ value) * 16777619u;
-        }
     }
 }

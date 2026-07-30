@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using Game.Core;
 using Game.Run;
 using Game.Skills;
 
@@ -11,7 +12,7 @@ namespace Game.UI
     /// 法杖编程界面总控：按键开关面板（Time.timeScale=0 暂停 + 解锁鼠标）；持有跟随光标的 ghost；
     /// 集中裁决拖放（调色板→框=插入；框内=移动；框→框外=移除）。实现 IWandDragHandler 供法术格回调。
     /// </summary>
-    public class WandEditorController : MonoBehaviour, IWandDragHandler
+    public class WandEditorController : MonoBehaviour, IWandDragHandler, ISpellTooltipHandler
     {
         [Header("References")]
         [SerializeField] private GameObject _panelRoot;        // 整个编程界面根（开关其 active）
@@ -21,7 +22,11 @@ namespace Game.UI
         [SerializeField]
         [Tooltip("P7 单局法术数据源；Palette、Frame 和 Header 都从同一份 Runtime Clone 读取。")]
         private RunSpellSession _runSpellSession;
+        [SerializeField]
+        [Tooltip("P7 局内统一暂停协调器；避免 Wand Editor 关闭时覆盖 Pause Menu 或结算的暂停状态。")]
+        private RunPauseCoordinator _pauseCoordinator;
         [SerializeField] private Image _dragGhost;            // 跟随光标的拖拽影像（raycastTarget 关、置顶层、默认隐藏）
+        [SerializeField] private SpellTooltipPresenter _tooltipPresenter;
 
         [Header("Header (只读展示)")]
         [SerializeField] private Text _shuffleLabel;          // 显示 "乱序：否"
@@ -38,8 +43,11 @@ namespace Game.UI
         private int _dragFromIndex;
         private bool _dropHandled;
 
+        public bool IsOpen => _open;
+
         private void OnEnable()
         {
+            EventBus<RunStateChangedEvent>.Subscribe(OnRunStateChanged);
             if (_toggleAction != null && _toggleAction.action != null)
             {
                 _toggleAction.action.performed += OnTogglePerformed;
@@ -49,6 +57,7 @@ namespace Game.UI
 
         private void OnDisable()
         {
+            EventBus<RunStateChangedEvent>.Unsubscribe(OnRunStateChanged);
             if (_toggleAction != null && _toggleAction.action != null)
                 _toggleAction.action.performed -= OnTogglePerformed;
             if (_open) RestoreGameState(); // 兜底：禁用时仍打开则恢复时间/鼠标，避免卡死
@@ -69,22 +78,46 @@ namespace Game.UI
             else Open();
         }
 
+        public void ForceClose()
+        {
+            if (_open)
+            {
+                Close();
+            }
+        }
+
         private void Open()
         {
+            if (_pauseCoordinator != null &&
+                (_pauseCoordinator.HasReason(RunPauseReason.PauseMenu) ||
+                 _pauseCoordinator.HasReason(RunPauseReason.TerminalResult)))
+            {
+                return;
+            }
+
             // 每次打开都重新绑定，既规避 Script Execution Order，也能覆盖重开一局后的新 Runtime Clone。
             BindRuntimeData();
             _open = true;
             if (_panelRoot != null) _panelRoot.SetActive(true);
             RebuildViews();
             RefreshHeader();
-            Time.timeScale = 0f;                    // 暂停
-            Cursor.lockState = CursorLockMode.None;  // 解锁鼠标用于拖拽
-            Cursor.visible = true;
+            if (_pauseCoordinator != null)
+            {
+                _pauseCoordinator.RequestPause(RunPauseReason.WandEditor);
+            }
+            else
+            {
+                // 兼容尚未迁移到 P7 Coordinator 的旧测试 Scene；P7_DemoRun 必须绑定统一协调器。
+                Time.timeScale = 0f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
             if (_dragGhost != null) _dragGhost.enabled = false;
         }
 
         private void Close()
         {
+            HideSpellTooltip();
             _open = false;
             if (_panelRoot != null) _panelRoot.SetActive(false);
             RestoreGameState();
@@ -92,10 +125,27 @@ namespace Game.UI
 
         private void RestoreGameState()
         {
-            Time.timeScale = 1f;
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            if (_pauseCoordinator != null)
+            {
+                _pauseCoordinator.ReleasePause(RunPauseReason.WandEditor);
+            }
+            else
+            {
+                Time.timeScale = 1f;
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
             if (_dragGhost != null) _dragGhost.enabled = false;
+            HideSpellTooltip();
+        }
+
+        private void OnRunStateChanged(RunStateChangedEvent runEvent)
+        {
+            if (runEvent.CurrentState == RunState.Completed ||
+                runEvent.CurrentState == RunState.Failed)
+            {
+                ForceClose();
+            }
         }
 
         private void RebuildViews()
@@ -116,13 +166,8 @@ namespace Game.UI
 
         private void BindRuntimeData()
         {
-            if (_runSpellSession == null ||
-                !_runSpellSession.IsInitialized ||
-                _runSpellSession.RuntimeLibrary == null ||
-                _runSpellSession.RuntimeWand == null)
-            {
+            if (!TryBindCurrentRunSession())
                 return;
-            }
 
             _wand = _runSpellSession.RuntimeWand;
             if (_palette != null)
@@ -134,6 +179,31 @@ namespace Game.UI
             {
                 _frame.BindWand(_runSpellSession.RuntimeWand);
             }
+        }
+
+        /// <summary>
+        /// Scene 切换后从静态入口找回 DontDestroyOnLoad 的单局数据。
+        /// 不能把后续 Scene 的序列化字段直接指向前一 Scene 才会创建的运行时对象。
+        /// </summary>
+        public bool TryBindCurrentRunSession()
+        {
+            if (IsUsableRunSession(_runSpellSession))
+                return true;
+
+            RunSpellSession current = RunSpellSession.Current;
+            if (!IsUsableRunSession(current))
+                return false;
+
+            _runSpellSession = current;
+            return true;
+        }
+
+        private static bool IsUsableRunSession(RunSpellSession session)
+        {
+            return session != null &&
+                   session.IsInitialized &&
+                   session.RuntimeLibrary != null &&
+                   session.RuntimeWand != null;
         }
 
         // ── IWandDragHandler ──
@@ -179,6 +249,23 @@ namespace Game.UI
             if (_dragGhost != null) _dragGhost.enabled = false;
             _dragSpell = null;
             _dropHandled = false;
+        }
+
+        public void ShowSpellTooltip(
+            SpellDefinition spell,
+            Vector2 screenPosition)
+        {
+            _tooltipPresenter?.Show(spell, screenPosition);
+        }
+
+        public void MoveSpellTooltip(Vector2 screenPosition)
+        {
+            _tooltipPresenter?.Move(screenPosition);
+        }
+
+        public void HideSpellTooltip()
+        {
+            _tooltipPresenter?.Hide();
         }
     }
 }

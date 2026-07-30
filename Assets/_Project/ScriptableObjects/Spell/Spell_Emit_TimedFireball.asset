@@ -13,7 +13,9 @@ MonoBehaviour:
   m_Name: Spell_Emit_TimedFireball
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 0
-  DisplayName: "\u89E6\u53D1-\u706B\u7403"
+  DisplayName: "\u706B\u7403_\u5EF6\u8FDF"
+  Description: "\u706B\u7403\u98DE\u884C\u8FBE\u5230\u56FA\u5B9A\u65F6\u95F4\u540E\uFF0C\u91CA\u653E\u5176\u4E0B\u4E00\u4E2A\u6CD5\u672F\u3002"
+  Element: 1
   Icon: {fileID: 21300000, guid: 2e37883cae3e24d4cb8ca6dcbdbbcb5d, type: 3}
   ManaCost: 25
   ProjectilePrefab: {fileID: 7581999627747165493, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
@@ -22,12 +24,13 @@ MonoBehaviour:
   DamageType: 1
   CastSfx: {fileID: 8300000, guid: 5cd691c7632755d499fbbb55bc1f0fac, type: 3}
   PayloadTrigger: 2
-  PayloadDelaySeconds: 1
+  PayloadDelaySeconds: 0.5
   SpawnMode: 0
   LandingSitePrefab: {fileID: 0}
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 1
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

@@ -94,8 +94,34 @@ namespace Game.Run
             _encounterIndex = encounterIndex;
             _encounterCount = encounterCount;
             _definition = definition;
+            BindChildRewards();
             _isInitialized = true;
             SetGatesClosed(false);
+        }
+
+        private void BindChildRewards()
+        {
+            // 奖励在关卡完成前通常处于隐藏状态，因此必须包含 inactive 子物体。
+            // GetComponentsInChildren 会分配数组，但初始化每局只执行一次，不属于 Update 热路径。
+            SpellRewardPickup[] rewardPickups = GetComponentsInChildren<SpellRewardPickup>(true);
+            for (int i = 0; i < rewardPickups.Length; i++)
+            {
+                rewardPickups[i].BindEncounter(_encounterIndex);
+            }
+
+            AllSpellsRewardPickup[] allSpellsRewards =
+                GetComponentsInChildren<AllSpellsRewardPickup>(true);
+            for (int i = 0; i < allSpellsRewards.Length; i++)
+            {
+                allSpellsRewards[i].BindEncounter(_encounterIndex);
+            }
+
+            StageExitPortal[] stageExitPortals =
+                GetComponentsInChildren<StageExitPortal>(true);
+            for (int i = 0; i < stageExitPortals.Length; i++)
+            {
+                stageExitPortals[i].BindEncounter(_encounterIndex);
+            }
         }
 
         /// <summary>
@@ -137,7 +163,20 @@ namespace Game.Run
 
         private void OnDeath(DeathEvent deathEvent)
         {
-            if (!_tracker.RecordDeath(deathEvent.TargetId) || !_tracker.IsCleared)
+            if (!_tracker.RecordDeath(deathEvent.TargetId))
+            {
+                return;
+            }
+
+            EventBus<EncounterProgressChangedEvent>.Publish(
+                new EncounterProgressChangedEvent
+                {
+                    EncounterIndex = _encounterIndex,
+                    EncounterCount = _encounterCount,
+                    RemainingEnemyCount = _tracker.RemainingEnemyCount
+                });
+
+            if (!_tracker.IsCleared)
             {
                 return;
             }

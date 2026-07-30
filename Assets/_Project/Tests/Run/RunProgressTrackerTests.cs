@@ -53,6 +53,24 @@ namespace Game.Run.Tests
         }
 
         [Test]
+        public void CompleteLastEncounter_AwaitStageExit_EntersStageClearedAndStillAllowsFailure()
+        {
+            var tracker = new RunProgressTracker();
+            Assert.That(
+                tracker.StartRun(1, RunCompletionMode.AwaitStageExit),
+                Is.True);
+            Assert.That(tracker.TryStartEncounter(0), Is.True);
+
+            Assert.That(tracker.CompleteCurrentEncounter(), Is.True);
+            Assert.That(tracker.State, Is.EqualTo(RunState.StageCleared));
+            Assert.That(tracker.CompleteCurrentEncounter(), Is.False,
+                "StageCleared 后不能重复完成最终 Encounter。");
+            Assert.That(tracker.FailRun(), Is.True,
+                "StageCleared 不是 Terminal；玩家进入 Portal 前死亡仍应进入 Failed。");
+            Assert.That(tracker.State, Is.EqualTo(RunState.Failed));
+        }
+
+        [Test]
         public void FailRun_EntersFailedExactlyOnceAndStopsFurtherProgress()
         {
             var tracker = CreateRunningTracker(encounterCount: 2);

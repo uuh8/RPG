@@ -9,6 +9,7 @@ namespace Game.Run
     public sealed class RunProgressTracker
     {
         private int _encounterCount;
+        private RunCompletionMode _completionMode;
 
         public RunState State { get; private set; } = RunState.NotStarted;
 
@@ -16,7 +17,9 @@ namespace Game.Run
 
         public bool IsCurrentEncounterActive { get; private set; }
 
-        public bool StartRun(int encounterCount)
+        public bool StartRun(
+            int encounterCount,
+            RunCompletionMode completionMode = RunCompletionMode.TerminalVictory)
         {
             if (encounterCount <= 0)
             {
@@ -31,7 +34,17 @@ namespace Game.Run
                 return false;
             }
 
+            if (completionMode != RunCompletionMode.TerminalVictory &&
+                completionMode != RunCompletionMode.AwaitStageExit)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(completionMode),
+                    completionMode,
+                    "Unknown run completion mode.");
+            }
+
             _encounterCount = encounterCount;
+            _completionMode = completionMode;
             CurrentEncounterIndex = 0;
             IsCurrentEncounterActive = false;
             State = RunState.Running;
@@ -62,7 +75,9 @@ namespace Game.Run
 
             if (CurrentEncounterIndex + 1 >= _encounterCount)
             {
-                State = RunState.Completed;
+                State = _completionMode == RunCompletionMode.AwaitStageExit
+                    ? RunState.StageCleared
+                    : RunState.Completed;
                 return true;
             }
 
@@ -72,7 +87,7 @@ namespace Game.Run
 
         public bool FailRun()
         {
-            if (State != RunState.Running)
+            if (State != RunState.Running && State != RunState.StageCleared)
             {
                 return false;
             }

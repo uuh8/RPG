@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 0
   DisplayName: "\u6C34\u5143\u7D20\u7403"
+  Description: "\u53D1\u5C04\u4E00\u679A\u4E0D\u9020\u6210\u76F4\u63A5\u4F24\u5BB3\u7684\u6C34\u5143\u7D20\u7403\uFF0C\u5728\u547D\u4E2D\u5904\u7559\u4E0B\u6C34\u5143\u7D20\u5F71\u54CD\u3002"
+  Element: 2
   Icon: {fileID: 21300000, guid: b1d16dab684903c498e3c1437303338d, type: 3}
   ManaCost: 5
   ProjectilePrefab: {fileID: 2081726347723894056, guid: 9c44bfb3b38494d4591ba9195e10d2a4, type: 3}

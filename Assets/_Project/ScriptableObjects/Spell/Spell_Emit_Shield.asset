@@ -13,7 +13,9 @@ MonoBehaviour:
   m_Name: Spell_Emit_Shield
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 0
-  DisplayName: "\u62A4\u76FE\u6295\u5C04\u7269"
+  DisplayName: "\u62A4\u76FE_\u6295\u5C04\u7269"
+  Description: "\u53D1\u5C04\u4E00\u679A\u7F13\u6162\u79FB\u52A8\u7684\u9632\u62A4\u6295\u5C04\u7269\uFF0C\u4E0D\u9020\u6210\u57FA\u7840\u4F24\u5BB3\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: facab549df5bf4048bbef264c249d555, type: 3}
   ManaCost: 15
   ProjectilePrefab: {fileID: 6314436004956066621, guid: c10fca504c906c643a3310fd6f8ec231, type: 3}

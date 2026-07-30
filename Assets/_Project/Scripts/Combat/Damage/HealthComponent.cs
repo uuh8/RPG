@@ -16,12 +16,14 @@ namespace Game.Combat
 
         private float _currentHp;
         private int _id;
+        private bool _isInvulnerable;
 
         public byte TeamId => _teamId;
         public bool IsAlive => _currentHp > 0f;
         public float CurrentHp => _currentHp;
         public float MaxHp => _maxHp;
         public int Id => _id;   // = gameObject.GetInstanceID()，与 DamageReceivedEvent.TargetId 同源，供血条/表现层按 id 过滤
+        public bool IsInvulnerable => _isInvulnerable;
 
         private void Awake()
         {
@@ -31,7 +33,9 @@ namespace Game.Combat
 
         public void ReceiveHit(in DamageRequest req)
         {
-            if (!IsAlive) return;   // 死亡时不再受击
+            // Invulnerability 是 Damage Funnel 的入口 Gate：既不扣血，也不发布“0 伤害”事件。
+            // 这样 HUD、受击闪白和死亡逻辑不会把 Phase Transition 期间的命中误认成有效伤害。
+            if (!IsAlive || _isInvulnerable) return;
 
             // 算出最终伤害
             DamageResult result = DamagePipeline.Resolve(in req, in _defenseProfile);
@@ -61,6 +65,15 @@ namespace Game.Combat
                     Position   = transform.position,
                 });
             }
+        }
+
+        /// <summary>
+        /// P8 当前只有 Phase Transition 一个无敌 Owner，因此 bool 足够且易于在 State.Exit 兜底释放。
+        /// 将来若 Shield/Buff 也能同时申请无敌，应升级为 Token 或引用计数，避免一个 Owner 提前关闭另一个。
+        /// </summary>
+        public void SetInvulnerable(bool value)
+        {
+            _isInvulnerable = value;
         }
     }
 }

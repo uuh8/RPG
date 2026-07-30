@@ -24,6 +24,7 @@ namespace Game.Run.Tests
             // EventBus 使用 static delegate 保存订阅者。每项测试先清空，确保结果不受上一项测试影响。
             EventBus<DeathEvent>.Clear();
             EventBus<EncounterStartedEvent>.Clear();
+            EventBus<EncounterProgressChangedEvent>.Clear();
             EventBus<EncounterCompletedEvent>.Clear();
         }
 
@@ -49,6 +50,7 @@ namespace Game.Run.Tests
 
             EventBus<DeathEvent>.Clear();
             EventBus<EncounterStartedEvent>.Clear();
+            EventBus<EncounterProgressChangedEvent>.Clear();
             EventBus<EncounterCompletedEvent>.Clear();
         }
 
@@ -103,7 +105,14 @@ namespace Game.Run.Tests
             ArenaGate gate = CreateGate();
             DemoEncounterController controller = CreateController(enemyA, enemyB, gate);
             int completedCount = 0;
+            int progressEventCount = 0;
+            int lastRemainingCount = -1;
             EventBus<EncounterCompletedEvent>.Subscribe(_ => completedCount++);
+            EventBus<EncounterProgressChangedEvent>.Subscribe(progressEvent =>
+            {
+                progressEventCount++;
+                lastRemainingCount = progressEvent.RemainingEnemyCount;
+            });
             controller.Initialize(0, 1, new DemoEncounterDefinition());
             controller.Arm();
             controller.TryBeginEncounter();
@@ -113,6 +122,9 @@ namespace Game.Run.Tests
             EventBus<DeathEvent>.Publish(new DeathEvent { TargetId = GetRuntimeTargetId(enemyA) });
 
             Assert.That(controller.RemainingEnemyCount, Is.EqualTo(1));
+            Assert.That(progressEventCount, Is.EqualTo(1),
+                "外部或重复 Death ID 不能让 HUD 的权威快照重复递减。");
+            Assert.That(lastRemainingCount, Is.EqualTo(1));
             Assert.That(gate.IsClosed, Is.True);
             Assert.That(completedCount, Is.Zero);
 
@@ -121,6 +133,8 @@ namespace Game.Run.Tests
 
             Assert.That(controller.State, Is.EqualTo(EncounterState.Cleared));
             Assert.That(controller.RemainingEnemyCount, Is.Zero);
+            Assert.That(progressEventCount, Is.EqualTo(2));
+            Assert.That(lastRemainingCount, Is.Zero);
             Assert.That(gate.IsClosed, Is.False);
             Assert.That(completedCount, Is.EqualTo(1));
 

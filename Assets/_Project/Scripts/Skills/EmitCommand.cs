@@ -17,6 +17,10 @@ namespace Game.Skills
         public readonly float LandingSiteDuration;
         public readonly int ShieldReflectCount;
         public readonly float Damage;
+        public readonly float ExplosionDamage;
+        public readonly float FireFieldDamagePerTick;
+        public readonly float FireFieldTickInterval;
+        public readonly float FireFieldDuration;
         public readonly float Speed;
         public readonly DamageType DamageType;
         public readonly float SpreadDegrees;
@@ -41,7 +45,9 @@ namespace Game.Skills
         public EmitCommand(GameObject projectilePrefab, SpellSpawnMode spawnMode, GameObject landingSitePrefab,
                            float skyfallHeight, float skyfallBackOffset, float landingSiteDuration,
                            int shieldReflectCount,
-                           float damage, float speed, DamageType damageType,
+                           float damage, float explosionDamage,
+                           float fireFieldDamagePerTick, float fireFieldTickInterval, float fireFieldDuration,
+                           float speed, DamageType damageType,
                            float spreadDegrees, int bounceCount, bool useGravity,
                            float homingRadius, float homingDuration, float homingTurnRateDegrees,
                            float orbitRadius, float orbitAngularSpeedDegrees, float orbitPhaseOffsetDegrees,
@@ -59,6 +65,10 @@ namespace Game.Skills
             LandingSiteDuration = landingSiteDuration;
             ShieldReflectCount = shieldReflectCount;
             Damage = damage;
+            ExplosionDamage = explosionDamage;
+            FireFieldDamagePerTick = fireFieldDamagePerTick;
+            FireFieldTickInterval = fireFieldTickInterval;
+            FireFieldDuration = fireFieldDuration;
             Speed = speed;
             DamageType = damageType;
             SpreadDegrees = spreadDegrees;

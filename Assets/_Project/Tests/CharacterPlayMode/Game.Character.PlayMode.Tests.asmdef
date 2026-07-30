@@ -1,0 +1,23 @@
+{
+    "name": "Game.Character.PlayMode.Tests",
+    "rootNamespace": "Game.Character.Tests",
+    "references": [
+        "Game.Character",
+        "Game.Combat",
+        "Game.Core",
+        "Game.Run",
+        "Game.Skills"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false,
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ]
+}

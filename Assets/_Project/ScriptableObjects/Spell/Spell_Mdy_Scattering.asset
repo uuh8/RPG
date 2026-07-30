@@ -13,7 +13,9 @@ MonoBehaviour:
   m_Name: Spell_Mdy_Scattering
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 1
-  DisplayName: "\u6563\u5C04"
+  DisplayName: "\u6563\u5C04_\u4FEE\u6B63"
+  Description: "\u4E3A\u540E\u7EED\u6295\u5C04\u7269\u589E\u52A0 20\xB0 \u6563\u5C04\u89D2\u3002\u5355\u53D1\u53EF\u80FD\u504F\u79BB\u51C6\u5FC3\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: b1008a4a8dde8474aa58fbefc6c2786d, type: 3}
   ManaCost: 10
   ProjectilePrefab: {fileID: 0}
@@ -28,6 +30,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

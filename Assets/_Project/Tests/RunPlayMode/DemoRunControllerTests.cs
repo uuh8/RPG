@@ -24,6 +24,7 @@ namespace Game.Run.Tests
         {
             EventBus<DeathEvent>.Clear();
             EventBus<EncounterStartedEvent>.Clear();
+            EventBus<EncounterProgressChangedEvent>.Clear();
             EventBus<EncounterCompletedEvent>.Clear();
             EventBus<RunStateChangedEvent>.Clear();
         }
@@ -53,6 +54,7 @@ namespace Game.Run.Tests
 
             EventBus<DeathEvent>.Clear();
             EventBus<EncounterStartedEvent>.Clear();
+            EventBus<EncounterProgressChangedEvent>.Clear();
             EventBus<EncounterCompletedEvent>.Clear();
             EventBus<RunStateChangedEvent>.Clear();
         }
@@ -71,6 +73,7 @@ namespace Game.Run.Tests
             DemoRunController controller = runObject.AddComponent<DemoRunController>();
             SetPrivateField(controller, "_definition", definition);
             SetPrivateField(controller, "_encounters", new[] { encounterA, encounterB });
+            SetPrivateField(controller, "_playerHealth", CreateHealth("Player"));
 
             int runningEventCount = 0;
             EventBus<RunStateChangedEvent>.Subscribe(runEvent =>
@@ -109,6 +112,7 @@ namespace Game.Run.Tests
             DemoRunController controller = runObject.AddComponent<DemoRunController>();
             SetPrivateField(controller, "_definition", definition);
             SetPrivateField(controller, "_encounters", new[] { encounterA, encounterB });
+            SetPrivateField(controller, "_playerHealth", CreateHealth("Player"));
             runObject.SetActive(true);
 
             int runningEventCount = 0;
@@ -147,6 +151,7 @@ namespace Game.Run.Tests
             DemoRunController controller = runObject.AddComponent<DemoRunController>();
             SetPrivateField(controller, "_definition", definition);
             SetPrivateField(controller, "_encounters", new[] { encounterA, encounterB });
+            SetPrivateField(controller, "_playerHealth", CreateHealth("Player"));
             runObject.SetActive(true);
 
             Assert.That(controller.Initialize(), Is.True);
@@ -187,6 +192,7 @@ namespace Game.Run.Tests
             DemoRunController controller = runObject.AddComponent<DemoRunController>();
             SetPrivateField(controller, "_definition", definition);
             SetPrivateField(controller, "_encounters", new[] { finalEncounter });
+            SetPrivateField(controller, "_playerHealth", CreateHealth("Player"));
             runObject.SetActive(true);
 
             int completedEventCount = 0;
@@ -226,6 +232,96 @@ namespace Game.Run.Tests
             yield return null;
         }
 
+        [UnityTest]
+        public IEnumerator CompletingFinalEncounter_AwaitStageExit_PublishesStageClearedWithoutVictory()
+        {
+            DemoEncounterController finalEncounter =
+                CreateEncounter("Final Encounter", out HealthComponent finalEnemy);
+            DemoRunDefinition definition = CreateDefinition(
+                1,
+                RunCompletionMode.AwaitStageExit);
+
+            GameObject runObject = CreateGameObject("Demo Run Controller");
+            runObject.SetActive(false);
+            DemoRunController controller = runObject.AddComponent<DemoRunController>();
+            SetPrivateField(controller, "_definition", definition);
+            SetPrivateField(controller, "_encounters", new[] { finalEncounter });
+            SetPrivateField(controller, "_playerHealth", CreateHealth("Player"));
+            runObject.SetActive(true);
+
+            int stageClearedEventCount = 0;
+            int completedEventCount = 0;
+            EventBus<RunStateChangedEvent>.Subscribe(runEvent =>
+            {
+                if (runEvent.CurrentState == RunState.StageCleared)
+                {
+                    stageClearedEventCount++;
+                }
+                else if (runEvent.CurrentState == RunState.Completed)
+                {
+                    completedEventCount++;
+                }
+            });
+
+            Assert.That(controller.Initialize(), Is.True);
+            Assert.That(finalEncounter.TryBeginEncounter(), Is.True);
+
+            EventBus<DeathEvent>.Publish(new DeathEvent
+            {
+                TargetId = finalEnemy.gameObject.GetInstanceID()
+            });
+
+            Assert.That(controller.State, Is.EqualTo(RunState.StageCleared));
+            Assert.That(stageClearedEventCount, Is.EqualTo(1));
+            Assert.That(completedEventCount, Is.Zero,
+                "地图一清场只开放 Reward/Portal，不能触发 P7 Victory。");
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator PlayerDeath_EntersFailedAndPublishesTerminalStateOnce()
+        {
+            DemoEncounterController encounter =
+                CreateEncounter("Encounter", out HealthComponent enemy);
+            DemoRunDefinition definition = CreateDefinition(1);
+            HealthComponent player = CreateHealth("Player");
+
+            GameObject runObject = CreateGameObject("Demo Run Controller");
+            runObject.SetActive(false);
+            DemoRunController controller = runObject.AddComponent<DemoRunController>();
+            SetPrivateField(controller, "_definition", definition);
+            SetPrivateField(controller, "_encounters", new[] { encounter });
+            SetPrivateField(controller, "_playerHealth", player);
+            runObject.SetActive(true);
+
+            int failedEventCount = 0;
+            EventBus<RunStateChangedEvent>.Subscribe(runEvent =>
+            {
+                if (runEvent.PreviousState == RunState.Running &&
+                    runEvent.CurrentState == RunState.Failed)
+                {
+                    failedEventCount++;
+                }
+            });
+
+            Assert.That(controller.Initialize(), Is.True);
+
+            // Enemy Death 不能触发失败；只有配置的 Player Health ID 才拥有这条语义。
+            EventBus<DeathEvent>.Publish(new DeathEvent
+            {
+                TargetId = enemy.gameObject.GetInstanceID()
+            });
+            Assert.That(controller.State, Is.EqualTo(RunState.Running));
+
+            EventBus<DeathEvent>.Publish(new DeathEvent { TargetId = player.Id });
+            EventBus<DeathEvent>.Publish(new DeathEvent { TargetId = player.Id });
+
+            Assert.That(controller.State, Is.EqualTo(RunState.Failed));
+            Assert.That(failedEventCount, Is.EqualTo(1));
+
+            yield return null;
+        }
+
         private DemoEncounterController CreateEncounter(
             string name,
             out HealthComponent enemy)
@@ -243,7 +339,9 @@ namespace Game.Run.Tests
             return encounter;
         }
 
-        private DemoRunDefinition CreateDefinition(int encounterCount)
+        private DemoRunDefinition CreateDefinition(
+            int encounterCount,
+            RunCompletionMode completionMode = RunCompletionMode.TerminalVictory)
         {
             DemoRunDefinition definition = ScriptableObject.CreateInstance<DemoRunDefinition>();
             _createdObjects.Add(definition);
@@ -255,7 +353,13 @@ namespace Game.Run.Tests
             }
 
             SetPrivateField(definition, "_encounters", encounters);
+            SetPrivateField(definition, "_completionMode", completionMode);
             return definition;
+        }
+
+        private HealthComponent CreateHealth(string name)
+        {
+            return CreateGameObject(name).AddComponent<HealthComponent>();
         }
 
         private GameObject CreateGameObject(string name)

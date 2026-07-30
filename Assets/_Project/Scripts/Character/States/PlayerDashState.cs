@@ -34,7 +34,13 @@ namespace Game.Character
             _player.DashBufferCounter = 0f; // 消耗起手输入，防冲刺中/同帧重复触发
 
             // CrossFade 进入冲刺动画：代码直接点名目标状态，Animator 侧无需进入连线
-            _player.Animator.CrossFadeInFixedTime(_player.DashStateHash, CrossFadeDuration, 0);
+            int stateHash = _player.IsAirborneForDash
+                ? _player.AirDashStateHash
+                : _player.DashStateHash;
+            if (stateHash != 0)
+            {
+                _player.Animator.CrossFadeInFixedTime(stateHash, CrossFadeDuration, 0);
+            }
         }
 
         public override void Update()
@@ -65,7 +71,7 @@ namespace Game.Character
         private void HandleDashMovement()
         {
             // 垂直：沿用 Attack 的 -2 贴地压力，保持 CC 贴地与离地判定有效（决策⑤）
-            if (_player.VerticalVelocity < 0f)
+            if (!_player.IsAirborneForDash && _player.VerticalVelocity < 0f)
                 _player.VerticalVelocity = -2f;
 
             // 启动延迟内只贴地、不水平位移：等翻滚动画起势，避免"先闪后翻"。延迟过后才按锁定方向位移。
@@ -73,7 +79,8 @@ namespace Game.Character
 
             // 水平：锁定方向 × 速度。冲刺期间不响应移动输入、不转向（方向锁定）
             Vector3 velocity = _dashDirection * horizontalSpeed;
-            velocity.y = _player.VerticalVelocity;
+            // 空中 Dash 暂停垂直速度但不清零，结束后继续原有抛物线；地面 Dash 保留贴地压力。
+            velocity.y = _player.IsAirborneForDash ? 0f : _player.VerticalVelocity;
             _player.CharacterController.Move(velocity * Time.deltaTime);
         }
 

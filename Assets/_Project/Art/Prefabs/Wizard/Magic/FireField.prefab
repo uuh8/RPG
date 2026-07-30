@@ -4887,8 +4887,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 36696140a1a44f84a9ed72daa51c49e6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.AreaDamage
-  _radius: 6.01
-  _damagePerHit: 4
+  _radius: 6.7
+  _damagePerHit: 1
   _type: 1
   _hitMask:
     serializedVersion: 2

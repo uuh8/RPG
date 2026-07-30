@@ -13,7 +13,11 @@ MonoBehaviour:
   m_Name: Spell_Mdy_DmgUp
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 1
-  DisplayName: "\u6CD5\u672F\u589E\u5E45"
+  DisplayName: "\u6CD5\u672F\u589E\u5E45_\u4FEE\u6B63"
+  Description: "\u5C06\u540C\u4E00 Action \u4E2D\u540E\u7EED\u6295\u5C04\u7269\u7684\u4F24\u5BB3\u63D0\u9AD8\u81F3
+    1.5 \u500D\u3002\u66F4\u9AD8\u7684\u5A01\u529B\u9700\u8981\u989D\u5916\u6D88\u8017
+    Mana\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: d8ac44d9012569b4f92bafb16a549967, type: 3}
   ManaCost: 10
   ProjectilePrefab: {fileID: 0}
@@ -28,6 +32,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

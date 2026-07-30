@@ -12,16 +12,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d2023a73fcf066f49a1e9d0feeadd111, type: 3}
   m_Name: P7_DemoRunDefinition
   m_EditorClassIdentifier: Game.Run::Game.Run.DemoRunDefinition
+  _completionMode: 1
   _encounters:
   - _displayName: "\u57FA\u7840\u6218\u6597\u533A\u57DF"
     _objectiveText: "\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
-    _rewardSpell: {fileID: 0}
+    _rewardSpell: {fileID: 11400000, guid: 810da91f01d3dff4ea593cfb839defdd, type: 2}
   - _displayName: "\u5143\u7D20\u53CD\u5E94\u533A\u57DF"
     _objectiveText: "\u5229\u7528\u6C34\u706B\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
-    _rewardSpell: {fileID: 0}
+    _rewardSpell: {fileID: 11400000, guid: 3b8d1bef6676c0f4a9bd794566986907, type: 2}
   - _displayName: "\u5143\u7D20\u53CD\u5E94\u533A\u57DF2"
     _objectiveText: "\u5229\u7528\u6C34\u706B\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
-    _rewardSpell: {fileID: 0}
+    _rewardSpell: {fileID: 11400000, guid: 0f25994c178df4549bdc4503794fc324, type: 2}
   - _displayName: "Boss\u533A\u57DF"
     _objectiveText: "\u51FB\u8D25Boss"
     _rewardSpell: {fileID: 0}

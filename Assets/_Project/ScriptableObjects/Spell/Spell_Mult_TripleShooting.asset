@@ -14,6 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 2
   DisplayName: "\u4E09\u91CD\u5C04\u51FB"
+  Description: "\u4E3A\u6CD5\u6756\u589E\u52A0 2 \u6B21\u91CA\u653E\u6B21\u6570\uFF0C\u4F7F\u6CD5\u6756\u6700\u591A\u8BFB\u53D6\u5E76\u540C\u65F6\u6267\u884C
+    3 \u4E2A\u540E\u7EED\u6CD5\u672F\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: 883b45c49af65ef47ae2c3f2d59f919f, type: 3}
   ManaCost: 10
   ProjectilePrefab: {fileID: 0}
@@ -28,6 +31,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

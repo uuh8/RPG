@@ -23,12 +23,23 @@ namespace Game.Skills.Tests
             return s;
         }
 
-        private static SpellDefinition Static(float dmg = 10f, float speed = 20f, float mana = 0f)
+        private static SpellDefinition Static(
+            float dmg = 10f,
+            float speed = 20f,
+            float mana = 0f,
+            float explosionDamage = 0f,
+            float fireFieldDamagePerTick = 0f,
+            float fireFieldTickInterval = 0.5f,
+            float fireFieldDuration = 0f)
         {
             var s = ScriptableObject.CreateInstance<SpellDefinition>();
             s.Kind = SpellKind.StaticProjectile;
             s.SpawnMode = SpellSpawnMode.SkyfallAtPoint;
             s.BaseDamage = dmg;
+            s.ExplosionDamage = explosionDamage;
+            s.FireFieldDamagePerTick = fireFieldDamagePerTick;
+            s.FireFieldTickInterval = fireFieldTickInterval;
+            s.FireFieldDuration = fireFieldDuration;
             s.BaseSpeed = speed;
             s.DamageType = DamageType.Magical;
             s.ManaCost = mana;
@@ -121,6 +132,58 @@ namespace Game.Skills.Tests
             Assert.AreEqual(SpellSpawnMode.SkyfallAtPoint, _out[0].SpawnMode);
             Assert.AreEqual(12f, _out[0].SkyfallHeight, 1e-4f);
             Assert.AreEqual(0.8f, _out[0].LandingSiteDuration, 1e-4f);
+        }
+
+        [Test]
+        public void StaticProjectile_BakesThreeStageDamageSnapshot()
+        {
+            Run(1, 999f, Static(
+                dmg: 10f,
+                explosionDamage: 15f,
+                fireFieldDamagePerTick: 2f,
+                fireFieldTickInterval: 0.5f,
+                fireFieldDuration: 5f));
+
+            Assert.AreEqual(10f, _out[0].Damage, 1e-4f);
+            Assert.AreEqual(15f, _out[0].ExplosionDamage, 1e-4f);
+            Assert.AreEqual(2f, _out[0].FireFieldDamagePerTick, 1e-4f);
+            Assert.AreEqual(0.5f, _out[0].FireFieldTickInterval, 1e-4f);
+            Assert.AreEqual(5f, _out[0].FireFieldDuration, 1e-4f);
+        }
+
+        [Test]
+        public void DamageMultiplier_ScalesEveryMeteorDamageChannel()
+        {
+            Run(1, 999f,
+                DamageMod(1.5f),
+                Static(
+                    dmg: 10f,
+                    explosionDamage: 15f,
+                    fireFieldDamagePerTick: 2f));
+
+            Assert.AreEqual(15f, _out[0].Damage, 1e-4f);
+            Assert.AreEqual(22.5f, _out[0].ExplosionDamage, 1e-4f);
+            Assert.AreEqual(3f, _out[0].FireFieldDamagePerTick, 1e-4f);
+        }
+
+        [Test]
+        public void FlatDamageBonus_DoesNotRepeatOnExplosionOrEveryFireFieldTick()
+        {
+            SpellDefinition flat = ScriptableObject.CreateInstance<SpellDefinition>();
+            flat.Kind = SpellKind.Modify;
+            flat.ModDamageAddFlat = 5f;
+            flat.ModDamageMul = 1f;
+
+            Run(1, 999f,
+                flat,
+                Static(
+                    dmg: 10f,
+                    explosionDamage: 15f,
+                    fireFieldDamagePerTick: 2f));
+
+            Assert.AreEqual(15f, _out[0].Damage, 1e-4f);
+            Assert.AreEqual(15f, _out[0].ExplosionDamage, 1e-4f);
+            Assert.AreEqual(2f, _out[0].FireFieldDamagePerTick, 1e-4f);
         }
 
         [Test]
@@ -419,14 +482,78 @@ namespace Game.Skills.Tests
         }
 
         [Test]
-        public void OnImpactTrigger_CapturesSuffixAsPayload_AndEndsCast()
+        public void OnImpactTrigger_CapturesOneActionAsPayload_AndEndsWhenOuterBudgetIsSpent()
         {
-            // 触发火球 + 2 个后续 → 本层只产出触发火球；后续 2 个成为它的载荷
+            // Trigger 只捕获后面的一个完整 Action；BaseDraws=1 用完后，本层结束。
             Run(1, 999f, Emit(trigger: PayloadTriggerMode.OnImpact), Emit(), Emit());
-            Assert.AreEqual(1, _out.Count);           // 后缀不在本层单独产出
+            Assert.AreEqual(1, _out.Count);
             Assert.IsTrue(_out[0].HasPayload);
             Assert.AreEqual(PayloadTriggerMode.OnImpact, _out[0].PayloadTrigger);
-            Assert.AreEqual(2, _out[0].Payload.Count); // 载荷 = 触发之后的 2 个
+            Assert.AreEqual(1, _out[0].Payload.Count);
+        }
+
+        [Test]
+        public void TripleMulticast_DrawsThreeIndependentTriggerActions()
+        {
+            SpellDefinition trigger1 = Emit(trigger: PayloadTriggerMode.OnImpact);
+            SpellDefinition meteor1 = Static(dmg: 11f);
+            SpellDefinition trigger2 = Emit(trigger: PayloadTriggerMode.OnImpact);
+            SpellDefinition meteor2 = Static(dmg: 22f);
+            SpellDefinition trigger3 = Emit(trigger: PayloadTriggerMode.OnImpact);
+            SpellDefinition meteor3 = Static(dmg: 33f);
+
+            Run(
+                1,
+                999f,
+                Multi(2),
+                trigger1, meteor1,
+                trigger2, meteor2,
+                trigger3, meteor3);
+
+            Assert.AreEqual(3, _out.Count);
+            Assert.AreSame(meteor1, _out[0].Payload[0]);
+            Assert.AreSame(meteor2, _out[1].Payload[0]);
+            Assert.AreSame(meteor3, _out[2].Payload[0]);
+        }
+
+        [Test]
+        public void TriggerPayload_ActionIncludesInnerMulticastAndAllOfItsDraws()
+        {
+            SpellDefinition trigger = Emit(trigger: PayloadTriggerMode.OnImpact);
+            SpellDefinition triple = Multi(2);
+            SpellDefinition fireball1 = Emit();
+            SpellDefinition fireball2 = Emit();
+            SpellDefinition fireball3 = Emit();
+
+            Run(
+                1,
+                999f,
+                trigger,
+                triple,
+                fireball1,
+                fireball2,
+                fireball3,
+                Emit());
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(4, _out[0].Payload.Count);
+            Assert.AreSame(triple, _out[0].Payload[0]);
+            Assert.AreSame(fireball3, _out[0].Payload[3]);
+        }
+
+        [Test]
+        public void NestedTrigger_ActionCaptureRemainsStrictlyShorter()
+        {
+            SpellDefinition outer = Emit(trigger: PayloadTriggerMode.OnImpact);
+            SpellDefinition inner = Emit(trigger: PayloadTriggerMode.OnImpact);
+            SpellDefinition meteor = Static();
+
+            Run(1, 999f, outer, inner, meteor);
+
+            Assert.AreEqual(1, _out.Count);
+            Assert.AreEqual(2, _out[0].Payload.Count);
+            Assert.AreSame(inner, _out[0].Payload[0]);
+            Assert.AreSame(meteor, _out[0].Payload[1]);
         }
 
         [Test]
@@ -495,14 +622,14 @@ namespace Game.Skills.Tests
         }
 
         [Test]
-        public void AfterDelayTrigger_CapturesSuffixAndDelay_AndEndsCast()
+        public void AfterDelayTrigger_CapturesOneActionAndDelay()
         {
             Run(1, 999f, Emit(trigger: PayloadTriggerMode.AfterDelay, delay: 1.5f), Emit(), Emit());
             Assert.AreEqual(1, _out.Count);
             Assert.IsTrue(_out[0].HasPayload);
             Assert.AreEqual(PayloadTriggerMode.AfterDelay, _out[0].PayloadTrigger);
             Assert.AreEqual(1.5f, _out[0].PayloadDelaySeconds, 1e-4f);
-            Assert.AreEqual(2, _out[0].Payload.Count);
+            Assert.AreEqual(1, _out[0].Payload.Count);
         }
 
         [Test]

@@ -12,7 +12,8 @@ namespace Game.UI
     /// 需要格子上有 raycastTarget=true 的图形（如本 _icon 的 Image）才能接收拖拽/放置事件。
     /// </summary>
     public class SpellSlotView : MonoBehaviour,
-        IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler
+        IBeginDragHandler, IDragHandler, IEndDragHandler, IDropHandler,
+        IPointerEnterHandler, IPointerExitHandler, IPointerMoveHandler
     {
         [SerializeField] private Image _icon;
         [SerializeField] private Text _nameLabel; // 图标为空时兜底显示名字
@@ -70,6 +71,7 @@ namespace Game.UI
         public void OnBeginDrag(PointerEventData eventData)
         {
             if (_spell == null || _handler == null) return; // 空格不可拖
+            (_handler as ISpellTooltipHandler)?.HideSpellTooltip();
             _handler.BeginSpellDrag(_spell, _kind, _index, eventData);
         }
 
@@ -89,6 +91,26 @@ namespace Game.UI
         {
             if (_kind != SlotKind.Frame || _handler == null) return; // 只有编程框格是放置目标
             _handler.DropOnFrameSlot(_index);
+        }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            if (_spell != null)
+                (_handler as ISpellTooltipHandler)?.ShowSpellTooltip(
+                    _spell,
+                    eventData.position);
+        }
+
+        public void OnPointerMove(PointerEventData eventData)
+        {
+            if (_spell != null)
+                (_handler as ISpellTooltipHandler)?.MoveSpellTooltip(
+                    eventData.position);
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            (_handler as ISpellTooltipHandler)?.HideSpellTooltip();
         }
     }
 }

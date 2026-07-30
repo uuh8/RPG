@@ -14,6 +14,16 @@ namespace Game.Character
         public override void Enter() { }
         public override void Update()
         {
+            // 空中 Dash 优先级最高；除全局 Cooldown 外还受“一次离地周期一次”的独立预算约束。
+            if (_player.DashBufferCounter > 0f &&
+                _player.DashCooldownCounter <= 0f &&
+                _player.TryConsumeAirDash())
+            {
+                _player.IsAirborneForDash = true;
+                _player.StateMachine.ChangeState(_player.DashState);
+                return;
+            }
+
             // Coyote Time 期间检测跳跃输入
             // 条件：JumpBufferCounter > 0（有待消耗的跳跃输入）
             //       CoyoteTimeCounter > 0（仍在宽限期内）
@@ -21,6 +31,13 @@ namespace Game.Character
             if (_player.JumpBufferCounter > 0f && _player.CoyoteTimeCounter > 0f)
             {
                 ExecuteCoyoteJump();
+                return;
+            }
+
+            // Coyote Jump 判断之后才消费二段跳，防止玩家刚离开平台就浪费额外次数。
+            if (_player.JumpBufferCounter > 0f && _player.TryConsumeExtraJump())
+            {
+                ExecuteExtraJump();
                 return;
             }
 
@@ -89,6 +106,16 @@ namespace Game.Character
             _player.VerticalVelocity = _player.JumpForce;
             _player.JumpBufferCounter = 0f;
             _player.CoyoteTimeCounter = 0f; // 消耗掉 Coyote 机会，不能再跳第二次
+        }
+
+        private void ExecuteExtraJump()
+        {
+            // 复用 jump Trigger 只负责保证逻辑完整；若要专属二段跳 Clip，可在 Animator 中
+            // 让同一 Trigger 根据 isGrounded/当前 State 分流，避免 C# 绑定具体美术资源。
+            _player.Animator.SetTrigger(JumpHash);
+            _player.VerticalVelocity = _player.JumpForce;
+            _player.JumpBufferCounter = 0f;
+            _player.CoyoteTimeCounter = 0f;
         }
     }
 }

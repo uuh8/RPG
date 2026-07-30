@@ -40,10 +40,16 @@ namespace Game.Run
     public sealed class DemoRunDefinition : ScriptableObject
     {
         [SerializeField]
+        [Tooltip("最后一个 Encounter 清场后直接结算，或继续等待玩家通过 Stage Exit Portal。")]
+        private RunCompletionMode _completionMode = RunCompletionMode.TerminalVictory;
+
+        [SerializeField]
         [Tooltip("按游玩顺序配置 Encounter。P7 Demo 计划为三个普通区域加一个最终精英区域。")]
         private DemoEncounterDefinition[] _encounters = Array.Empty<DemoEncounterDefinition>();
 
         public int EncounterCount => _encounters?.Length ?? 0;
+
+        public RunCompletionMode CompletionMode => _completionMode;
 
         public DemoEncounterDefinition GetEncounter(int index)
         {

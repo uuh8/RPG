@@ -16,6 +16,11 @@ namespace Game.Skills
         [Header("通用")]
         public SpellKind Kind = SpellKind.Emit;
         public string DisplayName = "";
+        [TextArea(2, 5)]
+        [Tooltip("面向玩家的功能说明；为空时 Tooltip 会从权威行为字段生成基础说明。")]
+        public string Description = "";
+        [Tooltip("内容元素分类；它不等同于 Combat DamageType。")]
+        public SpellElement Element = SpellElement.None;
         [Tooltip("技能图标")]
         public Sprite Icon;
         [Tooltip("施放本法术消耗的法力")]
@@ -29,6 +34,8 @@ namespace Game.Skills
         [Header("Emit（投射物）—— 仅 Kind=Emit 用")]
         [Tooltip("要生成的投射物预制体（其上需有 ProjectileBase 派生组件，如 Fireball）")]
         public GameObject ProjectilePrefab;
+        [Min(0f)]
+        [Tooltip("投射物本体直接碰撞目标时造成的一次性伤害。复合法术的爆炸和持续区域伤害在下方独立配置。")]
         public float BaseDamage = 10f;
         public float BaseSpeed = 20f;
         public DamageType DamageType = DamageType.Magical;
@@ -54,6 +61,20 @@ namespace Game.Skills
         [Min(0f)]
         [Tooltip("落点提示提前显示多久后生成陨石。")]
         public float LandingSiteDuration = 0.8f;
+
+        [Header("Impact Effects（复合命中效果）——陨石等法术使用")]
+        [Min(0f)]
+        [Tooltip("爆炸生成时只结算一次的范围伤害。0 表示没有爆炸伤害。")]
+        public float ExplosionDamage = 0f;
+        [Min(0f)]
+        [Tooltip("火场每次 Tick 对范围内每个敌方目标造成的伤害。")]
+        public float FireFieldDamagePerTick = 0f;
+        [Min(0.05f)]
+        [Tooltip("火场两次伤害结算之间的秒数；只改变节奏，不受 Damage Modifier 影响。")]
+        public float FireFieldTickInterval = 0.5f;
+        [Min(0f)]
+        [Tooltip("火场运行时实例的存活秒数；0 表示不生成可造成伤害的持续火场。")]
+        public float FireFieldDuration = 0f;
 
         [Header("StaticProjectile / Shield（保护盾）——仅 Kind=StaticProjectile 且 SpawnMode=StaticAtPoint 使用")]
         [Min(0)]

@@ -4,7 +4,10 @@
     "references": [
         "Game.Run",
         "Game.Core",
-        "Game.Combat"
+        "Game.Combat",
+        "Game.Skills",
+        "Game.Character",
+        "Game.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

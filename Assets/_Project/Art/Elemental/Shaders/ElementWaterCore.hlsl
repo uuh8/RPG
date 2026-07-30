@@ -39,6 +39,49 @@ float ElementWaterValueNoise(float2 position)
     return lerp(bottom, top, smooth.y);
 }
 
+// World-space Triplanar Mapping：
+// - 法线朝 X 的表面看 ZY 平面；
+// - 法线朝 Y 的表面看 XZ 平面；
+// - 法线朝 Z 的表面看 XY 平面。
+//
+// abs(N) 让正负朝向使用相同权重；pow(..., sharpness) 控制三种投影的过渡宽度，
+// 再除以权重和，保证最终 Noise 仍是三者的凸组合而不会无故变亮。
+// positionWS 使相邻 Chunk 在同一世界位置得到同一 Noise 相位，不依赖各自 Local UV 原点。
+float ElementWaterTriplanarNoise(
+    float3 positionWS,
+    float3 normalWS,
+    float worldScale,
+    float noiseScale,
+    float2 panningOffset,
+    float triplanarSharpness)
+{
+    float3 safeNormal = SafeNormalize(normalWS);
+    float3 weights = pow(
+        abs(safeNormal),
+        max(triplanarSharpness, 1.0));
+    weights /= max(weights.x + weights.y + weights.z, 1.0e-5);
+
+    float safeWorldScale = max(worldScale, 0.0001);
+    float safeNoiseScale = max(noiseScale, 0.0001);
+    float3 scaledPosition =
+        positionWS * safeWorldScale * safeNoiseScale;
+    // Speed 的单位仍按 World Meter/Second 理解，因此 Position 与时间偏移必须经过
+    // 相同 Scale；否则只调纹理密度时，波纹的世界移动速度会出现不一致。
+    float2 scaledOffset =
+        panningOffset * safeWorldScale * safeNoiseScale;
+
+    float noiseX = ElementWaterValueNoise(
+        scaledPosition.zy + scaledOffset);
+    float noiseY = ElementWaterValueNoise(
+        scaledPosition.xz + scaledOffset);
+    float noiseZ = ElementWaterValueNoise(
+        scaledPosition.xy + scaledOffset);
+
+    return noiseX * weights.x
+        + noiseY * weights.y
+        + noiseZ * weights.z;
+}
+
 // 把标量高度场 H 转换成 Tangent Space Normal。这里沿用 Shader Graph
 // Normal From Height 的核心微分思路：ddx/ddy 取得相邻像素的世界位置和高度变化，
 // 近似偏导数 dH/dx、dH/dy，再构造表面梯度 grad(H)。直觉上，右侧高度升得越快，
@@ -96,6 +139,42 @@ void ElementWaterWaves_float(
     float2 movingUvB = UV + WaveSpeedB * TimeValue;
     WaveNoiseA = ElementWaterValueNoise(movingUvA * max(WaveScaleA, 0.0001));
     WaveNoiseB = ElementWaterValueNoise(movingUvB * max(WaveScaleB, 0.0001));
+    CombinedNoise = saturate((WaveNoiseA + WaveNoiseB) * 0.5);
+}
+
+// 体积水专用波纹入口。与 Legacy UV 入口相比，它在 World Space 的三个正交平面上采样，
+// 因此水平顶面、竖直侧面和圆滑水滴都能得到尺度一致的 Noise。
+void ElementWaterVolumeWaves_float(
+    float3 PositionWS,
+    float3 BaseNormalWS,
+    float TimeValue,
+    float WaveScaleA,
+    float WaveScaleB,
+    float2 WaveSpeedA,
+    float2 WaveSpeedB,
+    float VolumeWaveWorldScale,
+    float TriplanarSharpness,
+    out float WaveNoiseA,
+    out float WaveNoiseB,
+    out float CombinedNoise)
+{
+    float2 offsetA = WaveSpeedA * TimeValue;
+    float2 offsetB = WaveSpeedB * TimeValue;
+
+    WaveNoiseA = ElementWaterTriplanarNoise(
+        PositionWS,
+        BaseNormalWS,
+        VolumeWaveWorldScale,
+        WaveScaleA,
+        offsetA,
+        TriplanarSharpness);
+    WaveNoiseB = ElementWaterTriplanarNoise(
+        PositionWS,
+        BaseNormalWS,
+        VolumeWaveWorldScale,
+        WaveScaleB,
+        offsetB,
+        TriplanarSharpness);
     CombinedNoise = saturate((WaveNoiseA + WaveNoiseB) * 0.5);
 }
 

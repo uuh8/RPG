@@ -41,6 +41,16 @@ namespace Game.Combat
         private byte _attackerTeam;
 
         private float _tickTimer;
+        private int _tickLimit = -1;
+        private int _remainingTicks = -1;
+
+        /// <summary>
+        /// 当前实例的每跳伤害与 Tick 节奏。公开只读值既方便运行时诊断，
+        /// 也明确区分“Prefab 默认值”和 Instantiate 后注入的本次施法快照。
+        /// </summary>
+        public float DamagePerHit => _damagePerHit;
+        public float TickInterval => _tickInterval;
+        public int TickLimit => _tickLimit;
 
         /// <summary>由生成方在 Instantiate 后立即调用，注入攻击者身份用于阵营过滤。须在 Start 之前调用（同帧 Instantiate 后调用即满足）。</summary>
         public void Init(int attackerId, byte attackerTeam)
@@ -56,22 +66,55 @@ namespace Game.Combat
             _type = type;
         }
 
+        /// <summary>
+        /// 注入本次 AreaDamage 实例的结算节奏。0 表示 Start 只结算一次；
+        /// 正数表示 Start 首跳后继续按该间隔 Tick。
+        /// </summary>
+        public void ConfigureTickInterval(float tickInterval)
+        {
+            _tickInterval = Mathf.Max(0f, tickInterval);
+        }
+
+        /// <summary>
+        /// 把持续时间转换为确定的 Tick Budget。负数或 0 表示不额外限制；
+        /// 正数使用 Ceil(duration / interval)，其中 Start 的立即首跳也占一个预算。
+        /// 这避免 Destroy 延迟边界让 5 秒火场偶发多结算第 11 跳。
+        /// 必须在 ConfigureTickInterval 之后、Start 之前调用。
+        /// </summary>
+        public void ConfigureDuration(float duration)
+        {
+            if (duration <= 0f || _tickInterval <= 0f)
+            {
+                _tickLimit = -1;
+                _remainingTicks = -1;
+                return;
+            }
+
+            _tickLimit = Mathf.Max(1, Mathf.CeilToInt(duration / _tickInterval));
+            _remainingTicks = _tickLimit;
+        }
+
         private void Start()
         {
             // 一次性与持续都在此打出第一跳（爆炸的瞬间炸开 / 火场的第一跳）
             ApplyOnce();
+            if (_remainingTicks > 0)
+                _remainingTicks--;
             _tickTimer = _tickInterval;
         }
 
         private void Update()
         {
-            if (_tickInterval <= 0f) return; // 一次性：Start 已结算，不再处理
+            if (_tickInterval <= 0f || _remainingTicks == 0)
+                return; // 一次性或已用完有限 Tick Budget：不再处理
 
             _tickTimer -= Time.deltaTime;
             if (_tickTimer <= 0f)
             {
                 _tickTimer += _tickInterval;
                 ApplyOnce();
+                if (_remainingTicks > 0)
+                    _remainingTicks--;
             }
         }
 

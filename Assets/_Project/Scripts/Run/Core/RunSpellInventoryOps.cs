@@ -52,5 +52,72 @@ namespace Game.Run
             result[current.Length] = reward;
             return true;
         }
+
+        /// <summary>
+        /// 把完整法术库中尚未拥有的条目，按 Authoring 顺序追加到 Runtime Library。
+        /// 这里使用两次顺序扫描而不是临时 List/HashSet：全解锁是低频离散操作，
+        /// 15 张左右法术的 O(n²) 成本很小，同时可以避免额外容器与引用相等语义不一致。
+        /// </summary>
+        public static bool TryMergeUniqueInOrder(
+            SpellDefinition[] current,
+            SpellDefinition[] fullLibrary,
+            out SpellDefinition[] result)
+        {
+            if (fullLibrary == null)
+                throw new ArgumentNullException(nameof(fullLibrary));
+
+            current ??= Array.Empty<SpellDefinition>();
+
+            int missingCount = 0;
+            for (int i = 0; i < fullLibrary.Length; i++)
+            {
+                SpellDefinition candidate = fullLibrary[i];
+                if (ContainsReference(current, current.Length, candidate) ||
+                    ContainsReference(fullLibrary, i, candidate))
+                {
+                    continue;
+                }
+
+                missingCount++;
+            }
+
+            if (missingCount == 0)
+            {
+                result = current;
+                return false;
+            }
+
+            result = new SpellDefinition[current.Length + missingCount];
+            Array.Copy(current, result, current.Length);
+
+            int writeIndex = current.Length;
+            for (int i = 0; i < fullLibrary.Length; i++)
+            {
+                SpellDefinition candidate = fullLibrary[i];
+                if (ContainsReference(current, current.Length, candidate) ||
+                    ContainsReference(fullLibrary, i, candidate))
+                {
+                    continue;
+                }
+
+                result[writeIndex++] = candidate;
+            }
+
+            return true;
+        }
+
+        private static bool ContainsReference(
+            SpellDefinition[] entries,
+            int count,
+            SpellDefinition candidate)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (ReferenceEquals(entries[i], candidate))
+                    return true;
+            }
+
+            return false;
+        }
     }
 }

@@ -44,6 +44,11 @@ Shader "Game/Elemental/Water"
         _WaveSpeedB("Wave Speed B", Vector) = (-0.03, 0.04, 0, 0)
         // Strength 只放大用于光照的表面梯度，不会修改 Vertex Position 和物体轮廓。
         _WaveNormalStrength("Wave Normal Strength", Range(0, 1)) = 0.25
+        // 体积水不能只把 Noise 投到 XZ 顶面。Triplanar 按 World Normal 在
+        // ZY/XZ/XY 三个投影间混合；Sharpness 越大，主投影越明确、过渡越窄。
+        _TriplanarSharpness("Triplanar Sharpness", Range(1, 8)) = 4.0
+        // World Position 先乘该值再进入 WaveScale；统一控制所有 Chunk 的世界空间纹理密度。
+        _VolumeWaveWorldScale("Volume Wave World Scale", Float) = 1.0
 
         [Header(Depth And Fresnel)]
         // DepthFadeDistance 的单位近似为沿 Camera 视线方向的世界距离：水层厚度达到该值
@@ -143,6 +148,8 @@ Shader "Game/Elemental/Water"
                 float4 _WaveSpeedA;
                 float4 _WaveSpeedB;
                 float _WaveNormalStrength;
+                float _TriplanarSharpness;
+                float _VolumeWaveWorldScale;
 
                 float _DepthFadeDistance;
                 float _DepthNoiseStrength;
@@ -237,20 +244,23 @@ Shader "Game/Elemental/Water"
                 float3 bitangentWS = input.tangentWS.w * normalize(cross(baseNormalWS, tangentWS));
                 float3x3 tangentToWorld = float3x3(tangentWS, bitangentWS, baseNormalWS);
 
-                // ---------- 2. 双向程序化 Value Noise ----------
-                // Panning 公式：uv_moving = uv + speed * time。
-                // _Time.y 是 Unity 提供的时间（秒）；本项目 Gate 还会验证 timeScale=0 时动画
-                // 是否冻结。若未来使用自定义 Unscaled Time，就必须由 C# 显式传入另一个属性。
+                // ---------- 2. World-space Triplanar Value Noise ----------
+                // 旧 XZ/UV 投影适合近似水平面，但在封闭水滴和竖直侧壁上会沿一个方向拉伸。
+                // 现在按 abs(BaseNormalWS) 在 ZY/XZ/XY 三个平面间加权；PositionWS 保证跨
+                // Chunk 相位连续。Panning 仍为 offset=speed*time，只是被应用到每个投影。
                 float waveNoiseA;
                 float waveNoiseB;
                 float combinedNoise;
-                ElementWaterWaves_float(
-                    input.uv,
+                ElementWaterVolumeWaves_float(
+                    input.positionWS,
+                    baseNormalWS,
                     _Time.y,
                     _WaveScaleA,
                     _WaveScaleB,
                     _WaveSpeedA.xy,
                     _WaveSpeedB.xy,
+                    _VolumeWaveWorldScale,
+                    _TriplanarSharpness,
                     waveNoiseA,
                     waveNoiseB,
                     combinedNoise);

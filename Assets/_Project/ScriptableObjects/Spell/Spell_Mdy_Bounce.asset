@@ -13,7 +13,11 @@ MonoBehaviour:
   m_Name: Spell_Mdy_Bounce
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
   Kind: 1
-  DisplayName: "\u5F39\u5C04\u4FEE\u6B63"
+  DisplayName: "\u5F39\u5C04_\u4FEE\u6B63"
+  Description: "\u4F7F\u540C\u4E00 Action \u4E2D\u4F4D\u4E8E\u5B83\u4E4B\u540E\u7684\u6295\u5C04\u7269\u989D\u5916\u8FDB\u884C
+    1 \u6B21\u73AF\u5883\u5F39\u8DF3\u3002\u5FC5\u987B\u653E\u5728\u76EE\u6807 Emit
+    \u4E4B\u524D\u624D\u4F1A\u751F\u6548\u3002"
+  Element: 3
   Icon: {fileID: 21300000, guid: 97a5c3a7aa2764b48ba28c462109ea32, type: 3}
   ManaCost: 5
   ProjectilePrefab: {fileID: 0}
@@ -28,6 +32,7 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1
   ModDamageAddFlat: 0

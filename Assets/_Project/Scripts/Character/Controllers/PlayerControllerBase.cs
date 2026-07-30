@@ -22,6 +22,7 @@ namespace Game.Character
         [SerializeField] private float _fallGravityMultiplier = 3.5f; // 跳跃下降阶段重力加速度倍数
         [SerializeField] private float _coyoteTime = 0.15f; // 离地后允许跳跃的宽限期（Coyote Time）
         [SerializeField] private float _jumpBufferTime = 0.15f; // 空中按下跳跃后，在地面的缓冲期（Jump Buffer）
+        [SerializeField, Min(0)] private int _extraAirJumps = 1; // 1 = 二段跳；落地时恢复预算
 
         [Header("Slope")] [SerializeField] private float _slideSpeed = 6f; // 滑落速度
 
@@ -40,11 +41,13 @@ namespace Game.Character
         [SerializeField] private float _dashDuration = 0.2f; // 冲刺位移持续时间（秒）
         [SerializeField] private float _dashCooldown = 1f; // 冲刺冷却（从 Exit 起算）
         [SerializeField] private float _dashBufferTime = 0.15f; // 冲刺输入缓冲（与攻击/跳跃同惯例）
+        [SerializeField, Min(0)] private int _airDashesPerAirborne = 1; // 设为 0 可让某个角色保持仅地面 Dash
 
         [SerializeField] private float _dashMoveDelay = 0.1f; // 冲刺位移启动延迟（秒）：等翻滚动画起势后再位移，避免"先闪后翻"。设 0 = 进入即位移
 
         [SerializeField] private string
             _dashStateName = "DashForward_SingleTwohandSword"; // Dash 目标 Animator 状态名（数据驱动，各角色填自己 Controller 的节点名）
+        [SerializeField] private string _airDashStateName = "AirDash"; // 与地面 Dash 分离，避免共用翻滚动画
 
         // 组件引用
         private CharacterController _characterController;
@@ -67,6 +70,8 @@ namespace Game.Character
         private Vector2 _lookInput;
         private float _cameraYaw;
         private float _cameraPitch;
+        private float _settingsLookSensitivityMultiplier =
+            UserSettingsValues.DefaultMouseSensitivity;
 
         // 持续状态型 Animator 参数 hash（Controller 每帧统一同步）
         private static readonly int SpeedHash = Animator.StringToHash("speed");
@@ -74,6 +79,8 @@ namespace Game.Character
 
         // Dash 目标状态名预 hash（Awake 算一次，绝不每帧/每次触发 StringToHash）
         private int _dashStateHash;
+        private int _airDashStateHash;
+        private PlayerAirActionBudget _airActionBudget;
 
         // ── 对外暴露给 State 的属性 ──
         public CharacterController CharacterController => _characterController;
@@ -117,6 +124,12 @@ namespace Game.Character
         public float DashCooldownCounter { get; set; }
         public float DashBufferCounter { get; set; }
         public int DashStateHash => _dashStateHash;
+        public int AirDashStateHash => _airDashStateHash;
+        public bool IsAirborneForDash { get; set; }
+
+        public void ResetAirActionBudget() => _airActionBudget.ResetForGrounded();
+        public bool TryConsumeExtraJump() => _airActionBudget.TryConsumeExtraJump();
+        public bool TryConsumeAirDash() => _airActionBudget.TryConsumeAirDash();
 
         public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed(); // 攻击键当前是否按住（蓄力轮询用）
         public bool AttackPressedThisFrame => _inputActions.Player.Attack.WasPressedThisFrame(); // 攻击键本帧上升沿（tap/hold 边沿门控用）
@@ -188,6 +201,7 @@ namespace Game.Character
             _airborneState = new PlayerAirborneState(this);
             _slidingState = new PlayerSlidingState(this);
             _dashState = new PlayerDashState(this);
+            _airActionBudget = new PlayerAirActionBudget(_extraAirJumps, _airDashesPerAirborne);
 
             // Dash 目标状态名预 hash（数据驱动；空串记 0 并告警，CrossFade 0 不切动画——与连段空状态名同款防御）
             if (string.IsNullOrEmpty(_dashStateName))
@@ -199,6 +213,16 @@ namespace Game.Character
             {
                 _dashStateHash = Animator.StringToHash(_dashStateName);
             }
+
+            if (string.IsNullOrEmpty(_airDashStateName))
+            {
+                _airDashStateHash = 0;
+                GameLog.Warn("_airDashStateName 为空，空中冲刺只会位移而不会切换专属动画", "Character");
+            }
+            else
+            {
+                _airDashStateHash = Animator.StringToHash(_airDashStateName);
+            }
         }
 
         protected virtual void Start()
@@ -206,11 +230,14 @@ namespace Game.Character
             // Start 而非 Awake 进入初始状态：保证所有 GameObject 的 Awake 已执行完
             TargetFacing = transform.forward; // 锁存初值=出生朝向，避免开局自转到世界 +Z
             _stateMachine.ChangeState(_groundedState);
-            Cursor.lockState = CursorLockMode.Locked; // 锁定并隐藏鼠标
+            // Cursor 不属于角色 FSM。Gameplay、Guide、Wand Editor 与 Pause Menu 的 Cursor
+            // 状态统一由 RunPauseCoordinator 按 Pause Reason 管理，避免多个 Start 的顺序竞态。
         }
 
         protected virtual void OnEnable()
         {
+            EventBus<UserSettingsChangedEvent>.Subscribe(OnUserSettingsChanged);
+            ApplyUserSettings(UserSettingsService.Current);
             _inputActions.Player.Enable();
             _inputActions.Player.Jump.performed += OnJumpPerformed;
             _inputActions.Player.Attack.performed += OnAttackPerformed;
@@ -220,6 +247,7 @@ namespace Game.Character
 
         protected virtual void OnDisable()
         {
+            EventBus<UserSettingsChangedEvent>.Unsubscribe(OnUserSettingsChanged);
             _inputActions.Player.Jump.performed -= OnJumpPerformed;
             _inputActions.Player.Attack.performed -= OnAttackPerformed;
             _inputActions.Player.Dash.performed -= OnDashPerformed;
@@ -296,6 +324,18 @@ namespace Game.Character
             DashBufferCounter = _dashBufferTime;
         }
 
+        private void OnUserSettingsChanged(UserSettingsChangedEvent settingsEvent)
+        {
+            ApplyUserSettings(settingsEvent.Values);
+        }
+
+        private void ApplyUserSettings(UserSettingsValues values)
+        {
+            // Inspector 中的 _lookSensitivity 仍是角色/设备的基础“度/像素”；用户设置只作为 Clamp 后的倍率。
+            // 这样 Settings 不会抹掉不同角色的 Authoring 差异，也不需要让 Game.UI 反向引用 Character。
+            _settingsLookSensitivityMultiplier = values.MouseSensitivity;
+        }
+
         #endregion
 
         private void SyncAnimatorParameters()
@@ -324,8 +364,10 @@ namespace Game.Character
 
         private void HandleCameraRotation()
         {
-            _cameraYaw += _lookInput.x * _lookSensitivity;
-            _cameraPitch -= _lookInput.y * _lookSensitivity;
+            float effectiveSensitivity =
+                _lookSensitivity * _settingsLookSensitivityMultiplier;
+            _cameraYaw += _lookInput.x * effectiveSensitivity;
+            _cameraPitch -= _lookInput.y * effectiveSensitivity;
             _cameraPitch = Mathf.Clamp(_cameraPitch, _pitchMin, _pitchMax);
             _cameraRoot.rotation = Quaternion.Euler(_cameraPitch, _cameraYaw, 0f);
         }

@@ -16,6 +16,8 @@ namespace Game.Rendering
             Transform parent,
             Material sharedMaterial,
             int index,
+            in WaterVolumeMeshingSettings meshingSettings,
+            int chunkSize,
             int vertexCapacity,
             int indexCapacity)
         {
@@ -39,8 +41,12 @@ namespace Game.Rendering
             Mesh.MarkDynamic();
             filter.sharedMesh = Mesh;
             Vertices = new List<Vector3>(vertexCapacity);
+            Normals = new List<Vector3>(vertexCapacity);
             Uvs = new List<Vector2>(vertexCapacity);
             Indices = new List<int>(indexCapacity);
+            MeshingWorkspace = new WaterVolumeMeshingWorkspace(
+                chunkSize,
+                meshingSettings.SamplesPerCell);
             GameObject.SetActive(false);
         }
 
@@ -50,8 +56,10 @@ namespace Game.Rendering
         public Mesh Mesh { get; }
         public MeshRenderer Renderer { get; }
         public List<Vector3> Vertices { get; }
+        public List<Vector3> Normals { get; }
         public List<Vector2> Uvs { get; }
         public List<int> Indices { get; }
+        public WaterVolumeMeshingWorkspace MeshingWorkspace { get; }
         public bool IsAssigned { get; internal set; }
         public bool HasSynchronizedVersion { get; internal set; }
         public uint LastSeenVisualVersion { get; internal set; }
@@ -72,6 +80,10 @@ namespace Game.Rendering
             HasSynchronizedVersion = false;
             Key = default;
             Mesh.Clear(keepVertexLayout: false);
+            Vertices.Clear();
+            Normals.Clear();
+            Uvs.Clear();
+            Indices.Clear();
             Renderer.enabled = false;
             GameObject.SetActive(false);
         }
@@ -86,6 +98,8 @@ namespace Game.Rendering
         private readonly Transform _parent;
         private readonly Material _sharedMaterial;
         private readonly WorldWaterChunkView[] _views;
+        private readonly WaterVolumeMeshingSettings _meshingSettings;
+        private readonly int _chunkSize;
         private readonly int _vertexCapacity;
         private readonly int _indexCapacity;
         private int _createdCount;
@@ -95,6 +109,8 @@ namespace Game.Rendering
             Transform parent,
             Material sharedMaterial,
             int maximumViews,
+            WaterVolumeMeshingSettings meshingSettings,
+            int chunkSize,
             int vertexCapacity = 0,
             int indexCapacity = 0)
         {
@@ -102,6 +118,8 @@ namespace Game.Rendering
                 throw new ArgumentNullException(nameof(parent));
             if (maximumViews <= 0)
                 throw new ArgumentOutOfRangeException(nameof(maximumViews));
+            if (chunkSize <= 0)
+                throw new ArgumentOutOfRangeException(nameof(chunkSize));
             if (vertexCapacity < 0)
                 throw new ArgumentOutOfRangeException(nameof(vertexCapacity));
             if (indexCapacity < 0)
@@ -110,6 +128,8 @@ namespace Game.Rendering
             _parent = parent;
             _sharedMaterial = sharedMaterial;
             _views = new WorldWaterChunkView[maximumViews];
+            _meshingSettings = meshingSettings;
+            _chunkSize = chunkSize;
             _vertexCapacity = vertexCapacity;
             _indexCapacity = indexCapacity;
         }
@@ -158,6 +178,8 @@ namespace Game.Rendering
                 _parent,
                 _sharedMaterial,
                 _createdCount,
+                in _meshingSettings,
+                _chunkSize,
                 _vertexCapacity,
                 _indexCapacity);
             _views[_createdCount++] = view;
