@@ -177,6 +177,38 @@ namespace Game.ElementField.Tests
             Assert.That(RunDeterministicScenario(), Is.EqualTo(RunDeterministicScenario()));
         }
 
+        [Test]
+        public void GpuPbfModeSkipsResidualCellWaterButKeepsFireDecayAndCommit()
+        {
+            ElementWorldStore store = Store();
+            ElementWorldChunk source = ActiveChunk(store, new ElementChunkKey(0, 0, 0));
+            source.SetCell(new Vector3Int(1, 1, 0), Water(64));
+            source.SetCell(new Vector3Int(0, 1, 0), Fire(20));
+            var simulator = new ElementWorldSimulator(maximumResidentChunks: 16);
+            ElementFieldSimulationSettings settings = Settings(
+                down: 64,
+                lateral: 16,
+                decay: 3,
+                simulateCellWater: false);
+
+            ElementFieldSimulationStats stats = simulator.SimulateActiveChunks(
+                store,
+                new[] { source },
+                activeChunkCount: 1,
+                worldTick: 1,
+                deltaTime: 1f,
+                in settings);
+
+            Assert.That(store.TryGetChunk(new ElementChunkKey(1, 0, 0), out _), Is.False,
+                "PBF 模式不能因残留 Water 在 PrepareNeighbors 阶段创建 Cell Chunk。");
+            Assert.That(source.GetCell(new Vector3Int(1, 1, 0)).Amount, Is.EqualTo(64));
+            Assert.That(source.GetCell(new Vector3Int(0, 1, 0)).Amount, Is.EqualTo(17));
+            Assert.That(stats.WaterTransfers, Is.Zero);
+            Assert.That(stats.ReactionPairs, Is.Zero);
+            Assert.That(stats.ChangedCells, Is.GreaterThan(0),
+                "Fire Decay 的变化仍必须在 Commit/activity 路径发布。");
+        }
+
         private static uint RunDeterministicScenario()
         {
             ElementWorldStore store = Store();
@@ -250,7 +282,8 @@ namespace Game.ElementField.Tests
         private static ElementFieldSimulationSettings Settings(
             byte down,
             byte lateral,
-            byte decay)
+            byte decay,
+            bool simulateCellWater = true)
         {
             return new ElementFieldSimulationSettings(
                 cellSize: 1f,
@@ -258,6 +291,7 @@ namespace Game.ElementField.Tests
                 maxLateralFlowPerTick: lateral,
                 fireDecayPerTick: decay,
                 chunkSize: 2,
+                simulateCellWater,
                 new ExtinguishTuning
                 {
                     FormalThreshold = 10f,

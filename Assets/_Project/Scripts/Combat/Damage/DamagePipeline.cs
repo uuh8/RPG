@@ -1,12 +1,16 @@
 namespace Game.Combat
 {
     /// <summary>
-    /// 纯函数伤害计算管道。不依赖 MonoBehaviour，可在 EditMode 单测。
+    /// 纯函数伤害计算管道：相同 DamageRequest 与 DefenseProfile 必定得到相同 DamageResult，
+    /// 不读取场景、不修改生命值、也不发送事件，因此可以脱离 PlayMode 在 EditMode 单测。
     /// 本轮：True 无视防御；Physical/Magical 读取防御档案但暂用 passthrough，
     /// 具体减伤公式留待后续（见 DefenseProfile）。
     /// </summary>
     public static class DamagePipeline
     {
+        /// <summary>
+        /// 把攻击快照和目标防御快照解析为最终伤害。两个参数都以 in 只读引用传递，Pipeline 无权修改输入。
+        /// </summary>
         public static DamageResult Resolve(in DamageRequest req, in DefenseProfile def)
         {
             float final;
@@ -30,7 +34,9 @@ namespace Game.Combat
                     break;
             }
 
-            if (final < 0f) final = 0f; // 结果非负钳制
+            // 在统一出口做非负钳制，保证任何上游配置或未来减伤公式都不会让“伤害”反向回血。
+            if (final < 0f) final = 0f;
+            // DamageResult 同样是值快照；真正扣血由 HealthComponent 在纯计算之外完成。
             return new DamageResult(final, req.Type, mitigated);
         }
     }

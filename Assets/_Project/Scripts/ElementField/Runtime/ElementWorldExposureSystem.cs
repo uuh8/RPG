@@ -28,6 +28,10 @@ namespace Game.ElementField
         [SerializeField, Min(0f)] private float _maxWetApplyPerTick = 10f;
         [SerializeField, Min(0f)] private float _maxBurningApplyPerTick = 10f;
 
+        [Header("GPU Water Gameplay Snapshot")]
+        [Tooltip("PBF 模式只从该只读 Occupancy 读取 Water；Fire 始终保留 Legacy Cell 路径。")]
+        [SerializeField] private MonoBehaviour _liquidOccupancyComponent;
+
         [Header("Runtime Debug (Read Only In Play Mode)")]
         [SerializeField] private int _lastColliderCount;
         [SerializeField] private int _lastStatusTargetCount;
@@ -47,10 +51,14 @@ namespace Game.ElementField
         private float _elapsed;
         private int _targetCount;
         private int _environmentSourceId;
+        private ILiquidOccupancyReadOnly _liquidOccupancy;
 
         private void Awake()
         {
             _runtime = GetComponent<ElementWorldRuntime>();
+            _liquidOccupancy = _liquidOccupancyComponent as ILiquidOccupancyReadOnly;
+            if (_liquidOccupancy == null)
+                _liquidOccupancy = GetComponent<FluidGameplayOccupancyBridge>();
             _environmentSourceId = gameObject.GetInstanceID();
         }
 
@@ -119,34 +127,20 @@ namespace Game.ElementField
             ClearPreviousTargets();
             ResetLastDebugStats();
 
-            Bounds activeBounds = _runtime.GetActiveWorldBounds();
-            if (activeBounds.size.sqrMagnitude <= 0f)
-                return;
+            Bounds legacyBounds = _runtime.GetActiveWorldBounds();
+            bool hasLiquidSnapshot = _liquidOccupancy != null
+                && _liquidOccupancy.HasValidSnapshot;
+            Bounds liquidBounds = hasLiquidSnapshot
+                ? _liquidOccupancy.SnapshotBounds
+                : default;
+            ElementExposureBroadphasePlan broadphase = ElementExposureBroadphasePlanner.Plan(
+                _runtime.EffectiveWaterSimulationMode,
+                legacyBounds,
+                hasLiquidSnapshot,
+                liquidBounds);
 
-            int colliderCount = Physics.OverlapBoxNonAlloc(
-                activeBounds.center,
-                activeBounds.extents,
-                _colliderBuffer,
-                Quaternion.identity,
-                _targetLayers,
-                QueryTriggerInteraction.Collide);
-            _lastColliderCount = colliderCount;
-
-            for (int i = 0; i < colliderCount; i++)
-            {
-                Collider candidate = _colliderBuffer[i];
-                _colliderBuffer[i] = null;
-                if (candidate == null)
-                    continue;
-
-                StatusController target = candidate.GetComponentInParent<StatusController>();
-                if (target == null || !target.isActiveAndEnabled)
-                    continue;
-
-                int targetIndex = FindOrAddTarget(target);
-                if (targetIndex >= 0)
-                    SampleBounds(candidate.bounds, activeBounds, ref _maxWater[targetIndex], ref _maxFire[targetIndex]);
-            }
+            for (int queryIndex = 0; queryIndex < broadphase.QueryCount; queryIndex++)
+                QueryAndSampleTargets(broadphase.GetQueryBounds(queryIndex));
 
             float holdSeconds = Mathf.Max(0.05f, _exposureInterval)
                 + _naturalDecayHoldGraceSeconds;
@@ -182,6 +176,43 @@ namespace Game.ElementField
             }
 
             _lastStatusTargetCount = _targetCount;
+        }
+
+        private void QueryAndSampleTargets(Bounds queryBounds)
+        {
+            if (queryBounds.size.sqrMagnitude <= 0f)
+                return;
+
+            int colliderCount = Physics.OverlapBoxNonAlloc(
+                queryBounds.center,
+                queryBounds.extents,
+                _colliderBuffer,
+                Quaternion.identity,
+                _targetLayers,
+                QueryTriggerInteraction.Collide);
+            _lastColliderCount += colliderCount;
+
+            for (int i = 0; i < colliderCount; i++)
+            {
+                Collider candidate = _colliderBuffer[i];
+                _colliderBuffer[i] = null;
+                if (candidate == null)
+                    continue;
+
+                StatusController target = candidate.GetComponentInParent<StatusController>();
+                if (target == null || !target.isActiveAndEnabled)
+                    continue;
+
+                int targetIndex = FindOrAddTarget(target);
+                if (targetIndex >= 0)
+                {
+                    SampleBounds(
+                        candidate.bounds,
+                        queryBounds,
+                        ref _maxWater[targetIndex],
+                        ref _maxFire[targetIndex]);
+                }
+            }
         }
 
         private int FindOrAddTarget(StatusController target)
@@ -232,16 +263,36 @@ namespace Game.ElementField
             for (int y = min.y; y <= max.y; y++)
             for (int x = min.x; x <= max.x; x++)
             {
-                if (!_runtime.TryGetActiveCell(new Vector3Int(x, y, z), out ElementCell cell)
-                    || cell.IsEmpty)
-                {
-                    continue;
-                }
-
-                if (cell.MaterialKind == ElementMaterialKind.Water && cell.Amount > maxWater)
-                    maxWater = cell.Amount;
-                else if (cell.MaterialKind == ElementMaterialKind.Fire && cell.Amount > maxFire)
-                    maxFire = cell.Amount;
+                Vector3Int globalCell = new Vector3Int(x, y, z);
+                bool hasLegacyCell = _runtime.TryGetActiveCell(globalCell, out ElementCell cell)
+                    && !cell.IsEmpty;
+                byte occupancyWater = 0;
+                bool hasWaterOccupancy = ElementExposureSourcePolicy.ShouldReadOccupancy(
+                        _runtime.EffectiveWaterSimulationMode,
+                        ElementMaterialKind.Water)
+                    && _liquidOccupancy != null
+                    && _liquidOccupancy.TryGetAmount(
+                        globalCell,
+                        ElementMaterialKind.Water,
+                        out occupancyWater);
+                byte water = ElementExposureSourcePolicy.ResolveAmount(
+                    _runtime.EffectiveWaterSimulationMode,
+                    ElementMaterialKind.Water,
+                    hasLegacyCell && cell.MaterialKind == ElementMaterialKind.Water,
+                    cell.Amount,
+                    hasWaterOccupancy,
+                    occupancyWater);
+                byte fire = ElementExposureSourcePolicy.ResolveAmount(
+                    _runtime.EffectiveWaterSimulationMode,
+                    ElementMaterialKind.Fire,
+                    hasLegacyCell && cell.MaterialKind == ElementMaterialKind.Fire,
+                    cell.Amount,
+                    hasOccupancy: false,
+                    occupancyAmount: 0);
+                if (water > maxWater)
+                    maxWater = water;
+                if (fire > maxFire)
+                    maxFire = fire;
             }
         }
 

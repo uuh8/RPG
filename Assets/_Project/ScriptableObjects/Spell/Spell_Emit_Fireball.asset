@@ -30,6 +30,10 @@ MonoBehaviour:
   SkyfallHeight: 12
   SkyfallBackOffset: 0
   LandingSiteDuration: 0.8
+  ExplosionDamage: 0
+  FireFieldDamagePerTick: 0
+  FireFieldTickInterval: 0.5
+  FireFieldDuration: 0
   ShieldReflectCount: 3
   _legacyIsTrigger: 0
   _legacyTriggerMigrated: 1

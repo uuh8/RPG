@@ -41,6 +41,85 @@ namespace Game.ElementField.Tests
             Assert.That(request.TotalAmount, Is.EqualTo(220));
             Assert.That(request.Radius, Is.EqualTo(0.75f).Within(0.0001f));
             Assert.That(request.UseLinearFalloff, Is.True);
+            Assert.That(request.InitialVelocity, Is.EqualTo(Vector3.zero),
+                "旧构造/普通 Source 必须保持零初速度，避免改变 Fire 与 Persistent Source。");
+        }
+
+        [Test]
+        public void ImpactDirectionBuildsNormalizedVelocityAtConfiguredSpeed()
+        {
+            Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
+            SetPrivateField("_fluidInitialSpeed", 6f);
+
+            bool built = _deposit.TryBuildImpactRequest(
+                Vector3.one,
+                new Vector3(3f, 0f, 4f),
+                out ElementWriteRequest request);
+
+            Assert.That(built, Is.True);
+            Assert.That(request.InitialVelocity.x, Is.EqualTo(3.6f).Within(0.0001f));
+            Assert.That(request.InitialVelocity.y, Is.Zero.Within(0.0001f));
+            Assert.That(request.InitialVelocity.z, Is.EqualTo(4.8f).Within(0.0001f));
+        }
+
+        [Test]
+        public void ZeroImpactDirectionBuildsZeroVelocity()
+        {
+            Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
+            SetPrivateField("_fluidInitialSpeed", 6f);
+
+            Assert.That(_deposit.TryBuildImpactRequest(
+                Vector3.zero,
+                Vector3.zero,
+                out ElementWriteRequest request), Is.True);
+            Assert.That(request.InitialVelocity, Is.EqualTo(Vector3.zero));
+        }
+
+        [Test]
+        public void FireImpactKeepsZeroVelocityEvenWhenFluidSpeedIsConfigured()
+        {
+            Configure(ElementMaterialKind.Fire, totalAmount: 180, radius: 0.5f, linearFalloff: false);
+            SetPrivateField("_fluidInitialSpeed", 6f);
+
+            Assert.That(_deposit.TryBuildImpactRequest(
+                Vector3.zero,
+                Vector3.right,
+                out ElementWriteRequest request), Is.True);
+            Assert.That(request.InitialVelocity, Is.EqualTo(Vector3.zero));
+        }
+
+        [TestCase(float.PositiveInfinity)]
+        [TestCase(float.NegativeInfinity)]
+        public void NonFiniteImpactDirectionDoesNotBuildOrEnqueue(float invalidDirection)
+        {
+            Configure(ElementMaterialKind.Water, 220, 0.75f, true);
+            SetPrivateField("_fluidInitialSpeed", 6f);
+            var sink = new RecordingWriteSink();
+            Assert.That(ElementRuntimeRegistry.TryRegister(sink), Is.True);
+            try
+            {
+                Assert.That(_deposit.TryBuildImpactRequest(
+                    Vector3.zero,
+                    new Vector3(invalidDirection, 0f, 0f),
+                    out _), Is.False);
+                Assert.That(sink.WriteCount, Is.Zero);
+            }
+            finally
+            {
+                ElementRuntimeRegistry.Unregister(sink);
+            }
+        }
+
+        [Test]
+        public void NonFiniteSpeedOrPositionDoesNotBuildOrEnqueue()
+        {
+            Configure(ElementMaterialKind.Water, 220, 0.75f, true);
+            SetPrivateField("_fluidInitialSpeed", float.PositiveInfinity);
+            Assert.That(_deposit.TryBuildImpactRequest(Vector3.zero, Vector3.right, out _), Is.False);
+
+            SetPrivateField("_fluidInitialSpeed", 6f);
+            Assert.That(_deposit.TryBuildImpactRequest(
+                new Vector3(float.PositiveInfinity, 0f, 0f), Vector3.right, out _), Is.False);
         }
 
         [TestCase(0)]

@@ -1,3 +1,4 @@
+using System.Collections;
 using Game.Core;
 using Game.Run;
 using UnityEngine;
@@ -27,6 +28,27 @@ namespace Game.UI
         [SerializeField] private GameObject _defeatPanel;
         [SerializeField] private Text _victoryTimeText;
 
+        [Header("Terminal Result Presentation")]
+        [SerializeField]
+        [Min(0f)]
+        [Tooltip("Boss 死亡后保留多少秒的正常游戏时间，再显示胜利界面。该时间使用 scaled time，确保 Die 动画实际推进。")]
+        private float _victoryRevealDelay = 1.6f;
+
+        [SerializeField]
+        [Min(0f)]
+        [Tooltip("玩家死亡后保留多少秒的正常游戏时间，再显示失败界面。该时间使用 scaled time，确保 Die 动画实际推进。")]
+        private float _defeatRevealDelay = 1.3f;
+
+        [SerializeField]
+        [Min(0f)]
+        [Tooltip("胜负界面从透明到完全可见的时长；使用 unscaled time，因此 Time Scale 为 0 后仍能播放。")]
+        private float _resultFadeDuration = 0.35f;
+
+        [SerializeField]
+        [Range(0.5f, 1f)]
+        [Tooltip("胜负界面入场第一帧的缩放比例；越小弹出感越强，越接近 1 越克制。")]
+        private float _resultStartScale = 0.94f;
+
         [Header("Scene Navigation")]
         [SerializeField] private string _mainMenuSceneName = "P7_MainMenu";
         [SerializeField] private string _runSceneName = "P7_DemoRun";
@@ -34,6 +56,10 @@ namespace Game.UI
 
         private float _runStartedRealtime;
         private bool _isLoadingScene;
+        private bool _isTerminalPresentationPending;
+        private Coroutine _terminalPresentationRoutine;
+        private CanvasGroup _victoryCanvasGroup;
+        private CanvasGroup _defeatCanvasGroup;
 
         private void OnEnable()
         {
@@ -50,6 +76,10 @@ namespace Game.UI
             _runStartedRealtime = Time.realtimeSinceStartup;
             SetPanelActive(_pausePanel, false);
             SetPanelActive(_settingsPanel, false);
+            _victoryCanvasGroup = ResolveResultCanvasGroup(_victoryPanel);
+            _defeatCanvasGroup = ResolveResultCanvasGroup(_defeatPanel);
+            ResetResultPanel(_victoryPanel, _victoryCanvasGroup);
+            ResetResultPanel(_defeatPanel, _defeatCanvasGroup);
             SetPanelActive(_victoryPanel, false);
             SetPanelActive(_defeatPanel, false);
         }
@@ -62,6 +92,14 @@ namespace Game.UI
                 _pauseAction.action.performed -= OnPausePerformed;
             }
 
+            if (_terminalPresentationRoutine != null)
+            {
+                StopCoroutine(_terminalPresentationRoutine);
+                _terminalPresentationRoutine = null;
+            }
+
+            _isTerminalPresentationPending = false;
+
             if (!_isLoadingScene && _pauseCoordinator != null)
             {
                 _pauseCoordinator.ReleasePause(RunPauseReason.PauseMenu);
@@ -72,6 +110,7 @@ namespace Game.UI
         public void TogglePauseMenu()
         {
             if (_pauseCoordinator == null ||
+                _isTerminalPresentationPending ||
                 _pauseCoordinator.HasReason(RunPauseReason.TerminalResult))
             {
                 return;
@@ -209,14 +248,13 @@ namespace Game.UI
             if (_pauseCoordinator != null)
             {
                 _pauseCoordinator.ReleasePause(RunPauseReason.PauseMenu);
-                _pauseCoordinator.RequestPause(RunPauseReason.TerminalResult);
             }
 
             SetPanelActive(_pausePanel, false);
             SetPanelActive(_settingsPanel, false);
             bool isVictory = runEvent.CurrentState == RunState.Completed;
-            SetPanelActive(_victoryPanel, isVictory);
-            SetPanelActive(_defeatPanel, !isVictory);
+            SetPanelActive(_victoryPanel, false);
+            SetPanelActive(_defeatPanel, false);
 
             if (isVictory && _victoryTimeText != null)
             {
@@ -224,6 +262,161 @@ namespace Game.UI
                 int totalSeconds = Mathf.FloorToInt(elapsed);
                 _victoryTimeText.text = $"通关时间  {totalSeconds / 60:00}:{totalSeconds % 60:00}";
             }
+
+            // Run 已经进入 Terminal State，但此时不能立刻把 Time Scale 设为 0：
+            // DeathEvent 同帧才刚让 Animator CrossFade 到 Die，硬暂停会冻结首帧姿势。
+            if (_isTerminalPresentationPending ||
+                (_pauseCoordinator != null &&
+                 _pauseCoordinator.HasReason(RunPauseReason.TerminalResult)))
+            {
+                return;
+            }
+
+            _isTerminalPresentationPending = true;
+            _terminalPresentationRoutine = StartCoroutine(
+                RevealTerminalResultAfterDelay(isVictory));
+        }
+
+        private IEnumerator RevealTerminalResultAfterDelay(bool isVictory)
+        {
+            float revealDelay = isVictory
+                ? Mathf.Max(0f, _victoryRevealDelay)
+                : Mathf.Max(0f, _defeatRevealDelay);
+            float elapsed = 0f;
+
+            // 使用 scaled Delta Time：等待的是“死亡动画实际播放了多久”，而不是墙钟时间。
+            // Coroutine 是一次性结算流程，不在常规 Update 热路径产生 GC Alloc。
+            while (elapsed < revealDelay)
+            {
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            if (_pauseCoordinator != null)
+            {
+                _pauseCoordinator.RequestPause(RunPauseReason.TerminalResult);
+            }
+
+            GameObject resultPanel = isVictory ? _victoryPanel : _defeatPanel;
+            CanvasGroup resultCanvasGroup = isVictory
+                ? _victoryCanvasGroup
+                : _defeatCanvasGroup;
+            PrepareResultPanelForReveal(resultPanel, resultCanvasGroup);
+
+            float fadeDuration = Mathf.Max(0f, _resultFadeDuration);
+            float startScale = Mathf.Clamp(_resultStartScale, 0.5f, 1f);
+            float fadeElapsed = 0f;
+            while (fadeElapsed < fadeDuration)
+            {
+                fadeElapsed += Time.unscaledDeltaTime;
+                float linearProgress = Mathf.Clamp01(fadeElapsed / fadeDuration);
+                // SmoothStep 让透明度和缩放都以 S Curve 加减速，避免 Linear 插值的机械感。
+                float easedProgress = Mathf.SmoothStep(0f, 1f, linearProgress);
+                ApplyResultPanelProgress(
+                    resultPanel,
+                    resultCanvasGroup,
+                    startScale,
+                    easedProgress);
+                yield return null;
+            }
+
+            CompleteResultPanelReveal(resultPanel, resultCanvasGroup);
+            _isTerminalPresentationPending = false;
+            _terminalPresentationRoutine = null;
+        }
+
+        private static CanvasGroup ResolveResultCanvasGroup(GameObject panel)
+        {
+            if (panel == null)
+            {
+                return null;
+            }
+
+            if (panel.TryGetComponent(out CanvasGroup canvasGroup))
+            {
+                return canvasGroup;
+            }
+
+            // 两个现有 Scene 的结果 Panel 尚未挂 CanvasGroup。它是纯 UI Presentation 组件，
+            // 在 Start 一次性补齐并缓存，可避免为了一个小过渡同时修改两份大型 Scene YAML。
+            return panel.AddComponent<CanvasGroup>();
+        }
+
+        private static void ResetResultPanel(
+            GameObject panel,
+            CanvasGroup canvasGroup)
+        {
+            if (panel != null)
+            {
+                panel.transform.localScale = Vector3.one;
+            }
+
+            if (canvasGroup == null)
+            {
+                return;
+            }
+
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        private void PrepareResultPanelForReveal(
+            GameObject panel,
+            CanvasGroup canvasGroup)
+        {
+            if (panel == null)
+            {
+                return;
+            }
+
+            float startScale = Mathf.Clamp(_resultStartScale, 0.5f, 1f);
+            panel.transform.localScale = Vector3.one * startScale;
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+
+            panel.SetActive(true);
+        }
+
+        private static void ApplyResultPanelProgress(
+            GameObject panel,
+            CanvasGroup canvasGroup,
+            float startScale,
+            float progress)
+        {
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = progress;
+            }
+
+            if (panel != null)
+            {
+                float scale = Mathf.Lerp(startScale, 1f, progress);
+                panel.transform.localScale = Vector3.one * scale;
+            }
+        }
+
+        private static void CompleteResultPanelReveal(
+            GameObject panel,
+            CanvasGroup canvasGroup)
+        {
+            if (panel != null)
+            {
+                panel.transform.localScale = Vector3.one;
+            }
+
+            if (canvasGroup == null)
+            {
+                return;
+            }
+
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
         }
 
         private void BeginSceneLoad(string sceneName)

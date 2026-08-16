@@ -1,0 +1,564 @@
+#pragma kernel ClearCollisionContacts
+#pragma kernel ProjectCollisions
+#pragma kernel ApplyCollisionVelocities
+
+#include "FluidGpuCommon.hlsl"
+
+// 必须与 C# FluidColliderProxy 的 64-byte 顺序完全一致：48-byte 仿射矩阵行 + 12-byte 参数 + 4-byte Shape。
+struct FluidColliderProxy
+{
+    float4 worldToShapeRow0;
+    float4 worldToShapeRow1;
+    float4 worldToShapeRow2;
+    float3 parameters;
+    uint shape;
+};
+
+struct FluidCollisionContactManifold
+{
+    float4 contact0;
+    float4 contact1;
+    float4 contact2;
+    float4 contact3;
+};
+
+StructuredBuffer<float4> _Positions;
+RWStructuredBuffer<float4> _PredictedPositions;
+RWStructuredBuffer<float4> _Velocities;
+StructuredBuffer<uint2> _ParticleMetadata;
+StructuredBuffer<FluidColliderProxy> _ColliderProxies;
+RWStructuredBuffer<FluidCollisionContactManifold> _CollisionContacts;
+StructuredBuffer<FluidCollisionContactManifold> _CollisionContactsReadOnly;
+RWStructuredBuffer<uint> _Counters;
+
+int _ParticleCapacity;
+int _ColliderCount;
+float _ParticleRadius;
+float _CollisionFriction;
+float _CollisionRestitution;
+
+static const uint FLUID_COLLIDER_BOX = 0u;
+static const uint FLUID_COLLIDER_SPHERE = 1u;
+static const uint FLUID_COLLIDER_CAPSULE = 2u;
+static const float FLUID_COLLISION_EPSILON_SQUARED = 1e-12f;
+static const float FLUID_CONTACT_DIRECTION_DOT = 0.9995f;
+static const float FLUID_CCD_SKIN = 0.0001f;
+static const float FLUID_CCD_BOUNDARY_EPSILON = 0.00001f;
+static const int FLUID_MAX_SWEEP_SAMPLES = 32;
+static const int FLUID_SWEEP_BISECTION_ITERATIONS = 6;
+
+bool IsFiniteFloat(float value)
+{
+    return !isnan(value) && !isinf(value);
+}
+
+bool IsFiniteFloat3(float3 value)
+{
+    return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+bool IsFiniteFloat4(float4 value)
+{
+    return IsFiniteFloat(value.x) && IsFiniteFloat(value.y)
+        && IsFiniteFloat(value.z) && IsFiniteFloat(value.w);
+}
+
+void RecordNumericalError()
+{
+    uint ignored;
+    InterlockedAdd(_Counters[FLUID_NUMERICAL_ERROR_COUNTER], 1u, ignored);
+}
+
+bool IsActive(uint particleIndex)
+{
+    return particleIndex < (uint)_ParticleCapacity
+        && FluidRequiresSimulation(_ParticleMetadata[particleIndex].y);
+}
+
+float3 TransformWorldPoint(FluidColliderProxy proxy, float3 worldPoint)
+{
+    float4 homogeneousPoint = float4(worldPoint, 1.0f);
+    return float3(
+        dot(proxy.worldToShapeRow0, homogeneousPoint),
+        dot(proxy.worldToShapeRow1, homogeneousPoint),
+        dot(proxy.worldToShapeRow2, homogeneousPoint));
+}
+
+float3 TransformShapeVectorToWorld(FluidColliderProxy proxy, float3 shapeVector)
+{
+    // WorldToShape 的 3x3 是正交旋转的转置，因此这里乘它的转置即可回到 World Space。
+    return proxy.worldToShapeRow0.xyz * shapeVector.x
+        + proxy.worldToShapeRow1.xyz * shapeVector.y
+        + proxy.worldToShapeRow2.xyz * shapeVector.z;
+}
+
+float4 GetContact(FluidCollisionContactManifold manifold, int contactIndex)
+{
+    if (contactIndex == 0)
+        return manifold.contact0;
+    if (contactIndex == 1)
+        return manifold.contact1;
+    if (contactIndex == 2)
+        return manifold.contact2;
+    return manifold.contact3;
+}
+
+void SetContact(
+    inout FluidCollisionContactManifold manifold,
+    int contactIndex,
+    float4 contact)
+{
+    if (contactIndex == 0)
+        manifold.contact0 = contact;
+    else if (contactIndex == 1)
+        manifold.contact1 = contact;
+    else if (contactIndex == 2)
+        manifold.contact2 = contact;
+    else
+        manifold.contact3 = contact;
+}
+
+void AddUniqueContact(
+    inout FluidCollisionContactManifold manifold,
+    float3 worldNormal)
+{
+    // 同向法线复用已有槽；相反法线 dot=-1，必须作为不同约束保留而不能相加抵消。
+    [unroll]
+    for (int contactIndex = 0; contactIndex < 4; contactIndex++)
+    {
+        float4 existing = GetContact(manifold, contactIndex);
+        if (existing.w > 0.5f)
+        {
+            if (dot(existing.xyz, worldNormal) >= FLUID_CONTACT_DIRECTION_DOT)
+                return;
+            continue;
+        }
+
+        SetContact(manifold, contactIndex, float4(worldNormal, 1.0f));
+        return;
+    }
+
+    // Manifold 满时确定性保留先遇到的四个方向；不覆盖早期墙面，也不把容量边界误记为数值错误。
+}
+
+FluidCollisionContactManifold EmptyContactManifold()
+{
+    FluidCollisionContactManifold manifold;
+    manifold.contact0 = 0.0f;
+    manifold.contact1 = 0.0f;
+    manifold.contact2 = 0.0f;
+    manifold.contact3 = 0.0f;
+    return manifold;
+}
+
+bool TryProjectBox(
+    float3 localPosition,
+    float3 halfExtents,
+    out float3 projectedPosition,
+    out float3 localNormal)
+{
+    float3 expanded = halfExtents + _ParticleRadius;
+    float3 distanceToFace = expanded - abs(localPosition);
+    if (any(distanceToFace < 0.0f))
+    {
+        projectedPosition = localPosition;
+        localNormal = 0.0f;
+        return false;
+    }
+
+    projectedPosition = localPosition;
+    localNormal = 0.0f;
+    if (distanceToFace.x <= distanceToFace.y && distanceToFace.x <= distanceToFace.z)
+    {
+        float direction = localPosition.x >= 0.0f ? 1.0f : -1.0f;
+        projectedPosition.x = direction * expanded.x;
+        localNormal.x = direction;
+    }
+    else if (distanceToFace.y <= distanceToFace.z)
+    {
+        float direction = localPosition.y >= 0.0f ? 1.0f : -1.0f;
+        projectedPosition.y = direction * expanded.y;
+        localNormal.y = direction;
+    }
+    else
+    {
+        float direction = localPosition.z >= 0.0f ? 1.0f : -1.0f;
+        projectedPosition.z = direction * expanded.z;
+        localNormal.z = direction;
+    }
+
+    return true;
+}
+
+bool TryProjectSphere(
+    float3 localPosition,
+    float radius,
+    out float3 projectedPosition,
+    out float3 localNormal)
+{
+    float expandedRadius = radius + _ParticleRadius;
+    float distanceSquared = dot(localPosition, localPosition);
+    if (distanceSquared > expandedRadius * expandedRadius)
+    {
+        projectedPosition = localPosition;
+        localNormal = 0.0f;
+        return false;
+    }
+
+    localNormal = distanceSquared > FLUID_COLLISION_EPSILON_SQUARED
+        ? localPosition * rsqrt(distanceSquared)
+        : float3(0.0f, 1.0f, 0.0f);
+    projectedPosition = localNormal * expandedRadius;
+    return true;
+}
+
+bool TryProjectCapsule(
+    float3 localPosition,
+    float radius,
+    float halfSegment,
+    out float3 projectedPosition,
+    out float3 localNormal)
+{
+    float3 closestOnSegment = float3(
+        0.0f,
+        clamp(localPosition.y, -halfSegment, halfSegment),
+        0.0f);
+    float3 fromSegment = localPosition - closestOnSegment;
+    float distanceSquared = dot(fromSegment, fromSegment);
+    float expandedRadius = radius + _ParticleRadius;
+    if (distanceSquared > expandedRadius * expandedRadius)
+    {
+        projectedPosition = localPosition;
+        localNormal = 0.0f;
+        return false;
+    }
+
+    // 粒子恰在 Capsule Axis 上时没有唯一法向；固定选择 +X 保证有限且可复现。
+    localNormal = distanceSquared > FLUID_COLLISION_EPSILON_SQUARED
+        ? fromSegment * rsqrt(distanceSquared)
+        : float3(1.0f, 0.0f, 0.0f);
+    projectedPosition = closestOnSegment + localNormal * expandedRadius;
+    return true;
+}
+
+bool IsInsideExpandedShape(FluidColliderProxy proxy, float3 localPosition)
+{
+    if (proxy.shape == FLUID_COLLIDER_BOX)
+    {
+        float3 expanded = proxy.parameters + _ParticleRadius;
+        return all(abs(localPosition) <= expanded);
+    }
+
+    if (proxy.shape == FLUID_COLLIDER_SPHERE)
+    {
+        float expandedRadius = proxy.parameters.x + _ParticleRadius;
+        return dot(localPosition, localPosition) <= expandedRadius * expandedRadius;
+    }
+
+    float3 closestOnSegment = float3(
+        0.0f,
+        clamp(localPosition.y, -proxy.parameters.y, proxy.parameters.y),
+        0.0f);
+    float3 offset = localPosition - closestOnSegment;
+    float expandedCapsuleRadius = proxy.parameters.x + _ParticleRadius;
+    return dot(offset, offset) <= expandedCapsuleRadius * expandedCapsuleRadius;
+}
+
+bool TryProjectShape(
+    FluidColliderProxy proxy,
+    float3 localPosition,
+    out float3 projectedPosition,
+    out float3 localNormal)
+{
+    if (proxy.shape == FLUID_COLLIDER_BOX)
+        return TryProjectBox(localPosition, proxy.parameters, projectedPosition, localNormal);
+    if (proxy.shape == FLUID_COLLIDER_SPHERE)
+        return TryProjectSphere(localPosition, proxy.parameters.x, projectedPosition, localNormal);
+    return TryProjectCapsule(
+        localPosition,
+        proxy.parameters.x,
+        proxy.parameters.y,
+        projectedPosition,
+        localNormal);
+}
+
+bool TryProjectSweptSegment(
+    FluidColliderProxy proxy,
+    float3 localStart,
+    float3 localEnd,
+    out float3 projectedPosition,
+    out float3 localNormal)
+{
+    projectedPosition = localEnd;
+    localNormal = 0.0f;
+    float3 segment = localEnd - localStart;
+    float segmentLength = length(segment);
+    if (!IsFiniteFloat3(localStart) || !IsFiniteFloat3(localEnd)
+        || !IsFiniteFloat(segmentLength))
+        return false;
+
+    if (IsInsideExpandedShape(proxy, localStart))
+    {
+        float3 startProjected;
+        float3 startNormal;
+        if (!TryProjectShape(proxy, localStart, startProjected, startNormal))
+            return false;
+
+        float distanceToSurface = length(startProjected - localStart);
+        bool startsOnBoundary = IsFiniteFloat(distanceToSurface)
+            && distanceToSurface <= FLUID_CCD_BOUNDARY_EPSILON;
+        if (startsOnBoundary && dot(segment, startNormal) < 0.0f)
+        {
+            // 起点在 expanded surface 且朝 solid 内运动时，不能用“start is inside”短路；
+            // 立即保留入口面 Contact，并停在外侧 Skin。朝外运动则允许自然离开。
+            projectedPosition = startProjected + startNormal * FLUID_CCD_SKIN;
+            localNormal = startNormal;
+            return true;
+        }
+
+        // Deep-inside 属于已有穿透，由本次 Endpoint Projection 选择最近退出面处理。
+        return false;
+    }
+
+    if (segmentLength <= 1e-6f)
+        return false;
+
+    // Settings 把 MaxSpeed*substepDt 与本 Substep 最坏 PBF Correction 总位移一起限制在 32*Radius 内，
+    // 因此 Runtime 不会触发上限后放大步长。
+    // Expanded solid 的最薄厚度至少 2*ParticleRadius，步长 <= Radius 无法从一侧直接跨到另一侧。
+    int sampleCount = min(
+        FLUID_MAX_SWEEP_SAMPLES,
+        max(1, (int)ceil(segmentLength / max(_ParticleRadius, 1e-4f))));
+    float previousT = 0.0f;
+    [loop]
+    for (int sampleIndex = 1; sampleIndex <= FLUID_MAX_SWEEP_SAMPLES; sampleIndex++)
+    {
+        if (sampleIndex > sampleCount)
+            break;
+
+        float currentT = (float)sampleIndex / (float)sampleCount;
+        float3 samplePosition = lerp(localStart, localEnd, currentT);
+        if (!IsInsideExpandedShape(proxy, samplePosition))
+        {
+            previousT = currentT;
+            continue;
+        }
+
+        float lowerT = previousT;
+        float upperT = currentT;
+        [unroll]
+        for (int iteration = 0; iteration < FLUID_SWEEP_BISECTION_ITERATIONS; iteration++)
+        {
+            float middleT = 0.5f * (lowerT + upperT);
+            float3 middlePosition = lerp(localStart, localEnd, middleT);
+            if (IsInsideExpandedShape(proxy, middlePosition))
+                upperT = middleT;
+            else
+                lowerT = middleT;
+        }
+
+        float3 firstInside = lerp(localStart, localEnd, upperT);
+        if (!TryProjectShape(proxy, firstInside, projectedPosition, localNormal))
+            return false;
+
+        projectedPosition += localNormal * FLUID_CCD_SKIN;
+        return true;
+    }
+
+    return false;
+}
+
+[numthreads(64, 1, 1)]
+void ClearCollisionContacts(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return;
+
+    _CollisionContacts[particleIndex] = EmptyContactManifold();
+}
+
+[numthreads(64, 1, 1)]
+void ProjectCollisions(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float4 predicted = _PredictedPositions[particleIndex];
+    float4 oldPosition = _Positions[particleIndex];
+    if (!IsFiniteFloat4(predicted) || !IsFiniteFloat4(oldPosition))
+    {
+        _PredictedPositions[particleIndex] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        _CollisionContacts[particleIndex] = EmptyContactManifold();
+        RecordNumericalError();
+        return;
+    }
+
+    float3 worldPosition = predicted.xyz;
+    FluidCollisionContactManifold manifold = _CollisionContacts[particleIndex];
+    uint colliderCount = (uint)max(_ColliderCount, 0);
+    for (uint colliderIndex = 0u; colliderIndex < colliderCount; colliderIndex++)
+    {
+        FluidColliderProxy proxy = _ColliderProxies[colliderIndex];
+        // uint.MaxValue 是 Collector 用于保持固定 Index 的 disabled sentinel；它不是数值错误。
+        if (proxy.shape > FLUID_COLLIDER_CAPSULE)
+            continue;
+
+        if (!IsFiniteFloat4(proxy.worldToShapeRow0)
+            || !IsFiniteFloat4(proxy.worldToShapeRow1)
+            || !IsFiniteFloat4(proxy.worldToShapeRow2)
+            || !IsFiniteFloat3(proxy.parameters))
+        {
+            RecordNumericalError();
+            continue;
+        }
+
+        float3 localStart = TransformWorldPoint(proxy, oldPosition.xyz);
+        float3 localPosition = TransformWorldPoint(proxy, worldPosition);
+        float3 projectedLocal;
+        float3 localNormal;
+        bool sweptCollision = TryProjectSweptSegment(
+            proxy,
+            localStart,
+            localPosition,
+            projectedLocal,
+            localNormal);
+        bool collided = sweptCollision;
+        if (!collided)
+        {
+            collided = TryProjectShape(proxy, localPosition, projectedLocal, localNormal);
+            if (collided)
+                // Endpoint-inside 也统一停在 surface 外的 Skin，降低下一 Tick 的浮点边界歧义。
+                projectedLocal += localNormal * FLUID_CCD_SKIN;
+        }
+
+        if (!collided)
+            continue;
+
+        float3 worldCorrection = TransformShapeVectorToWorld(proxy, projectedLocal - localPosition);
+        float3 worldNormal = TransformShapeVectorToWorld(proxy, localNormal);
+        float normalLengthSquared = dot(worldNormal, worldNormal);
+        if (!IsFiniteFloat3(worldCorrection) || !IsFiniteFloat3(worldNormal)
+            || normalLengthSquared <= FLUID_COLLISION_EPSILON_SQUARED)
+        {
+            RecordNumericalError();
+            continue;
+        }
+
+        worldPosition += worldCorrection;
+        AddUniqueContact(manifold, worldNormal * rsqrt(normalLengthSquared));
+    }
+
+    if (!IsFiniteFloat3(worldPosition))
+    {
+        _PredictedPositions[particleIndex] = float4(predicted.xyz, 1.0f);
+        _CollisionContacts[particleIndex] = EmptyContactManifold();
+        RecordNumericalError();
+        return;
+    }
+
+    _PredictedPositions[particleIndex] = float4(worldPosition, 1.0f);
+    _CollisionContacts[particleIndex] = manifold;
+}
+
+[numthreads(64, 1, 1)]
+void ApplyCollisionVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 velocity = _Velocities[particleIndex].xyz;
+    if (!IsFiniteFloat3(velocity))
+    {
+        _Velocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    FluidCollisionContactManifold manifold = _CollisionContactsReadOnly[particleIndex];
+    float3 normals[4];
+    uint activeMask = 0u;
+    [unroll]
+    for (int contactIndex = 0; contactIndex < 4; contactIndex++)
+    {
+        float4 contact = GetContact(manifold, contactIndex);
+        if (contact.w <= 0.5f)
+        {
+            normals[contactIndex] = 0.0f;
+            continue;
+        }
+
+        float normalLengthSquared = dot(contact.xyz, contact.xyz);
+        if (!IsFiniteFloat4(contact)
+            || normalLengthSquared <= FLUID_COLLISION_EPSILON_SQUARED)
+        {
+            _Velocities[particleIndex] = 0.0f;
+            RecordNumericalError();
+            return;
+        }
+
+        normals[contactIndex] = contact.xyz * rsqrt(normalLengthSquared);
+        activeMask |= 1u << contactIndex;
+    }
+
+    if (activeMask == 0u)
+        return;
+
+    float frictionScale = 1.0f - saturate(_CollisionFriction);
+    float restitution = saturate(_CollisionRestitution);
+    [unroll]
+    for (int responseIndex = 0; responseIndex < 4; responseIndex++)
+    {
+        if ((activeMask & (1u << responseIndex)) == 0u)
+            continue;
+
+        float3 normal = normals[responseIndex];
+        float normalSpeed = dot(velocity, normal);
+        float3 tangentVelocity = velocity - normalSpeed * normal;
+        velocity = tangentVelocity * frictionScale;
+        velocity += normalSpeed < 0.0f
+            ? (-normalSpeed * restitution) * normal
+            : normalSpeed * normal;
+    }
+
+    // Restitution/Friction 的顺序处理可能让非正交法向重新出现微小 inward 分量。
+    // 固定 8 轮零 Restitution 投影；若仍不满足所有半空间，安全退化为 zero velocity，保证 Gate。
+    [unroll]
+    for (int projectionPass = 0; projectionPass < 8; projectionPass++)
+    {
+        [unroll]
+        for (int projectionIndex = 0; projectionIndex < 4; projectionIndex++)
+        {
+            if ((activeMask & (1u << projectionIndex)) == 0u)
+                continue;
+
+            float inwardSpeed = dot(velocity, normals[projectionIndex]);
+            if (inwardSpeed < 0.0f)
+                velocity -= inwardSpeed * normals[projectionIndex];
+        }
+    }
+
+    bool violatesContact = false;
+    [unroll]
+    for (int validationIndex = 0; validationIndex < 4; validationIndex++)
+    {
+        if ((activeMask & (1u << validationIndex)) != 0u
+            && dot(velocity, normals[validationIndex]) < -1e-5f)
+        {
+            violatesContact = true;
+        }
+    }
+
+    if (violatesContact)
+        velocity = 0.0f;
+    if (!IsFiniteFloat3(velocity))
+    {
+        _Velocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _Velocities[particleIndex] = float4(velocity, 0.0f);
+}

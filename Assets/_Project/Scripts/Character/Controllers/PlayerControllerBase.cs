@@ -5,11 +5,13 @@ using Game.Combat;
 namespace Game.Character
 {
     /// <summary>
-    /// 角色控制器基类（抽象）。承载 Warrior / Archer 共享的能力：
+    /// 玩家控制器基类（抽象）。承载各角色共同的 3C 与 Gameplay 基础能力：
     /// 移动 / 跳跃 / 冲刺 / 相机 / 输入计时器 / 状态机基础设施 / 接地三态 + Dash 态。
-    /// 不含任何角色专属攻击逻辑——那在 WarriorController / ArcherController 子类。
+    /// 它只定义 TryStartAttack 等扩展入口，不知道具体攻击是近战、弓箭还是法术；角色专属攻击由子类实现。
     /// 共享逻辑只通过 Animator 参数名 / 状态节点名跟各自的 Animator Controller 对话，不绑定具体动画资源。
     /// </summary>
+    // RequireComponent 是 Unity 的声明式依赖：把该脚本挂到 GameObject 时，Editor 会自动补齐这两个组件，
+    // 使 Awake 中的 GetComponent 成为可靠依赖读取，而不是每帧查找或运行到一半才发现组件缺失。
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(GroundChecker))]
     public abstract class PlayerControllerBase : MonoBehaviour
@@ -22,6 +24,7 @@ namespace Game.Character
         [SerializeField] private float _fallGravityMultiplier = 3.5f; // 跳跃下降阶段重力加速度倍数
         [SerializeField] private float _coyoteTime = 0.15f; // 离地后允许跳跃的宽限期（Coyote Time）
         [SerializeField] private float _jumpBufferTime = 0.15f; // 空中按下跳跃后，在地面的缓冲期（Jump Buffer）
+        [SerializeField, Range(0f, 1f)] private float _jumpCutVelocityMultiplier = 0.5f; // 松键时保留的上升速度比例；1 = 关闭 Jump Cut
         [SerializeField, Min(0)] private int _extraAirJumps = 1; // 1 = 二段跳；落地时恢复预算
 
         [Header("Slope")] [SerializeField] private float _slideSpeed = 6f; // 滑落速度
@@ -42,6 +45,8 @@ namespace Game.Character
         [SerializeField] private float _dashCooldown = 1f; // 冲刺冷却（从 Exit 起算）
         [SerializeField] private float _dashBufferTime = 0.15f; // 冲刺输入缓冲（与攻击/跳跃同惯例）
         [SerializeField, Min(0)] private int _airDashesPerAirborne = 1; // 设为 0 可让某个角色保持仅地面 Dash
+        [Tooltip("空中 Dash 开始时保留多少进入前垂直速度：0 = 清除，1 = 完整保留。Dash 期间仍暂停重力积分。")]
+        [SerializeField, Range(0f, 1f)] private float _airDashVerticalVelocityRetention = 1f; // 共享默认保持旧行为；Wizard Prefab 显式设为 0
 
         [SerializeField] private float _dashMoveDelay = 0.1f; // 冲刺位移启动延迟（秒）：等翻滚动画起势后再位移，避免"先闪后翻"。设 0 = 进入即位移
 
@@ -49,7 +54,7 @@ namespace Game.Character
             _dashStateName = "DashForward_SingleTwohandSword"; // Dash 目标 Animator 状态名（数据驱动，各角色填自己 Controller 的节点名）
         [SerializeField] private string _airDashStateName = "AirDash"; // 与地面 Dash 分离，避免共用翻滚动画
 
-        // 组件引用
+        // Unity 组件引用：Awake 缓存一次，后续状态对象直接复用，避免在 Update 热路径反复 GetComponent。
         private CharacterController _characterController;
         private Animator _animator;
         private InputSystem_Actions _inputActions;
@@ -58,7 +63,7 @@ namespace Game.Character
         private StatusController _statusController;
 
         // 状态机与共享状态（Awake 创建一次，运行时切换只改引用，不产生 GC）
-        private PlayerStateMachine _stateMachine;
+        private PlayerStateMachine _stateMachine;       // 初始化状态机
         private PlayerGroundedState _groundedState;
         private PlayerAirborneState _airborneState;
         private PlayerSlidingState _slidingState;
@@ -76,11 +81,13 @@ namespace Game.Character
         // 持续状态型 Animator 参数 hash（Controller 每帧统一同步）
         private static readonly int SpeedHash = Animator.StringToHash("speed");
         private static readonly int IsGroundedHash = Animator.StringToHash("isGrounded");
+        private static readonly int JumpHash = Animator.StringToHash("jump");
 
         // Dash 目标状态名预 hash（Awake 算一次，绝不每帧/每次触发 StringToHash）
         private int _dashStateHash;
         private int _airDashStateHash;
         private PlayerAirActionBudget _airActionBudget;
+        private JumpCutRuntime _jumpCutRuntime;
 
         // ── 对外暴露给 State 的属性 ──
         public CharacterController CharacterController => _characterController;
@@ -112,9 +119,11 @@ namespace Game.Character
         public PlayerSlidingState SlidingState => _slidingState;
         public PlayerDashState DashState => _dashState;
 
+        /// <summary>通用攻击输入剩余有效时间；由 InputAction 回调写入、Update 递减、具体攻击状态消费。</summary>
         public float AttackBufferCounter { get; set; }
         public float AttackBufferTime => _attackBufferTime;
-        public float AttackCooldownCounter { get; set; } // 攻击冷却剩余(秒)：>0 表示射速锁定中，时长来自连段数据 AttackCooldown
+        /// <summary>攻击冷却剩余秒数；大于 0 时不能开始下一次攻击，由 Controller 每帧统一递减。</summary>
+        public float AttackCooldownCounter { get; set; } // 时长来自攻击时序配置的 AttackCooldown
 
         public float DashSpeed => _dashSpeed;
         public float DashDuration => _dashDuration;
@@ -125,14 +134,48 @@ namespace Game.Character
         public float DashBufferCounter { get; set; }
         public int DashStateHash => _dashStateHash;
         public int AirDashStateHash => _airDashStateHash;
-        public bool IsAirborneForDash { get; set; }
+        public bool IsAirborneForDash { get; set; }     // 表示本次 Dash 是否从 Airborne State 发起
+        public float AirDashVerticalVelocityRetention => _airDashVerticalVelocityRetention;
 
         public void ResetAirActionBudget() => _airActionBudget.ResetForGrounded();
         public bool TryConsumeExtraJump() => _airActionBudget.TryConsumeExtraJump();
         public bool TryConsumeAirDash() => _airActionBudget.TryConsumeAirDash();
 
-        public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed(); // 攻击键当前是否按住（蓄力轮询用）
-        public bool AttackPressedThisFrame => _inputActions.Player.Attack.WasPressedThisFrame(); // 攻击键本帧上升沿（tap/hold 边沿门控用）
+        /// <summary>
+        /// 只在真正赋予 JumpForce 时调用，而不是在按键回调里调用。
+        /// 这样提前按下并松开的 Jump Buffer 在落地起跳后仍会被识别为短跳。
+        /// </summary>
+        public void ArmJumpCut() => _jumpCutRuntime.Arm();
+
+        /// <summary>
+        /// 起跳动画入口 seam。原型角色继续使用 jump Trigger；Wizard 重写后用可调时长的
+        /// CrossFade 重播 JumpStart，避免 Animator Controller 中写死 Transition Duration。
+        /// </summary>
+        public virtual void PlayJumpStartAnimation() => _animator.SetTrigger(JumpHash);
+
+        /// <summary>
+        /// Gameplay 的统一“真正起跳”反馈入口。普通跳、Coyote Jump、二段跳都走这里，
+        /// 因而角色专属动画与 VFX 不会因新增起跳路径而漏播。
+        /// </summary>
+        public void PlayJumpStartedFeedback()
+        {
+            PlayJumpStartAnimation();
+            PlayJumpVfx();
+        }
+
+        /// <summary>角色专属起跳 VFX seam；共享 locomotion 不依赖具体美术 Prefab。</summary>
+        protected virtual void PlayJumpVfx() { }
+
+        /// <summary>
+        /// 落地时清除 Trigger 型 Animator 的陈旧起跳请求。Wizard 虽已改为代码驱动，
+        /// 保留统一清理可防止旧 Controller 数据或热重载遗留 Trigger。
+        /// </summary>
+        public void ClearPendingJumpAnimation() => _animator.ResetTrigger(JumpHash);
+
+        // IsPressed 查询当前持续按住状态；WasPressedThisFrame 只在“未按 -> 按下”的那一帧为 true。
+        // 法术施放使用后者，把一次物理点击转换成一个离散请求，避免按住鼠标时每帧重复入队。
+        public bool IsAttackHeld => _inputActions.Player.Attack.IsPressed();
+        public bool AttackPressedThisFrame => _inputActions.Player.Attack.WasPressedThisFrame();
 
         /// <summary>
         /// 攻击触发 seam：共享的 GroundedState 在攻击优先级位调用本钩子。
@@ -149,31 +192,52 @@ namespace Game.Character
 
         /// <summary>
         /// 每帧攻击输入处理钩子（始终运行，与当前状态无关）。基类空实现；
-        /// 远程角色（法师）重写以做"点按瞬间锁存准心 + tap/hold 判定 + 点按入队"，
-        /// 避免攻击逻辑被攻击状态打断轮询而丢输入/误判长按。在状态机 Update 之前调用。
+        /// 法术角色重写后在按下瞬间锁存准心并缓存一个待施法请求。
+        /// 它在状态机 Update 之前调用，因此同一帧的当前 State 能立即看到新输入；攻击状态期间也不会停止采样。
         /// </summary>
         protected virtual void UpdateAttackInput() { }
 
         /// <summary>
-        /// 远程瞄准：求屏幕中心（轨道相机朝向）的瞄准点。原在 PlayerStateBase，上移到此供
-        /// 状态（飞行中结算方向）与控制器（点按那一刻锁存准心）共用同一份实现。
-        /// 屏幕中心发射线 → RaycastNonAlloc（跳过射手自身碰撞体）→ 取最近命中；未命中则取相机朝向 maxDistance 远点。
-        /// buffer 由调用方预分配复用（零每帧 GC）。相机缺失时退化为角色前向远点。
+        /// 角色专属 Animator 参数同步 seam。共享基类只维护 speed/isGrounded；
+        /// 具体角色可追加自己 Controller 中真实存在的参数，避免向其他 Animator 写入不存在的参数。
         /// </summary>
-        public Vector3 ResolveAimTargetPoint(LayerMask aimMask, float maxDistance, RaycastHit[] buffer)
+        protected virtual void SyncCharacterAnimatorParameters(bool animIsGrounded) { }
+
+        /// <summary>
+        /// 屏幕中心发射线 -> RaycastNonAlloc（跳过射手自身碰撞体）-> 取最近命中；未命中则取相机朝向 maxDistance 远点。
+        /// buffer 由调用方预分配复用，避免每次点击创建 RaycastHit[]；相机缺失时退化为角色前向远点。
+        /// </summary>
+        public Vector3 ResolveAimTargetPoint(
+            LayerMask aimMask,
+            float maxDistance,
+            RaycastHit[] buffer)
         {
             Camera cam = _mainCamera;
             if (cam == null)
                 return transform.position + transform.forward * maxDistance;
 
+            // ViewportPointToRay 把 Viewport 坐标转换为世界空间射线；(0.5, 0.5) 正好是屏幕中心/准星位置。
             Ray ray = cam.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
-            int count = Physics.RaycastNonAlloc(ray, buffer, maxDistance, aimMask, QueryTriggerInteraction.Ignore);
+
+            // RaycastNonAlloc 把命中结果写进调用方提供的数组，不像 RaycastAll 那样返回新数组。
+            // 返回值 count 是本次实际写入数量；若命中数超过 buffer 容量，只能处理数组容纳的部分。
+            int count = Physics.RaycastNonAlloc(
+                ray,
+                buffer,
+                maxDistance,
+                aimMask,
+                QueryTriggerInteraction.Ignore
+            ); // Ignore 表示跳过 Trigger，只让真实场景碰撞体决定瞄准点。
+
+            // NonAlloc 查询不承诺按距离排序，因此必须遍历有效区间 [0, count) 并自行选择最近命中。
             float nearest = float.MaxValue;
             bool found = false;
             Vector3 point = default;
+
             for (int i = 0; i < count; i++)
             {
-                if (buffer[i].collider.transform.IsChildOf(transform)) continue; // 跳过射手自身/子节点
+                // IsChildOf 判断 Collider 是否属于角色层级，防止射线从相机出发后先命中自己的模型/碰撞体。
+                if (buffer[i].collider.transform.IsChildOf(transform)) continue;
                 if (buffer[i].distance < nearest)
                 {
                     nearest = buffer[i].distance;
@@ -181,6 +245,7 @@ namespace Game.Character
                     found = true;
                 }
             }
+            // Ray.GetPoint(distance) 返回射线上指定距离处的世界坐标，为“瞄向天空”提供稳定的远端目标。
             return found ? point : ray.GetPoint(maxDistance);
         }
 
@@ -188,20 +253,23 @@ namespace Game.Character
 
         protected virtual void Awake()
         {
+            // GetComponent 在当前 GameObject 上查组件；GetComponentInChildren 还会搜索子层级，
+            // Animator 通常挂在角色模型子物体上，所以两者不能混用。
             _characterController = GetComponent<CharacterController>();
             _animator = GetComponentInChildren<Animator>();
             _groundChecker = GetComponent<GroundChecker>();
             _statusController = GetComponent<StatusController>();
-            _inputActions = new InputSystem_Actions();
-            _mainCamera = Camera.main;
+            _inputActions = new InputSystem_Actions(); // Input System 根据 .inputactions 资产生成的强类型 C# 包装器。
+            _mainCamera = Camera.main;                 // Camera.main 会按 MainCamera Tag 查找；这里只在 Awake 缓存一次。
 
-            // 初始化状态机（这是共有的状态，私有的状态在各自的Controller中单独初始化）
+            // 初始化FSM State（这是共有的状态，私有的状态在各自的Controller中单独初始化）
             _stateMachine = new PlayerStateMachine();
             _groundedState = new PlayerGroundedState(this);
             _airborneState = new PlayerAirborneState(this);
             _slidingState = new PlayerSlidingState(this);
             _dashState = new PlayerDashState(this);
             _airActionBudget = new PlayerAirActionBudget(_extraAirJumps, _airDashesPerAirborne);
+            _jumpCutRuntime = new JumpCutRuntime(_jumpCutVelocityMultiplier);
 
             // Dash 目标状态名预 hash（数据驱动；空串记 0 并告警，CrossFade 0 不切动画——与连段空状态名同款防御）
             if (string.IsNullOrEmpty(_dashStateName))
@@ -228,8 +296,8 @@ namespace Game.Character
         protected virtual void Start()
         {
             // Start 而非 Awake 进入初始状态：保证所有 GameObject 的 Awake 已执行完
-            TargetFacing = transform.forward; // 锁存初值=出生朝向，避免开局自转到世界 +Z
-            _stateMachine.ChangeState(_groundedState);
+            TargetFacing = transform.forward;           // 锁存初值 = 出生朝向，避免开局自转到世界 +Z
+            _stateMachine.ChangeState(_groundedState);  // 将初始状态切到 GroundedState。
             // Cursor 不属于角色 FSM。Gameplay、Guide、Wand Editor 与 Pause Menu 的 Cursor
             // 状态统一由 RunPauseCoordinator 按 Pause Reason 管理，避免多个 Start 的顺序竞态。
         }
@@ -238,6 +306,7 @@ namespace Game.Character
         {
             EventBus<UserSettingsChangedEvent>.Subscribe(OnUserSettingsChanged);
             ApplyUserSettings(UserSettingsService.Current);
+            // InputActionMap 只有 Enable 后才会更新动作状态并触发 performed；Disable 时必须解除回调，避免重复订阅。
             _inputActions.Player.Enable();
             _inputActions.Player.Jump.performed += OnJumpPerformed;
             _inputActions.Player.Attack.performed += OnAttackPerformed;
@@ -255,7 +324,7 @@ namespace Game.Character
             if (Current == this) Current = null; // 注销（仅当自己仍是当前者）
         }
 
-        // CharacterController 不走物理管线，在 Update 里 Move 才能每帧响应输入
+        // CharacterController 不是由 Rigidbody Physics Step 推进的动态刚体；角色主动调用 Move，故放在 Update 跟随输入帧率。
         private void Update()
         {
             // 暂停时（如打开法杖编程界面 Time.timeScale=0）玩家完全惰性：不读输入、不跑状态机、不入队攻击。
@@ -266,7 +335,7 @@ namespace Game.Character
             _lookInput = _inputActions.Player.Look.ReadValue<Vector2>();
             _moveDirection = CalculateMoveDirection();
 
-            // 计时器统一在 Controller 递减（全局数据，与当前 State 无关）
+            // 计时器统一在 Controller 递减（更新 Buffer 和 CD）
             if (JumpBufferCounter > 0f) JumpBufferCounter -= Time.deltaTime;
             if (CoyoteTimeCounter > 0f) CoyoteTimeCounter -= Time.deltaTime;
             if (AttackBufferCounter > 0f) AttackBufferCounter -= Time.deltaTime;
@@ -274,11 +343,16 @@ namespace Game.Character
             if (DashCooldownCounter > 0f) DashCooldownCounter -= Time.deltaTime;
             if (DashBufferCounter > 0f) DashBufferCounter -= Time.deltaTime;
 
-            UpdateAttackInput();        // ① 攻击输入常驻处理（点按锁存准心 / tap-hold / 入队），先于状态机
+            // 使用 InputAction 当前按住状态而非 canceled 回调：即使按键在 Jump Buffer 真正起跳前已松开，
+            // 下一帧也会把这次已武装的上升速度截断。Evaluate 每次跳跃最多生效一次。
+            VerticalVelocity = _jumpCutRuntime.Evaluate(
+                VerticalVelocity,
+                _inputActions.Player.Jump.IsPressed());
 
-            _stateMachine.Update();     // ② 再驱动状态机（可能改 VerticalVelocity）
-
-            SyncAnimatorParameters();   // ③ 后同步 Animator（拿最终数据）
+            // 固定顺序：先采样攻击 -> 当前 State 决策/切换 -> 用本帧最终 Gameplay 状态同步 Animator。
+            UpdateAttackInput();
+            _stateMachine.Update();
+            SyncAnimatorParameters();
         }
 
         private void LateUpdate()
@@ -316,6 +390,8 @@ namespace Game.Character
 
         private void OnAttackPerformed(UnityEngine.InputSystem.InputAction.CallbackContext ctx)
         {
+            // performed 是 Input System 判定该 Action 完成一次交互时触发的回调。
+            // 通用 Buffer 服务于共享攻击入口；法术角色还会在 UpdateAttackInput 中保存更完整的“瞄准点 + 请求有效期”。
             AttackBufferCounter = _attackBufferTime;
         }
 
@@ -346,6 +422,7 @@ namespace Game.Character
             bool animIsGrounded = _groundChecker.IsGrounded && VerticalVelocity <= 0f;
             // 更新地面状态参数
             _animator.SetBool(IsGroundedHash, animIsGrounded);
+            SyncCharacterAnimatorParameters(animIsGrounded);
         }
 
         private Vector3 CalculateMoveDirection()

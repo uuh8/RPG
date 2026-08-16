@@ -4872,7 +4872,7 @@ MonoBehaviour:
     LookAtTarget: {fileID: 0}
     CustomLookAtTarget: 0
   Lens:
-    FieldOfView: 76
+    FieldOfView: 80
     OrthographicSize: 5
     NearClipPlane: 0.3
     FarClipPlane: 1000
@@ -5749,7 +5749,7 @@ Camera:
     height: 1
   near clip plane: 0.3
   far clip plane: 1000
-  field of view: 76
+  field of view: 80
   orthographic: 0
   orthographic size: 5
   m_Depth: -1
@@ -9144,6 +9144,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5d6260d1317e52b4fb9a05435c1ce13b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.HealthComponent
+--- !u!4 &632654122 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
+  m_PrefabInstance: {fileID: 1184982043}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &660122133
 GameObject:
   m_ObjectHideFlags: 0
@@ -14064,6 +14069,7 @@ Transform:
   m_Children:
   - {fileID: 769916364}
   - {fileID: 443631790}
+  - {fileID: 632654122}
   m_Father: {fileID: 182092516}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1013981311
@@ -15573,7 +15579,7 @@ PrefabInstance:
   serializedVersion: 2
   m_Modification:
     serializedVersion: 3
-    m_TransformParent: {fileID: 0}
+    m_TransformParent: {fileID: 1008397287}
     m_Modifications:
     - target: {fileID: 7130474142017988203, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_Name
@@ -15597,11 +15603,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalPosition.y
-      value: -0.000000052131043
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 41.57
+      value: 17.67
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalRotation.w
@@ -15609,15 +15615,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalRotation.x
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalRotation.z
-      value: 0
+      value: -0
       objectReference: {fileID: 0}
     - target: {fileID: 7619906781714021585, guid: 7260d12c077bd224b8420f345de60bea, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
@@ -19316,8 +19322,8 @@ Transform:
   m_GameObject: {fileID: 1549905042}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0.0064, y: 7.1933, z: 5.19}
-  m_LocalScale: {x: 4.0115476, y: 4.628, z: 1}
+  m_LocalPosition: {x: -0.0435, y: 7.1933, z: 4.995}
+  m_LocalScale: {x: 4.085761, y: 4.628, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 2049630444}
@@ -22198,6 +22204,10 @@ MonoBehaviour:
   _victoryPanel: {fileID: 401057013}
   _defeatPanel: {fileID: 975528425}
   _victoryTimeText: {fileID: 1302050121}
+  _victoryRevealDelay: 1.6
+  _defeatRevealDelay: 1.3
+  _resultFadeDuration: 0.35
+  _resultStartScale: 0.94
   _mainMenuSceneName: P7_MainMenu
   _runSceneName: P7_DemoRun
   _bossSceneName: P8_BossField
@@ -26528,6 +26538,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 1207707361}
     m_Modifications:
+    - target: {fileID: 4003008137397139341, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+      propertyPath: '_disableOnDeath.Array.data[0]'
+      value: 
+      objectReference: {fileID: 6283186940027858173}
     - target: {fileID: 4017091017364392535, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
       propertyPath: m_Name
       value: WizardPlayer
@@ -26577,8 +26591,16 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
-      propertyPath: _dashDuration
-      value: 0.45
+      propertyPath: _jumpVfxLifetime
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+      propertyPath: _jumpVfxVerticalOffset
+      value: 0.08
+      objectReference: {fileID: 0}
+    - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+      propertyPath: _jumpCutVelocityMultiplier
+      value: 0.713
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -26601,6 +26623,17 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b1aa62515f2ea5e438a5c38024254f2e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.ManaComponent
+--- !u!114 &6283186940027858173 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+  m_PrefabInstance: {fileID: 6283186940027858163}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a406db20e672cc5438c5a0c127510765, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Character::WizardController
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
@@ -26612,4 +26645,3 @@ SceneRoots:
   - {fileID: 85056757}
   - {fileID: 1669573310}
   - {fileID: 60816559}
-  - {fileID: 1184982043}

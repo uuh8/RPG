@@ -76,25 +76,33 @@ namespace Game.ElementField
                 in settings);
 
             _simulationChunkCount = CopyUniqueActiveChunks(activeChunks, activeChunkCount);
-            using (PrepareNeighborsMarker.Auto())
+            // PBF 模式保留旧 Cell 数据但不再让它生成接收 Chunk；模式切换只在 Play 初始化生效，
+            // 因此这里必须跳过 Prepare，而不是扫描后再清理残留 Water。
+            if (settings.SimulateCellWater)
             {
-                _simulationChunkCount = _neighborPlanner.PrepareNeighbors(
-                    store,
-                    _simulationChunks,
-                    _simulationChunkCount,
-                    worldTick,
-                    settings.MaxDownFlowPerTick,
-                    settings.MaxLateralFlowPerTick);
+                using (PrepareNeighborsMarker.Auto())
+                {
+                    _simulationChunkCount = _neighborPlanner.PrepareNeighbors(
+                        store,
+                        _simulationChunks,
+                        _simulationChunkCount,
+                        worldTick,
+                        settings.MaxDownFlowPerTick,
+                        settings.MaxLateralFlowPerTick);
+                }
             }
             SortSimulationChunks();
 
             var stats = new ElementFieldSimulationStats();
-            using (ReactionMarker.Auto())
-                RunReactionStage(deltaTime, in settings.Extinguish, ref stats);
-            using (DownFlowMarker.Auto())
-                RunDownFlowStage(settings.MaxDownFlowPerTick, ref stats);
-            using (HorizontalFlowMarker.Auto())
-                RunHorizontalFlowStage(settings.MaxLateralFlowPerTick, worldTick, ref stats);
+            if (settings.SimulateCellWater)
+            {
+                using (ReactionMarker.Auto())
+                    RunReactionStage(deltaTime, in settings.Extinguish, ref stats);
+                using (DownFlowMarker.Auto())
+                    RunDownFlowStage(settings.MaxDownFlowPerTick, ref stats);
+                using (HorizontalFlowMarker.Auto())
+                    RunHorizontalFlowStage(settings.MaxLateralFlowPerTick, worldTick, ref stats);
+            }
             using (FireDecayMarker.Auto())
                 RunFireDecayStage(settings.FireDecayPerTick, ref stats);
 

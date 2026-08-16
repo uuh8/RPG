@@ -99,6 +99,14 @@ namespace Game.Rendering
                 GameLog.Error("ElementWorldWaterRenderer requires an ElementWorldRuntime.", "Rendering");
                 return false;
             }
+            if (!WaterRendererModePolicy.ShouldRenderLegacy(
+                    _worldRuntime.EffectiveWaterSimulationMode))
+            {
+                GameLog.Warn(
+                    "ElementWorldWaterRenderer 已因 GpuPbf Water 模式禁用；切换 Profile 后请重新进入 Play Mode。",
+                    "Rendering");
+                return false;
+            }
             if (_waterMaterial == null)
             {
                 GameLog.Error("ElementWorldWaterRenderer requires a Water Material.", "Rendering");

@@ -127,11 +127,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Character::WizardController
   _moveSpeed: 8
   _rotationSpeed: 17
-  _gravityMultiplier: 3
-  _jumpForce: 15
-  _fallGravityMultiplier: 3.5
+  _gravityMultiplier: 2.5
+  _jumpForce: 13
+  _fallGravityMultiplier: 3.9
   _coyoteTime: 0.15
   _jumpBufferTime: 0.15
+  _jumpCutVelocityMultiplier: 0.5
   _extraAirJumps: 1
   _slideSpeed: 6
   _pushForce: 3
@@ -141,13 +142,19 @@ MonoBehaviour:
   _pitchMax: 70
   _attackBufferTime: 0.15
   _dashSpeed: 18
-  _dashDuration: 0.4
+  _dashDuration: 0.45
   _dashCooldown: 0.4
   _dashBufferTime: 0.5
   _airDashesPerAirborne: 1
+  _airDashVerticalVelocityRetention: 0
   _dashMoveDelay: 0.07
   _dashStateName: DashForward_MagicWand
   _airDashStateName: AirDashForward_MagicWand
+  _jumpStartToAirBlendDuration: 0.18
+  _jumpOtherBlendDuration: 0.12
+  _jumpVfxPrefab: {fileID: 4104598801810534679, guid: db2eb2f576ae6fe419d9c8fbf2f84d1f, type: 3}
+  _jumpVfxVerticalOffset: 0.02
+  _jumpVfxLifetime: 5.5
   _combo: {fileID: 11400000, guid: 1132d5698b014594ba2b8613ece95ecf, type: 2}
   _fireballSpawnPoint: {fileID: 6318963051049183416}
   _airAttackStateName: JumpAttack_MagicWand

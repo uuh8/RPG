@@ -6,11 +6,12 @@ using Unity.Profiling;
 namespace Game.Combat
 {
     /// <summary>
-    /// 投射物基类。抽象所有飞行投射物的公共骨架：Init 注入伤害快照/初速度/忽略施法者碰撞/定向/计时；
-    /// OnCollisionEnter 统一处理 同阵营穿过 / 敌方结算一次 IDamageable.ReceiveHit / 命中后销毁。
+    /// 投射物基类。抽象所有飞行投射物的公共骨架：Init 注入伤害快照、初速度、碰撞规则与生命周期；
+    /// Rigidbody/Physics 负责运动和接触检测，OnCollisionEnter 再统一处理同阵营穿过、敌方伤害与命中销毁。
     /// 子类只需重写 OnImpact 决定"命中后、销毁前的额外表现"（爆炸特效、附加状态等）。
     /// Arrow / Fireball / NovaFireball 皆派生于此，消除三者重复逻辑。
     /// </summary>
+    // RequireComponent 告诉 Unity：挂载该脚本时必须同时存在 Rigidbody 与 Collider；Editor 会自动补齐缺失组件。
     [RequireComponent(typeof(Rigidbody))]
     [RequireComponent(typeof(Collider))]
     public abstract class ProjectileBase : MonoBehaviour
@@ -24,6 +25,7 @@ namespace Game.Combat
         [Tooltip("追踪目标扫描间隔。仅配置追踪修正的投射物会使用。")]
         [SerializeField] private float _homingScanInterval = 0.1f;
 
+        // 缓存组件引用，避免在 Update/FixedUpdate 等热路径反复 GetComponent。
         protected Rigidbody _rb;
         protected Collider _collider;
 
@@ -70,6 +72,7 @@ namespace Game.Combat
         /// 命中真实目标/环境的瞬间触发（命中点, 命中方向）。上层（法术触发）据此在命中点再施放载荷，
         /// 保持 Combat 不反依赖 Skills/Character——这里只发一个通用通知。同阵营穿过不算命中、不触发；超时自毁不触发。
         /// </summary>
+        // event 只允许本类触发 Invoke，外部只能 += 订阅或 -= 取消订阅，避免上层伪造命中。
         public event System.Action<Vector3, Vector3> Impacted;
 
         /// <summary>
@@ -81,6 +84,7 @@ namespace Game.Combat
         // 在场投射物注册表：新生成的投射物与所有"同阵营"已存在投射物互相 IgnoreCollision，
         // 避免同队火球互撞（连发自撞偏移 / 同队两球相撞误爆炸）。异队不忽略 → 仍碰撞 → 各自爆炸。
         private static readonly List<ProjectileBase> s_active = new List<ProjectileBase>(32);
+        // OverlapSphereNonAlloc 复用静态数组接收查询结果，避免追踪扫描每次创建 Collider[]。
         private static readonly Collider[] s_homingHits = new Collider[16];
         private static readonly ProfilerMarker s_motionMarker = new ProfilerMarker("Projectile.Motion");
 
@@ -89,6 +93,7 @@ namespace Game.Combat
 
         protected virtual void Awake()
         {
+            // Awake 在 Prefab 实例创建后调用一次；GetComponent 只搜索当前 GameObject。
             _rb = GetComponent<Rigidbody>();
             _collider = GetComponent<Collider>();
         }
@@ -114,6 +119,7 @@ namespace Game.Combat
 
         private void Update()
         {
+            // 定时触发使用渲染帧时间，适合“经过若干游戏秒触发”的玩法计时；实际物理运动仍在 FixedUpdate。
             TickTimedTrigger();
             OnProjectileUpdate();
         }
@@ -124,10 +130,12 @@ namespace Game.Combat
         {
             if (_consumed || !_timedTriggerArmed) return;
 
+            // Time.deltaTime 是上一渲染帧消耗的缩放后游戏时间，因此倒计时基本不受帧率影响。
             _timedTriggerRemaining -= Time.deltaTime;
             if (_timedTriggerRemaining > 0f) return;
 
             _consumed = true;
+            // ?.Invoke 表示有订阅者才调用；没有 Payload 监听时不会产生 NullReferenceException。
             TimedTriggerElapsed?.Invoke(transform.position, ResolveCurrentDirection());
             Destroy(gameObject);
         }
@@ -136,6 +144,7 @@ namespace Game.Combat
         {
             if (_consumed || _rb == null) return;
 
+            // Rigidbody 属于 Physics Step，FixedUpdate 按固定时间步调用；使用 fixedDeltaTime 才与物理更新频率一致。
             using (s_motionMarker.Auto())
             {
                 if (_orbitEnabled)
@@ -147,6 +156,7 @@ namespace Game.Combat
                 if (!FaceVelocityInFlight) return;
                 Vector3 v = _rb.linearVelocity;
                 if (v.sqrMagnitude > 1e-6f)
+                    // LookRotation 让局部 +Z 朝向速度；Euler 偏移再补偿模型资产自身的前轴差异。
                     transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
             }
         }
@@ -166,10 +176,12 @@ namespace Game.Combat
             _launchVelocity = velocity; // 直线投射物被同队物体擦碰弹偏后，据此恢复原方向
             _currentSpeed = velocity.magnitude;
 
+            // 正常情况下 Awake 已缓存；再次兜底可兼容测试或特殊初始化顺序。
             if (_rb == null) _rb = GetComponent<Rigidbody>();
             if (_collider == null) _collider = GetComponent<Collider>();
 
-            // 忽略与施法者自身碰撞，避免出膛瞬间撞到施法者 collider 即自毁
+            // IgnoreCollision 只关闭这一对 Collider 之间的碰撞，不会影响它们与其他对象的碰撞。
+            // 忽略施法者自身可避免投射物在出膛瞬间因重叠而自毁。
             if (casterCollider != null && _collider != null)
                 Physics.IgnoreCollision(_collider, casterCollider);
 
@@ -177,15 +189,19 @@ namespace Game.Combat
             _initialized = true;
             RegisterAndIgnoreSameTeamProjectiles();
 
+            // useGravity 决定 Unity Physics 是否每个固定步把重力加到速度上。
             _rb.useGravity = useGravity;
-            // 高速投射物防穿透：连续碰撞检测可命中薄的静态碰撞体（地面），避免快速飞行时隧穿穿地
+            // ContinuousDynamic 会在两个 Physics Step 之间做连续检测，降低高速物体越过薄碰撞体的“隧穿”风险，
+            // 代价是比 Discrete 碰撞检测更贵，因此只用于这些高速投射物。
             _rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            _rb.linearVelocity = velocity; // Unity 6：Rigidbody.velocity → linearVelocity
+            // linearVelocity 是 Unity 6 的刚体线速度，Physics 会据此在后续固定步推进位置并处理碰撞。
+            _rb.linearVelocity = velocity;
             if (_orbitEnabled)
                 InitializeOrbit(velocity);
             if (velocity.sqrMagnitude > 1e-6f)
                 transform.rotation = Quaternion.LookRotation(velocity) * Quaternion.Euler(_modelForwardOffsetEuler);
 
+            // 延迟销毁是漏网保护：即使投射物一直没碰到任何对象，也不会无限留在场景中。
             Destroy(gameObject, _maxLifetime);
         }
 
@@ -298,8 +314,11 @@ namespace Game.Combat
 
         private void OnCollisionEnter(Collision collision)
         {
+            // OnCollisionEnter 由 Unity Physics 在刚体开始接触另一个 Collider 时调用，参数包含碰撞体和接触点。
+            // _consumed 保证复杂碰撞在同一物理步产生多个回调时，伤害与 Payload 仍只结算一次。
             if (_consumed) return;
 
+            // GetComponentInParent 从发生接触的 Collider 开始向父节点查找接口，兼容“子节点碰撞体、根节点生命组件”。
             IDamageable target = collision.collider.GetComponentInParent<IDamageable>();
 
             // 同阵营（施法者自身/队友）→ 穿过，不结算不销毁、不算命中（不触发）。
@@ -318,6 +337,7 @@ namespace Game.Combat
             if (TryHandleCollisionBeforeDefault(collision, target))
                 return;
 
+            // GetContact(0) 直接读取第一个 ContactPoint，比先取 contacts 数组更适合这里只需一个命中点的场景。
             Vector3 hitPoint = collision.GetContact(0).point;
             Vector3 vel = _rb != null ? _rb.linearVelocity : Vector3.zero;
             Vector3 hitDir = vel.sqrMagnitude > 1e-6f ? vel.normalized : transform.forward;
@@ -326,6 +346,7 @@ namespace Game.Combat
             // 敌方且存活 → 结算一次伤害
             if (target != null && target.IsAlive)
             {
+                // DamageRequest 是一次命中的值快照；in 以只读引用传递，避免接收方修改请求，也避免较大 struct 拷贝。
                 var req = new DamageRequest(_attackerId, _attackerTeam, _damage, _type, hitPoint, hitDir);
                 target.ReceiveHit(in req);
                 damaged = true;
@@ -336,8 +357,10 @@ namespace Game.Combat
 
             // 命中通知：法术触发据此在命中点跑载荷（普通投射物无监听者，空触发无开销）
             _consumed = true;
+            // SpellCaster 若为该投射物绑定了 Payload，会在这个同步回调里以命中点运行下一层法术序列。
             Impacted?.Invoke(hitPoint, hitDir);
 
+            // impactLingerTime 允许箭矢等命中后短暂停留；Destroy 的实际移除发生在当前帧稍后阶段。
             Destroy(gameObject, _impactLingerTime);
         }
 
@@ -359,6 +382,7 @@ namespace Game.Combat
             Vector3 incoming = intendedVelocity.sqrMagnitude > 1e-6f ? intendedVelocity.normalized : transform.forward;
             Vector3 normal = collision.GetContact(0).normal;
             float normalDot = Vector3.Dot(incoming, normal);
+            // Dot < 0 表示速度确实朝向表面；Reflect 按表面法线计算镜面反射方向。
             Vector3 reflected = normalDot < 0f ? Vector3.Reflect(incoming, normal) : incoming;
 
             if (reflected.sqrMagnitude <= 1e-6f)
@@ -374,6 +398,7 @@ namespace Game.Combat
             _bounceRemaining--;
             _orbitEnabled = false;
             Vector3 newVelocity = reflected * speed;
+            // 沿法线轻推离表面，避免下一固定步仍重叠而立即重复触发碰撞。
             _rb.position += normal * 0.03f;
             _rb.linearVelocity = newVelocity;
             _launchVelocity = newVelocity;
@@ -391,9 +416,12 @@ namespace Game.Combat
             _orbitCenter += _orbitForward * _orbitCenterSpeed * safeDeltaTime;
             _orbitAngleDegrees += _orbitAngularSpeedDegrees * safeDeltaTime;
 
+            // Mathf.Sin/Cos 接受弧度，因此先用 Deg2Rad 把便于配置的角度转换为弧度。
+            // 两个互相垂直基向量的 sin/cos 线性组合描述圆周上的偏移。
             float radians = _orbitAngleDegrees * Mathf.Deg2Rad;
             Vector3 offset = (_orbitRight * Mathf.Cos(radians) + _orbitUp * Mathf.Sin(radians)) * _orbitRadius;
             Vector3 targetPosition = _orbitCenter + offset;
+            // 速度 = 本固定步需要完成的位移 / 时间，让 Rigidbody 在下一 Physics Step 逼近轨道目标点。
             Vector3 newVelocity = (targetPosition - _rb.position) / safeDeltaTime;
 
             _rb.linearVelocity = newVelocity;
@@ -445,6 +473,7 @@ namespace Game.Combat
             if (toTarget.sqrMagnitude <= 1e-6f)
                 return;
 
+            // RotateTowards 每步最多旋转 maxRadians，形成有转向速度上限的追踪，而不是瞬间锁死目标方向。
             float maxRadians = _homingTurnRateDegrees * Mathf.Deg2Rad * deltaTime;
             Vector3 newDir = Vector3.RotateTowards(velocity.normalized, toTarget.normalized, maxRadians, 0f);
             Vector3 newVelocity = newDir * speed;
@@ -454,6 +483,8 @@ namespace Game.Combat
 
         private void TryAcquireHomingTarget()
         {
+            // OverlapSphereNonAlloc 查询半径内所有 Collider，并把结果写入复用数组；返回值是实际写入数量。
+            // 数组容量是系统边界：同一范围超过 16 个 Collider 时只处理写入的部分。
             int hitCount = Physics.OverlapSphereNonAlloc(transform.position, _homingRadius, s_homingHits);
             float bestSqrDistance = float.MaxValue;
             Collider bestTargetCollider = null;
@@ -471,6 +502,7 @@ namespace Game.Combat
 
                 Vector3 targetPoint =
                     ResolveHomingTargetPoint(hit);
+                // 只比较距离大小时使用平方距离，省去每个候选目标的平方根运算。
                 float sqrDistance = (targetPoint - transform.position).sqrMagnitude;
                 if (sqrDistance >= bestSqrDistance)
                     continue;

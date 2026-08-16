@@ -121,6 +121,22 @@ float3 ElementWaterBlendNormals(float3 normalA, float3 normalB)
         normalA.z * normalB.z));
 }
 
+// Procedural Marching Cubes Vertex 只有 World Position/Normal，没有美术 Mesh 的 Tangent。
+// 这里从单位法线构造一个稳定 Orthonormal Basis：选择与 N 不平行的参考轴，再用 Cross Product
+// 得到 T/B。这样 Triplanar Wave 的 Normal From Height 仍可在任意朝向封闭液面上工作。
+void ElementWaterBuildOrthonormalBasis(
+    float3 normalWS,
+    out float3 tangentWS,
+    out float3 bitangentWS)
+{
+    float3 safeNormal = SafeNormalize(normalWS);
+    float3 referenceAxis = abs(safeNormal.y) < 0.999f
+        ? float3(0.0f, 1.0f, 0.0f)
+        : float3(1.0f, 0.0f, 0.0f);
+    tangentWS = SafeNormalize(cross(referenceAxis, safeNormal));
+    bitangentWS = SafeNormalize(cross(safeNormal, tangentWS));
+}
+
 // 生成两层程序化波纹。Panning 公式：UV'(t)=UV+Speed*t。
 // Scale 通过 NoisePosition=UV'*Scale 改变频率；Scale 越大，单位 UV 内格子越多。
 // 两层采用不同方向和频率，用较少的算术抵消单层 Noise 明显的方向性和重复感。

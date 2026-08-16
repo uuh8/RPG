@@ -1,8 +1,9 @@
 namespace Game.Combat
 {
     /// <summary>
-    /// 约定"任何能挨打的东西"必须提供 TeamId、IsAlive、ReceiveHit 这三样，由 HealthComponent 实现。
-    /// 命中判定方通过 ReceiveHit 提交攻击意图，实现方用自身防御档案结算。
+    /// “任何能受伤对象”的最小 Contract：公开阵营、存活状态和统一命中入口，当前由 HealthComponent 实现。
+    /// 投射物只依赖这个接口而不依赖玩家、敌人等具体类型，因此同一套攻击链可作用于不同对象。
+    /// 命中判定方通过 ReceiveHit 提交攻击意图，实现方再结合自身防御档案完成结算。
     /// </summary>
     public interface IDamageable
     {
@@ -12,7 +13,10 @@ namespace Game.Combat
         /// <summary>是否存活。已死目标不再受理命中。</summary>
         bool IsAlive { get; }
 
-        /// <summary>受理一次命中。实现方负责结算、扣血并同帧派发事件。</summary>
+        /// <summary>
+        /// 受理一次命中。in 表示按只读引用传入 struct：方法内不能修改请求，也无需复制整份快照。
+        /// 实现方负责结算、扣血并同帧派发事件。
+        /// </summary>
         void ReceiveHit(in DamageRequest req);
     }
 }

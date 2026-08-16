@@ -1,0 +1,478 @@
+#pragma kernel ClearAnisotropyCounters
+#pragma kernel GatherAnisotropyMean
+#pragma kernel BuildAnisotropyTransform
+
+#include "FluidGpuCommon.hlsl"
+
+// 最终布局与 C# FluidAnisotropyTransform 完全一致：4 * float4 = 64 bytes。
+// Mean pass 暂时借用 row0=(mean.xyz, weightSum)、row1.x=neighborCount；第二 pass 原地覆盖成最终 affine。
+struct FluidAnisotropyTransform
+{
+    float4 row0;
+    float4 row1;
+    float4 row2;
+    float4 scaleValidity;
+};
+
+StructuredBuffer<float4> _PredictedPositions;
+StructuredBuffer<uint2> _ParticleMetadata;
+StructuredBuffer<uint2> _SpatialEntries;
+StructuredBuffer<uint2> _CellRanges;
+StructuredBuffer<int4> _SpatialCells;
+RWStructuredBuffer<FluidAnisotropyTransform> _AnisotropyTransforms;
+RWStructuredBuffer<uint> _AnisotropyCounters;
+
+int _ParticleCapacity;
+int _HashTableCapacity;
+int _NeighborThreshold;
+float _SmoothingRadius;
+float _MinimumAnisotropyScale;
+float _MaximumAnisotropyScale;
+float _MaximumAnisotropyRatio;
+
+static const uint FLUID_INACTIVE_BUCKET = 0xffffffffu;
+static const float FLUID_EPSILON = 1e-6f;
+
+bool IsFiniteFloat(float value)
+{
+    return !isnan(value) && !isinf(value);
+}
+
+bool IsFiniteFloat3(float3 value)
+{
+    return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+int3 PositionToCell(float3 position)
+{
+    return int3(floor(position / _SmoothingRadius));
+}
+
+uint HashCell(int3 cell)
+{
+    uint hash = (uint)cell.x * 73856093u;
+    hash ^= (uint)cell.y * 19349663u;
+    hash ^= (uint)cell.z * 83492791u;
+    return hash & (uint)(_HashTableCapacity - 1);
+}
+
+float NeighborhoodWeight(float distance)
+{
+    if (!IsFiniteFloat(distance) || distance < 0.0f || distance >= _SmoothingRadius)
+        return 0.0f;
+    float normalizedSquared = distance * distance / (_SmoothingRadius * _SmoothingRadius);
+    float remaining = max(0.0f, 1.0f - normalizedSquared);
+    return remaining * remaining * remaining;
+}
+
+bool TryGetActiveParticle(uint particleIndex, out float3 position, out int3 buildCell)
+{
+    position = 0.0f;
+    buildCell = 0;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return false;
+    float4 source = _PredictedPositions[particleIndex];
+    uint2 metadata = _ParticleMetadata[particleIndex];
+    int4 cell = _SpatialCells[particleIndex];
+    if (!FluidIsInInterest(metadata.y)
+        || source.w <= 0.5f
+        || cell.w == 0
+        || !IsFiniteFloat3(source.xyz))
+    {
+        return false;
+    }
+    position = source.xyz;
+    buildCell = cell.xyz;
+    return true;
+}
+
+bool TryGetCandidate(
+    uint sortedIndex,
+    int3 requiredCell,
+    out uint particleIndex,
+    out float3 position)
+{
+    particleIndex = 0u;
+    position = 0.0f;
+    if (sortedIndex >= (uint)_ParticleCapacity)
+        return false;
+    uint2 entry = _SpatialEntries[sortedIndex];
+    if (entry.x != HashCell(requiredCell) || entry.y >= (uint)_ParticleCapacity)
+        return false;
+    int3 buildCell;
+    if (!TryGetActiveParticle(entry.y, position, buildCell)
+        || any(buildCell != requiredCell))
+    {
+        return false;
+    }
+    particleIndex = entry.y;
+    return true;
+}
+
+void WriteIdentity(uint particleIndex, float3 center, float valid)
+{
+    FluidAnisotropyTransform output;
+    output.row0 = float4(1.0f, 0.0f, 0.0f, -center.x);
+    output.row1 = float4(0.0f, 1.0f, 0.0f, -center.y);
+    output.row2 = float4(0.0f, 0.0f, 1.0f, -center.z);
+    output.scaleValidity = float4(1.0f, 1.0f, 1.0f, valid);
+    _AnisotropyTransforms[particleIndex] = output;
+}
+
+void WriteInactive(uint particleIndex)
+{
+    FluidAnisotropyTransform output;
+    output.row0 = 0.0f;
+    output.row1 = 0.0f;
+    output.row2 = 0.0f;
+    output.scaleValidity = 0.0f;
+    _AnisotropyTransforms[particleIndex] = output;
+}
+
+[numthreads(4, 1, 1)]
+void ClearAnisotropyCounters(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    if (dispatchThreadId.x < 4u)
+        _AnisotropyCounters[dispatchThreadId.x] = 0u;
+}
+
+[numthreads(64, 1, 1)]
+void GatherAnisotropyMean(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return;
+
+    float3 sourcePosition;
+    int3 centerCell;
+    if (!TryGetActiveParticle(particleIndex, sourcePosition, centerCell))
+    {
+        WriteInactive(particleIndex);
+        return;
+    }
+
+    float3 weightedSum = 0.0f;
+    float weightSum = 0.0f;
+    uint neighborCount = 0u;
+    [unroll]
+    for (int z = -1; z <= 1; z++)
+    {
+        [unroll]
+        for (int y = -1; y <= 1; y++)
+        {
+            [unroll]
+            for (int x = -1; x <= 1; x++)
+            {
+                int3 requiredCell = centerCell + int3(x, y, z);
+                uint2 range = _CellRanges[HashCell(requiredCell)];
+                if (range.x == FLUID_INACTIVE_BUCKET
+                    || range.x > range.y
+                    || range.y > (uint)_ParticleCapacity)
+                {
+                    continue;
+                }
+                for (uint sortedIndex = range.x; sortedIndex < range.y; sortedIndex++)
+                {
+                    uint candidateIndex;
+                    float3 candidatePosition;
+                    if (!TryGetCandidate(
+                            sortedIndex,
+                            requiredCell,
+                            candidateIndex,
+                            candidatePosition))
+                    {
+                        continue;
+                    }
+                    float weight = NeighborhoodWeight(length(candidatePosition - sourcePosition));
+                    if (weight <= 0.0f)
+                        continue;
+                    weightedSum += weight * candidatePosition;
+                    weightSum += weight;
+                    neighborCount++;
+                }
+            }
+        }
+    }
+
+    FluidAnisotropyTransform intermediate;
+    float3 mean = weightSum > FLUID_EPSILON ? weightedSum / weightSum : sourcePosition;
+    // Density 最多查询 ceil(maxScale)=2 个 Hash Cell。Mean 若任意漂离原粒子，椭球最远端
+    // 可能超过这个范围而被漏采样；因此限制 centerOffset + maxScale*h <= cellRadius*h。
+    float cellRadius = ceil(clamp(_MaximumAnisotropyScale, 1.0f, 2.0f));
+    float maximumCenterOffset = max(
+        0.0f,
+        (cellRadius - clamp(_MaximumAnisotropyScale, 1.0f, 2.0f)) * _SmoothingRadius);
+    float3 meanOffset = mean - sourcePosition;
+    float meanOffsetLength = length(meanOffset);
+    if (meanOffsetLength > maximumCenterOffset && meanOffsetLength > FLUID_EPSILON)
+        mean = sourcePosition + meanOffset * (maximumCenterOffset / meanOffsetLength);
+    intermediate.row0 = float4(mean, weightSum);
+    intermediate.row1 = float4((float)neighborCount, 0.0f, 0.0f, 0.0f);
+    intermediate.row2 = 0.0f;
+    intermediate.scaleValidity = 0.0f;
+    _AnisotropyTransforms[particleIndex] = intermediate;
+}
+
+void Rotate01(
+    inout float xx, inout float xy, inout float xz,
+    inout float yy, inout float yz, inout float zz,
+    inout float3 v0, inout float3 v1, inout float3 v2)
+{
+    if (abs(xy) <= FLUID_EPSILON)
+        return;
+    float tau = (yy - xx) / (2.0f * xy);
+    float signTau = tau >= 0.0f ? 1.0f : -1.0f;
+    float t = signTau / (abs(tau) + sqrt(1.0f + tau * tau));
+    float c = rsqrt(1.0f + t * t);
+    float s = t * c;
+    float oldXy = xy;
+    float oldXz = xz;
+    float oldYz = yz;
+    xx -= t * oldXy;
+    yy += t * oldXy;
+    xy = 0.0f;
+    xz = c * oldXz - s * oldYz;
+    yz = s * oldXz + c * oldYz;
+    float3 oldV0 = v0;
+    float3 oldV1 = v1;
+    v0 = c * oldV0 - s * oldV1;
+    v1 = s * oldV0 + c * oldV1;
+}
+
+void Rotate02(
+    inout float xx, inout float xy, inout float xz,
+    inout float yy, inout float yz, inout float zz,
+    inout float3 v0, inout float3 v1, inout float3 v2)
+{
+    if (abs(xz) <= FLUID_EPSILON)
+        return;
+    float tau = (zz - xx) / (2.0f * xz);
+    float signTau = tau >= 0.0f ? 1.0f : -1.0f;
+    float t = signTau / (abs(tau) + sqrt(1.0f + tau * tau));
+    float c = rsqrt(1.0f + t * t);
+    float s = t * c;
+    float oldXz = xz;
+    float oldXy = xy;
+    float oldYz = yz;
+    xx -= t * oldXz;
+    zz += t * oldXz;
+    xz = 0.0f;
+    xy = c * oldXy - s * oldYz;
+    yz = s * oldXy + c * oldYz;
+    float3 oldV0 = v0;
+    float3 oldV2 = v2;
+    v0 = c * oldV0 - s * oldV2;
+    v2 = s * oldV0 + c * oldV2;
+}
+
+void Rotate12(
+    inout float xx, inout float xy, inout float xz,
+    inout float yy, inout float yz, inout float zz,
+    inout float3 v0, inout float3 v1, inout float3 v2)
+{
+    if (abs(yz) <= FLUID_EPSILON)
+        return;
+    float tau = (zz - yy) / (2.0f * yz);
+    float signTau = tau >= 0.0f ? 1.0f : -1.0f;
+    float t = signTau / (abs(tau) + sqrt(1.0f + tau * tau));
+    float c = rsqrt(1.0f + t * t);
+    float s = t * c;
+    float oldYz = yz;
+    float oldXy = xy;
+    float oldXz = xz;
+    yy -= t * oldYz;
+    zz += t * oldYz;
+    yz = 0.0f;
+    xy = c * oldXy - s * oldXz;
+    xz = s * oldXy + c * oldXz;
+    float3 oldV1 = v1;
+    float3 oldV2 = v2;
+    v1 = c * oldV1 - s * oldV2;
+    v2 = s * oldV1 + c * oldV2;
+}
+
+void SortEigenDescending(
+    inout float e0, inout float e1, inout float e2,
+    inout float3 v0, inout float3 v1, inout float3 v2)
+{
+    if (e1 > e0)
+    {
+        float e = e0; e0 = e1; e1 = e;
+        float3 v = v0; v0 = v1; v1 = v;
+    }
+    if (e2 > e0)
+    {
+        float e = e0; e0 = e2; e2 = e;
+        float3 v = v0; v0 = v2; v2 = v;
+    }
+    if (e2 > e1)
+    {
+        float e = e1; e1 = e2; e2 = e;
+        float3 v = v1; v1 = v2; v2 = v;
+    }
+}
+
+bool IsFiniteCovariance(float xx, float xy, float xz, float yy, float yz, float zz)
+{
+    return IsFiniteFloat(xx) && IsFiniteFloat(xy) && IsFiniteFloat(xz)
+        && IsFiniteFloat(yy) && IsFiniteFloat(yz) && IsFiniteFloat(zz);
+}
+
+[numthreads(64, 1, 1)]
+void BuildAnisotropyTransform(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return;
+
+    float3 sourcePosition;
+    int3 centerCell;
+    if (!TryGetActiveParticle(particleIndex, sourcePosition, centerCell))
+    {
+        WriteInactive(particleIndex);
+        return;
+    }
+    InterlockedAdd(_AnisotropyCounters[0], 1u);
+
+    FluidAnisotropyTransform intermediate = _AnisotropyTransforms[particleIndex];
+    float3 mean = intermediate.row0.xyz;
+    float weightSum = intermediate.row0.w;
+    uint neighborCount = (uint)max(0.0f, intermediate.row1.x);
+    if (neighborCount < (uint)_NeighborThreshold
+        || weightSum <= FLUID_EPSILON
+        || !IsFiniteFloat3(mean)
+        || !IsFiniteFloat(weightSum))
+    {
+        WriteIdentity(particleIndex, sourcePosition, 0.0f);
+        InterlockedAdd(_AnisotropyCounters[1], 1u);
+        return;
+    }
+
+    float xx = 0.0f;
+    float xy = 0.0f;
+    float xz = 0.0f;
+    float yy = 0.0f;
+    float yz = 0.0f;
+    float zz = 0.0f;
+    [unroll]
+    for (int z = -1; z <= 1; z++)
+    {
+        [unroll]
+        for (int y = -1; y <= 1; y++)
+        {
+            [unroll]
+            for (int x = -1; x <= 1; x++)
+            {
+                int3 requiredCell = centerCell + int3(x, y, z);
+                uint2 range = _CellRanges[HashCell(requiredCell)];
+                if (range.x == FLUID_INACTIVE_BUCKET
+                    || range.x > range.y
+                    || range.y > (uint)_ParticleCapacity)
+                {
+                    continue;
+                }
+                for (uint sortedIndex = range.x; sortedIndex < range.y; sortedIndex++)
+                {
+                    uint candidateIndex;
+                    float3 candidatePosition;
+                    if (!TryGetCandidate(
+                            sortedIndex,
+                            requiredCell,
+                            candidateIndex,
+                            candidatePosition))
+                    {
+                        continue;
+                    }
+                    float weight = NeighborhoodWeight(length(candidatePosition - sourcePosition));
+                    if (weight <= 0.0f)
+                        continue;
+                    float3 delta = candidatePosition - mean;
+                    xx += weight * delta.x * delta.x;
+                    xy += weight * delta.x * delta.y;
+                    xz += weight * delta.x * delta.z;
+                    yy += weight * delta.y * delta.y;
+                    yz += weight * delta.y * delta.z;
+                    zz += weight * delta.z * delta.z;
+                }
+            }
+        }
+    }
+    float inverseWeight = rcp(max(weightSum, FLUID_EPSILON));
+    xx *= inverseWeight; xy *= inverseWeight; xz *= inverseWeight;
+    yy *= inverseWeight; yz *= inverseWeight; zz *= inverseWeight;
+    if (!IsFiniteCovariance(xx, xy, xz, yy, yz, zz))
+    {
+        WriteIdentity(particleIndex, sourcePosition, 0.0f);
+        InterlockedAdd(_AnisotropyCounters[2], 1u);
+        return;
+    }
+
+    // 固定五轮 symmetric Jacobi；输入顺序与 sweep 次数不依赖 GPU thread 调度，结果可重复。
+    float3 v0 = float3(1.0f, 0.0f, 0.0f);
+    float3 v1 = float3(0.0f, 1.0f, 0.0f);
+    float3 v2 = float3(0.0f, 0.0f, 1.0f);
+    [unroll]
+    for (int sweep = 0; sweep < 5; sweep++)
+    {
+        Rotate01(xx, xy, xz, yy, yz, zz, v0, v1, v2);
+        Rotate02(xx, xy, xz, yy, yz, zz, v0, v1, v2);
+        Rotate12(xx, xy, xz, yy, yz, zz, v0, v1, v2);
+    }
+    SortEigenDescending(xx, yy, zz, v0, v1, v2);
+
+    float varianceFloor = max(_SmoothingRadius * _SmoothingRadius * 1e-5f, FLUID_EPSILON);
+    float dominantVariance = max(xx, varianceFloor);
+    float transverseVariance = max(0.5f * (max(yy, 0.0f) + max(zz, 0.0f)), varianceFloor);
+    float3 dominantAxis = normalize(v0);
+    float rawElongation = sqrt(dominantVariance / transverseVariance);
+    float maximumLongFromRatio = pow(max(_MaximumAnisotropyRatio, 1.0f), 2.0f / 3.0f);
+    float maximumLongFromMinimumScale = rcp(
+        max(_MinimumAnisotropyScale * _MinimumAnisotropyScale, FLUID_EPSILON));
+    float maximumLong = min(
+        max(_MaximumAnisotropyScale, 1.0f),
+        min(maximumLongFromRatio, maximumLongFromMinimumScale));
+    float longScale = clamp(rawElongation, 1.0f, max(1.0f, maximumLong));
+    float shortScale = rsqrt(longScale);
+    if (!IsFiniteFloat3(dominantAxis)
+        || length(dominantAxis) < 0.9f
+        || !IsFiniteFloat(longScale)
+        || !IsFiniteFloat(shortScale)
+        || shortScale <= 0.0f)
+    {
+        WriteIdentity(particleIndex, sourcePosition, 0.0f);
+        InterlockedAdd(_AnisotropyCounters[2], 1u);
+        return;
+    }
+
+    // A = invShort*I + (invLong-invShort) axis*axis^T，是对称正定 world->kernel 矩阵。
+    // long*short^2=1，因此 det(A)=1：方向变了，但单粒子 Kernel 体积近似守恒。
+    float inverseLong = rcp(longScale);
+    float inverseShort = rcp(shortScale);
+    float difference = inverseLong - inverseShort;
+    float3 row0 = float3(
+        inverseShort + difference * dominantAxis.x * dominantAxis.x,
+        difference * dominantAxis.x * dominantAxis.y,
+        difference * dominantAxis.x * dominantAxis.z);
+    float3 row1 = float3(
+        difference * dominantAxis.y * dominantAxis.x,
+        inverseShort + difference * dominantAxis.y * dominantAxis.y,
+        difference * dominantAxis.y * dominantAxis.z);
+    float3 row2 = float3(
+        difference * dominantAxis.z * dominantAxis.x,
+        difference * dominantAxis.z * dominantAxis.y,
+        inverseShort + difference * dominantAxis.z * dominantAxis.z);
+    if (!IsFiniteFloat3(row0) || !IsFiniteFloat3(row1) || !IsFiniteFloat3(row2))
+    {
+        WriteIdentity(particleIndex, sourcePosition, 0.0f);
+        InterlockedAdd(_AnisotropyCounters[2], 1u);
+        return;
+    }
+
+    FluidAnisotropyTransform output;
+    output.row0 = float4(row0, -dot(row0, mean));
+    output.row1 = float4(row1, -dot(row1, mean));
+    output.row2 = float4(row2, -dot(row2, mean));
+    output.scaleValidity = float4(longScale, shortScale, shortScale, 1.0f);
+    _AnisotropyTransforms[particleIndex] = output;
+    InterlockedAdd(_AnisotropyCounters[3], 1u);
+}

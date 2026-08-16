@@ -13,6 +13,7 @@ namespace Game.ElementField
         public readonly ushort TotalAmount;
         public readonly float Radius;
         public readonly bool UseLinearFalloff;
+        public readonly Vector3 InitialVelocity;
 
         public ElementWriteRequest(
             Vector3 worldPosition,
@@ -20,12 +21,30 @@ namespace Game.ElementField
             ushort totalAmount,
             float radius,
             bool useLinearFalloff)
+            : this(
+                worldPosition,
+                materialKind,
+                totalAmount,
+                radius,
+                useLinearFalloff,
+                Vector3.zero)
+        {
+        }
+
+        public ElementWriteRequest(
+            Vector3 worldPosition,
+            ElementMaterialKind materialKind,
+            ushort totalAmount,
+            float radius,
+            bool useLinearFalloff,
+            Vector3 initialVelocity)
         {
             WorldPosition = worldPosition;
             MaterialKind = materialKind;
             TotalAmount = totalAmount;
             Radius = radius;
             UseLinearFalloff = useLinearFalloff;
+            InitialVelocity = initialVelocity;
         }
     }
 }

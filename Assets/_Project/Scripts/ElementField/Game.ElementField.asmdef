@@ -1,7 +1,7 @@
 {
     "name": "Game.ElementField",
     "rootNamespace": "Game.ElementField",
-    "references": ["Game.Core", "Game.Combat"],
+    "references": ["Game.Core", "Game.Combat", "Unity.Collections"],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

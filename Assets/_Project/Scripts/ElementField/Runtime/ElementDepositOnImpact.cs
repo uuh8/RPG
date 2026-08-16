@@ -27,6 +27,9 @@ namespace Game.ElementField
         [Tooltip("启用后，越靠近圆心的 Cell 获得越多 Amount；关闭后，覆盖范围内近似均匀分配。")]
         [SerializeField] private bool _useLinearFalloff = true;
 
+        [Tooltip("Water 命中方向转换成 PBF 粒子初速度的倍率。0 表示不继承命中动量；旧 Prefab 默认保持 0，Task 13 再显式配置可玩速度。Legacy Cell 与 Fire 会忽略该向量。")]
+        [SerializeField, Min(0f)] private float _fluidInitialSpeed;
+
         private ProjectileBase _projectile;
         private bool _missingFieldWarningIssued;
 
@@ -72,8 +75,41 @@ namespace Game.ElementField
         /// </summary>
         public bool TryBuildRequest(Vector3 worldPosition, out ElementWriteRequest request)
         {
+            return TryBuildRequest(worldPosition, Vector3.zero, out request);
+        }
+
+        public bool TryBuildImpactRequest(
+            Vector3 worldPosition,
+            Vector3 hitDirection,
+            out ElementWriteRequest request)
+        {
+            if (!FluidSpawnRequestValidator.IsFinite(worldPosition)
+                || !FluidSpawnRequestValidator.IsFinite(hitDirection)
+                || float.IsNaN(_fluidInitialSpeed)
+                || float.IsInfinity(_fluidInitialSpeed))
+            {
+                request = default;
+                return false;
+            }
+
+            Vector3 initialVelocity = _materialKind == ElementMaterialKind.Water
+                && hitDirection.sqrMagnitude > 0f
+                ? hitDirection.normalized * Mathf.Max(0f, _fluidInitialSpeed)
+                : Vector3.zero;
+            return TryBuildRequest(worldPosition, initialVelocity, out request);
+        }
+
+        private bool TryBuildRequest(
+            Vector3 worldPosition,
+            Vector3 initialVelocity,
+            out ElementWriteRequest request)
+        {
             // 反射、旧 Prefab 或运行时代码仍可能绕过 OnValidate，因此运行时边界也必须防御。
-            if (_totalAmount <= 0)
+            if (_totalAmount <= 0
+                || !FluidSpawnRequestValidator.IsFinite(worldPosition)
+                || !FluidSpawnRequestValidator.IsFinite(initialVelocity)
+                || float.IsNaN(_radius)
+                || float.IsInfinity(_radius))
             {
                 request = default;
                 return false;
@@ -86,7 +122,8 @@ namespace Game.ElementField
                 _materialKind,
                 amount,
                 radius,
-                _useLinearFalloff);
+                _useLinearFalloff,
+                initialVelocity);
             return true;
         }
 
@@ -99,9 +136,21 @@ namespace Game.ElementField
             if (!TryBuildRequest(worldPosition, out ElementWriteRequest request))
                 return false;
 
+            return TryDeposit(in request);
+        }
+
+        private void OnProjectileImpacted(Vector3 hitPoint, Vector3 hitDirection)
+        {
+            if (!TryBuildImpactRequest(hitPoint, hitDirection, out ElementWriteRequest request))
+                return;
+
+            TryDeposit(in request);
+        }
+
+        private bool TryDeposit(in ElementWriteRequest request)
+        {
             if (ElementRuntimeRegistry.ActiveSink == null)
             {
-                // 缺少场系统属于场景装配问题。只警告一次，避免大量 Projectile 造成 Console Spam。
                 if (!_missingFieldWarningIssued)
                 {
                     _missingFieldWarningIssued = true;
@@ -116,17 +165,12 @@ namespace Game.ElementField
             return ElementRuntimeRegistry.TryEnqueueWrite(in request);
         }
 
-        private void OnProjectileImpacted(Vector3 hitPoint, Vector3 hitDirection)
-        {
-            // hitDirection 将来可用于飞溅方向或 Decal 朝向；P6-A 的标量 Cell 沉积只需要命中点。
-            TryDepositAt(hitPoint);
-        }
-
         private void OnValidate()
         {
             // OnValidate 只改善 Inspector 编辑体验；TryBuildRequest 仍保留运行时校验，不能依赖它保证安全。
             _totalAmount = Mathf.Clamp(_totalAmount, 1, ushort.MaxValue);
             _radius = Mathf.Max(0f, _radius);
+            _fluidInitialSpeed = Mathf.Max(0f, _fluidInitialSpeed);
         }
     }
 }

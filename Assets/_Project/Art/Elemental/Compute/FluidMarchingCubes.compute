@@ -1,0 +1,239 @@
+#pragma kernel ClearSurfaceCounters
+#pragma kernel ExtractSurface
+#pragma kernel BuildIndirectArgs
+
+#include "MarchingCubesTables.hlsl"
+
+struct FluidSurfaceVertex
+{
+    float3 positionWS;
+    float padding0;
+    float3 normalWS;
+    float padding1;
+};
+
+struct FluidSurfaceTriangle
+{
+    FluidSurfaceVertex v0;
+    FluidSurfaceVertex v1;
+    FluidSurfaceVertex v2;
+};
+
+Texture3D<float> _DensityTexture;
+SamplerState sampler_DensityTexture;
+RWStructuredBuffer<FluidSurfaceTriangle> _FluidSurfaceTriangles;
+RWStructuredBuffer<uint> _TriangleCounter;
+RWStructuredBuffer<uint> _OverflowCounter;
+// IndirectArguments 在 D3D11 上暴露 R32_UINT typed UAV；按 4 个 uint 寻址，不能误当 Structured struct。
+RWBuffer<uint> _IndirectArguments;
+
+int _GridResolutionX;
+int _GridResolutionY;
+int _GridResolutionZ;
+int _MaximumTriangleCount;
+float3 _WorldOrigin;
+float3 _VoxelSize;
+float _IsoLevel;
+
+bool IsFiniteFloat(float value)
+{
+    return !isnan(value) && !isinf(value);
+}
+
+bool IsFiniteFloat3(float3 value)
+{
+    return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+float3 GridToWorld(float3 gridPosition)
+{
+    return _WorldOrigin + gridPosition * _VoxelSize;
+}
+
+float SampleDensity(float3 positionWS)
+{
+    float3 resolution = float3(_GridResolutionX, _GridResolutionY, _GridResolutionZ);
+    float3 gridPosition = (positionWS - _WorldOrigin) / _VoxelSize;
+    // Texture Sample 坐标指向 texel center；+0.5 让 integer lattice sample 精确落到自身中心。
+    float3 uvw = (gridPosition + 0.5f) / resolution;
+    return _DensityTexture.SampleLevel(sampler_DensityTexture, uvw, 0.0f);
+}
+
+float3 CalculateOutwardNormal(float3 positionWS)
+{
+    float dx = SampleDensity(positionWS + float3(_VoxelSize.x, 0.0f, 0.0f))
+        - SampleDensity(positionWS - float3(_VoxelSize.x, 0.0f, 0.0f));
+    float dy = SampleDensity(positionWS + float3(0.0f, _VoxelSize.y, 0.0f))
+        - SampleDensity(positionWS - float3(0.0f, _VoxelSize.y, 0.0f));
+    float dz = SampleDensity(positionWS + float3(0.0f, 0.0f, _VoxelSize.z))
+        - SampleDensity(positionWS - float3(0.0f, 0.0f, _VoxelSize.z));
+    float3 gradient = float3(
+        dx / max(2.0f * _VoxelSize.x, 1.0e-6f),
+        dy / max(2.0f * _VoxelSize.y, 1.0e-6f),
+        dz / max(2.0f * _VoxelSize.z, 1.0e-6f));
+    float lengthSquared = dot(gradient, gradient);
+    // Density 高的一侧是液体内部，因此 outward direction 必须取 negative gradient。
+    return lengthSquared > 1.0e-12f && IsFiniteFloat3(gradient)
+        ? -gradient * rsqrt(lengthSquared)
+        : 0.0f;
+}
+
+float EdgeInterpolation(float densityA, float densityB)
+{
+    float denominator = densityB - densityA;
+    if (!IsFiniteFloat(denominator) || abs(denominator) < 1.0e-6f)
+        return 0.5f;
+    return saturate((_IsoLevel - densityA) / denominator);
+}
+
+FluidSurfaceVertex MakeVertex(float3 positionWS, float3 outwardNormal, float3 fallbackNormal)
+{
+    FluidSurfaceVertex vertex;
+    vertex.positionWS = positionWS;
+    vertex.padding0 = 0.0f;
+    float normalLengthSquared = dot(outwardNormal, outwardNormal);
+    vertex.normalWS = normalLengthSquared > 1.0e-8f
+        ? outwardNormal * rsqrt(normalLengthSquared)
+        : fallbackNormal;
+    vertex.padding1 = 0.0f;
+    return vertex;
+}
+
+[numthreads(1, 1, 1)]
+void ClearSurfaceCounters(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    _TriangleCounter[0] = 0u;
+    _OverflowCounter[0] = 0u;
+    _IndirectArguments[0] = 0u;
+    _IndirectArguments[1] = 1u;
+    _IndirectArguments[2] = 0u;
+    _IndirectArguments[3] = 0u;
+}
+
+// 一个 thread 只拥有一个 Cell，读取该 Cell 的 8 个 Lattice Samples，最多生成 5 个 Triangle。
+[numthreads(4, 4, 4)]
+void ExtractSurface(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    if (dispatchThreadId.x >= (uint)(_GridResolutionX - 1)
+        || dispatchThreadId.y >= (uint)(_GridResolutionY - 1)
+        || dispatchThreadId.z >= (uint)(_GridResolutionZ - 1)
+        || _MaximumTriangleCount <= 0
+        || !IsFiniteFloat(_IsoLevel)
+        || any(_VoxelSize <= 0.0f)
+        || !IsFiniteFloat3(_VoxelSize))
+    {
+        return;
+    }
+
+    int3 cell = (int3)dispatchThreadId;
+    float cornerDensity[8];
+    float3 cornerPosition[8];
+    uint caseIndex = 0u;
+    float3 insideCentroid = 0.0f;
+    float3 outsideCentroid = 0.0f;
+    uint insideCount = 0u;
+    uint outsideCount = 0u;
+
+    [unroll]
+    for (uint corner = 0u; corner < 8u; corner++)
+    {
+        int3 sampleId = cell + FLUID_MC_CORNER_OFFSETS[corner];
+        float density = _DensityTexture.Load(int4(sampleId, 0));
+        if (!IsFiniteFloat(density))
+            density = 0.0f;
+        float3 positionWS = GridToWorld((float3)sampleId);
+        cornerDensity[corner] = density;
+        cornerPosition[corner] = positionWS;
+        if (density >= _IsoLevel)
+        {
+            caseIndex |= 1u << corner;
+            insideCentroid += positionWS;
+            insideCount++;
+        }
+        else
+        {
+            outsideCentroid += positionWS;
+            outsideCount++;
+        }
+    }
+
+    if (caseIndex == 0u || caseIndex == 255u)
+        return;
+
+    insideCentroid /= max((float)insideCount, 1.0f);
+    outsideCentroid /= max((float)outsideCount, 1.0f);
+    float3 topologyOutward = outsideCentroid - insideCentroid;
+
+    [unroll]
+    for (uint column = 0u; column < 15u; column += 3u)
+    {
+        int edge0 = FluidTriTableEdge(caseIndex, column);
+        if (edge0 < 0)
+            break;
+        int edge1 = FluidTriTableEdge(caseIndex, column + 1u);
+        int edge2 = FluidTriTableEdge(caseIndex, column + 2u);
+        if (edge1 < 0 || edge2 < 0)
+            break;
+
+        uint2 corners0 = FLUID_MC_EDGE_CORNERS[edge0];
+        uint2 corners1 = FLUID_MC_EDGE_CORNERS[edge1];
+        uint2 corners2 = FLUID_MC_EDGE_CORNERS[edge2];
+        float3 p0 = lerp(cornerPosition[corners0.x], cornerPosition[corners0.y],
+            EdgeInterpolation(cornerDensity[corners0.x], cornerDensity[corners0.y]));
+        float3 p1 = lerp(cornerPosition[corners1.x], cornerPosition[corners1.y],
+            EdgeInterpolation(cornerDensity[corners1.x], cornerDensity[corners1.y]));
+        float3 p2 = lerp(cornerPosition[corners2.x], cornerPosition[corners2.y],
+            EdgeInterpolation(cornerDensity[corners2.x], cornerDensity[corners2.y]));
+        if (!IsFiniteFloat3(p0) || !IsFiniteFloat3(p1) || !IsFiniteFloat3(p2))
+            continue;
+
+        float3 n0 = CalculateOutwardNormal(p0);
+        float3 n1 = CalculateOutwardNormal(p1);
+        float3 n2 = CalculateOutwardNormal(p2);
+        float3 geometricNormal = cross(p1 - p0, p2 - p0);
+        float geometricLengthSquared = dot(geometricNormal, geometricNormal);
+        if (geometricLengthSquared <= 1.0e-12f || !IsFiniteFloat3(geometricNormal))
+            continue;
+        geometricNormal *= rsqrt(geometricLengthSquared);
+
+        float3 orientationReference = n0 + n1 + n2;
+        if (dot(orientationReference, orientationReference) <= 1.0e-8f)
+            orientationReference = topologyOutward;
+        if (dot(geometricNormal, orientationReference) < 0.0f)
+        {
+            float3 temporaryPosition = p1;
+            p1 = p2;
+            p2 = temporaryPosition;
+            float3 temporaryNormal = n1;
+            n1 = n2;
+            n2 = temporaryNormal;
+            geometricNormal = -geometricNormal;
+        }
+
+        uint triangleIndex;
+        InterlockedAdd(_TriangleCounter[0], 1u, triangleIndex);
+        if (triangleIndex >= (uint)_MaximumTriangleCount)
+        {
+            InterlockedAdd(_OverflowCounter[0], 1u);
+            continue;
+        }
+
+        FluidSurfaceTriangle triangle;
+        triangle.v0 = MakeVertex(p0, n0, geometricNormal);
+        triangle.v1 = MakeVertex(p1, n1, geometricNormal);
+        triangle.v2 = MakeVertex(p2, n2, geometricNormal);
+        _FluidSurfaceTriangles[triangleIndex] = triangle;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void BuildIndirectArgs(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint boundedTriangleCount = min(
+        min(_TriangleCounter[0], (uint)max(_MaximumTriangleCount, 0)),
+        1431655765u);
+    _IndirectArguments[0] = boundedTriangleCount * 3u;
+    _IndirectArguments[1] = 1u;
+    _IndirectArguments[2] = 0u;
+    _IndirectArguments[3] = 0u;
+}

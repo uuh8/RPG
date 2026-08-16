@@ -14,6 +14,7 @@ namespace Game.ElementField
         public readonly byte MaxLateralFlowPerTick;
         public readonly byte FireDecayPerTick;
         public readonly int ChunkSize;
+        public readonly bool SimulateCellWater;
         public readonly ExtinguishTuning Extinguish;
 
         public ElementFieldSimulationSettings(
@@ -22,6 +23,25 @@ namespace Game.ElementField
             byte maxLateralFlowPerTick,
             byte fireDecayPerTick,
             int chunkSize,
+            ExtinguishTuning extinguish)
+            : this(
+                cellSize,
+                maxDownFlowPerTick,
+                maxLateralFlowPerTick,
+                fireDecayPerTick,
+                chunkSize,
+                true,
+                extinguish)
+        {
+        }
+
+        public ElementFieldSimulationSettings(
+            float cellSize,
+            byte maxDownFlowPerTick,
+            byte maxLateralFlowPerTick,
+            byte fireDecayPerTick,
+            int chunkSize,
+            bool simulateCellWater,
             ExtinguishTuning extinguish)
         {
             if (cellSize <= 0f || float.IsNaN(cellSize) || float.IsInfinity(cellSize))
@@ -34,6 +54,7 @@ namespace Game.ElementField
             MaxLateralFlowPerTick = maxLateralFlowPerTick;
             FireDecayPerTick = fireDecayPerTick;
             ChunkSize = chunkSize;
+            SimulateCellWater = simulateCellWater;
             Extinguish = extinguish;
         }
     }

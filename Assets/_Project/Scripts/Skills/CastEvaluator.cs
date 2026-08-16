@@ -6,7 +6,9 @@ using UnityEngine;
 
 namespace Game.Skills
 {
-    /// <summary>求值结果摘要（产出列表通过 output 参数回填，避免每次施法都分配新 List）。</summary>
+    /// <summary>
+    /// 求值结果摘要。攻击命令通过调用方提供的 output List 回填，返回值只报告法力消费与是否中断，
+    /// </summary>
     public readonly struct CastSummary
     {
         public readonly float ManaSpent;
@@ -20,19 +22,26 @@ namespace Game.Skills
     }
 
     /// <summary>
-    /// 法术编程系统的解释器内核：从左到右"运行"一段法杖序列，算出本次施法该产出哪些投射物。
-    /// 纯逻辑、不碰 Unity 实例化（对标 Combat.DamagePipeline），可 EditMode 单测。运行时由 SpellCaster（阶段 B）把 EmitCommand 变成真实投射物。
+    /// 法术编程系统的解释器内核：从左到右读取一段有序 SpellDefinition 引用，计算本层应产出的 EmitCommand。
+    /// 它是 Pure Logic：可以使用数值类型与资源引用，但不调用 Instantiate、不读取 Scene，也不是 MonoBehaviour。
+    /// Unity Runtime 由 SpellCaster 把命令变成真实攻击对象。
     /// 语义：Emit 产出并消耗投射物预算；Modify 累积修正（影响其后）；Multicast 增大投射物预算；
-    /// 投射物预算耗尽或法力不足即停。单遍读取、不回绕。
+    /// Draw Budget 耗尽只阻止当前 Emit，解释器仍继续读取后续 Modify/Multicast；法力不足才中断本层。单遍读取、不回绕。
     /// incomingMods 让本方法可被递归调用（后期触发：命中时以快照为起点再跑子序列）。
     /// </summary>
     public static class CastEvaluator
     {
+        // 防御性预算：即使资产配置错误，也不能让嵌套 Trigger 或单次产出无限增长。
         public const int MaxActionDepth = 16;
         public const int MaxEmitCommands = 64;
 
+        // ProfilerMarker.Auto() 用 using 作用域记录该段 CPU 时间；Dispose 时自动结束采样，异常/提前 return 也不会漏关 Sample。
         private static readonly ProfilerMarker s_evaluateMarker = new ProfilerMarker("Spell.Evaluate");
 
+        /// <summary>
+        /// 正式求值入口。IReadOnlyList 只限制本方法不能增删/替换元素，不代表底层集合被深度冻结；
+        /// output 由 SpellCaster 长期持有并复用，本方法进入时先 Clear，调用者不能依赖旧结果。
+        /// </summary>
         public static CastSummary Evaluate(
             IReadOnlyList<SpellDefinition> spells,      // 法术序列
             int baseDraws,                              // 投射物释放数
@@ -43,6 +52,7 @@ namespace Game.Skills
             return EvaluateCore(spells, baseDraws, availableMana, incomingMods, output, null);
         }
 
+        /// <summary>开发诊断入口：规则与 Evaluate 完全共用，只额外记录每条指令前后的预算、法力和修正快照。</summary>
         public static CastSummary EvaluateWithTrace(
             IReadOnlyList<SpellDefinition> spells,
             int baseDraws,
@@ -68,12 +78,13 @@ namespace Game.Skills
         {
             using (s_evaluateMarker.Auto())
             {
+                // Clear 只把 Count 归零，List 的内部数组容量会保留，下一次施法可复用已分配内存。
                 output.Clear();
-                int drawBudget = baseDraws;
-                float manaLeft = availableMana;
-                float manaSpent = 0f;
-                bool fizzled = false;
-                CastModifierState mods = incomingMods;
+                int drawBudget = baseDraws;            // 还允许多少条产出指令真正进入 output
+                float manaLeft = availableMana;        // 纯求值视角的剩余资源，不直接写 ManaComponent
+                float manaSpent = 0f;                  // 返回给调用方的统计值
+                bool fizzled = false;                  // true 表示遇到法力不足并提前结束
+                CastModifierState mods = incomingMods; // 当前索引处可见的不可变修正快照
 
                 trace?.Record(new CastTraceStep(
                     CastTraceStepKind.CastStarted, -1, null,
@@ -87,7 +98,7 @@ namespace Game.Skills
                     return new CastSummary(0f, false);
                 }
 
-                int i = 0;
+                int i = 0; // 指令指针：每个分支都必须推进，避免停在同一个 Slot 形成死循环。
                 // Draw Budget 只阻止当前 Emit，不代表解释器应停止读取后续指令。
                 // 例如 Emit → Multicast → Emit：第一个 Emit 把预算降到 0，
                 // 但后面的 Multicast 可以重新增加预算，让第二个 Emit 成为有效输出。
@@ -111,6 +122,7 @@ namespace Game.Skills
                     switch (spell.Kind)
                     {
                         case SpellKind.Modify:
+                            // Modify 自己也有法力成本；支付成功后返回一个新修正值，后续 Emit 才能看见。
                             if (!TrySpend(spell, ref manaLeft, ref manaSpent))
                             {
                                 fizzled = true;
@@ -130,6 +142,7 @@ namespace Game.Skills
                             break;
 
                         case SpellKind.Multicast:
+                            // Multicast 增加解释器预算，而不是直接复制某一种 Prefab，因此可与任意后续 Emit 组合。
                             if (!TrySpend(spell, ref manaLeft, ref manaSpent))
                             {
                                 fizzled = true;
@@ -172,6 +185,7 @@ namespace Game.Skills
                                 break;
                             }
 
+                            // Trigger Emit 将紧随其后的“一个完整 Action”捕获为 Payload；当前层不立刻执行该切片。
                             int payloadStart = i + 1;
                             int payloadEnd = payloadStart;
                             IReadOnlyList<SpellDefinition> payload = null;
@@ -187,6 +201,7 @@ namespace Game.Skills
                                     payloadEnd);
                             }
 
+                            // Bake 表示把 Authoring Data + 当前 Runtime 修正合成为独立输出快照。
                             EmitCommand command = BakeEmit(spell, mods, payload);
                             int emitIndex = output.Count;
                             output.Add(command);
@@ -292,6 +307,9 @@ namespace Game.Skills
             return manaCost;
         }
 
+        /// <summary>
+        /// 纯数值扣费。ref 允许方法直接更新调用方的两个局部变量；这里不会访问或修改场景中的 ManaComponent。
+        /// </summary>
         private static bool TrySpend(SpellDefinition spell, ref float manaLeft, ref float manaSpent)
         {
             float cost = SanitizedManaCost(spell);
@@ -314,6 +332,7 @@ namespace Game.Skills
         /// </summary>
         private static EmitCommand BakeEmit(SpellDefinition spell, CastModifierState mods, IReadOnlyList<SpellDefinition> payload)
         {
+            // Max(0, value) 把非法负倍率/伤害钳到零，防止配置错误把伤害变成治疗或反向数值。
             float damageMultiplier = Mathf.Max(0f, mods.DamageMul);
             float damage = Mathf.Max(
                 0f,
@@ -328,6 +347,7 @@ namespace Game.Skills
             float fireFieldTickInterval = Mathf.Max(0.05f, spell.FireFieldTickInterval);
             float fireFieldDuration = Mathf.Max(0f, spell.FireFieldDuration);
             float speed = spell.BaseSpeed * mods.SpeedMul;
+            // 没有实际 Payload 时主动退化为 None，Runtime 就不会订阅一个永远没有内容的触发回调。
             PayloadTriggerMode trigger = payload != null && payload.Count > 0
                 ? spell.PayloadTrigger
                 : PayloadTriggerMode.None;
@@ -356,6 +376,7 @@ namespace Game.Skills
             int start,
             int depth)
         {
+            // depth 是语义解析深度，不是 Unity 帧数；硬上限防止恶意/错误资产导致无界递归。
             if (spells == null || start >= spells.Count || depth >= MaxActionDepth)
                 return start;
 
@@ -400,6 +421,7 @@ namespace Game.Skills
             int start,
             int end)
         {
+            // Payload 需要脱离原序列索引独立存活到未来命中帧，因此复制“引用切片”到新 List；不克隆 SpellDefinition 资产。
             var payload = new List<SpellDefinition>();
             int clampedEnd = Math.Min(end, spells.Count);
             for (int j = start; j < clampedEnd; j++)

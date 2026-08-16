@@ -1,0 +1,435 @@
+#pragma kernel InitializePool
+#pragma kernel InitializePoolAuxiliary
+#pragma kernel InitializeActivity
+#pragma kernel SpawnParticles
+#pragma kernel ConsumeParticles
+#pragma kernel ClearActivityCounters
+#pragma kernel UpdateParticleActivity
+#pragma kernel WriteSolverDispatchArgs
+#pragma kernel ApplyGravity
+#pragma kernel PredictPositions
+#pragma kernel CommitPositions
+#pragma kernel PackGameplaySamples
+
+#include "FluidGpuCommon.hlsl"
+
+#define THREADS_PER_GROUP 64
+
+RWStructuredBuffer<float4> _Positions;
+RWStructuredBuffer<float4> _PredictedPositions;
+RWStructuredBuffer<float4> _Velocities;
+RWStructuredBuffer<float2> _DensityLambda;
+RWStructuredBuffer<uint2> _ParticleMetadata;
+RWStructuredBuffer<float4> _DeltaPositions;
+RWStructuredBuffer<uint2> _SpatialEntries;
+RWStructuredBuffer<uint2> _CellRanges;
+RWStructuredBuffer<uint> _FreeIndices;
+RWStructuredBuffer<uint> _Counters;
+StructuredBuffer<FluidGpuSpawnRequest> _SpawnRequests;
+struct FluidConsumeCommand
+{
+    int4 minimumCellAndPadding;
+    int4 maximumCellAndParticleCount;
+    uint4 materialSeedPadding;
+};
+StructuredBuffer<FluidConsumeCommand> _ConsumeRequests;
+RWStructuredBuffer<float4> _GameplaySamples;
+RWStructuredBuffer<uint> _StableTickCounters;
+RWStructuredBuffer<uint> _WakeRequests;
+RWStructuredBuffer<uint> _ActivityCounters;
+RWStructuredBuffer<uint> _SolverDispatchArgs;
+RWStructuredBuffer<uint> _HashDispatchArgs;
+
+int _ParticleCapacity;
+int _HashTableCapacity;
+int _SpawnRequestCount;
+int _ReactionCommandCount;
+float4 _WorldOrigin;
+float _CellSize;
+float4 _ActiveBoundsMin;
+float4 _ActiveBoundsMax;
+float _SleepVelocityThreshold;
+float _SleepDensityErrorThreshold;
+float _RestDensity;
+int _SleepAfterStableTicks;
+int _ParticleGroupCount;
+int _HashTableGroupCount;
+int _WakeAllInterestParticles;
+float _DeltaTime;
+float _MaxSpeed;
+float4 _Gravity;
+
+bool TryPopFreeIndex(out uint particleIndex)
+{
+    // Compare-Exchange 循环保证多个 Spawn Thread 不会同时拿到同一个 free-stack slot。
+    // 后续 PBF 只会读取 active 数据；Pool 的所有权仍由这个 Kernel 唯一改变。
+    while (true)
+    {
+        uint freeCount = _Counters[FLUID_FREE_COUNT_COUNTER];
+        if (freeCount == 0u)
+        {
+            particleIndex = 0u;
+            return false;
+        }
+
+        uint original;
+        InterlockedCompareExchange(
+            _Counters[FLUID_FREE_COUNT_COUNTER],
+            freeCount,
+            freeCount - 1u,
+            original);
+        if (original == freeCount)
+        {
+            particleIndex = _FreeIndices[freeCount - 1u];
+            return true;
+        }
+    }
+
+    // HLSL 的 while(true) 对 D3D11 控制流分析器并不总能被证明为全路径 return；
+    // 此分支不可达，仅为跨编译器的控制流完整性，不能改变上面的 CAS 语义。
+    particleIndex = 0u;
+    return false;
+}
+
+void AccumulateDroppedParticleCount(uint amount)
+{
+    if (amount == 0u)
+        return;
+
+    // Counter 只用 uint 表示；多个恶意 direct-upload request 的总和不能回绕成较小值。
+    // CAS 保留精确的普通累加，超过表达范围时饱和为 UINT_MAX，避免诊断自身产生错误信息。
+    while (true)
+    {
+        uint current = _Counters[FLUID_DROPPED_PARTICLE_COUNTER];
+        uint desired = (0xffffffffu - current < amount)
+            ? 0xffffffffu
+            : current + amount;
+        uint original;
+        InterlockedCompareExchange(
+            _Counters[FLUID_DROPPED_PARTICLE_COUNTER],
+            current,
+            desired,
+            original);
+        if (original == current)
+            return;
+    }
+}
+
+float SampleLinearFalloffRadius(float uniformSample)
+{
+    // 对 3D 球体 rho(r) ∝ 1-r/R，归一化半径 x 的 CDF 是 F(x)=4x^3-3x^4。
+    // 固定 12 次 bisection 没有 rejection loop，既确定又有常数时间上界。
+    float low = 0.0f;
+    float high = 1.0f;
+    [unroll]
+    for (int iteration = 0; iteration < 12; iteration++)
+    {
+        float middle = (low + high) * 0.5f;
+        float cdf = 4.0f * middle * middle * middle
+            - 3.0f * middle * middle * middle * middle;
+        if (cdf < uniformSample)
+            low = middle;
+        else
+            high = middle;
+    }
+
+    return (low + high) * 0.5f;
+}
+
+float3 SpawnOffset(FluidGpuSpawnRequest request, uint localIndex)
+{
+    uint seed = request.materialSeedFlagsParticleCount.y + localIndex * 747796405u;
+    float z = FluidRandom01(seed) * 2.0f - 1.0f;
+    float angle = FluidRandom01(seed + 1u) * 6.28318530718f;
+    float radial = sqrt(max(0.0f, 1.0f - z * z));
+    float3 direction = float3(radial * cos(angle), z, radial * sin(angle));
+
+    // Flag 只改变新粒子的采样密度：linear 遵循 rho(r) ∝ 1-r/R，默认值体积均匀。
+    // 两条路径都不会修改已生成粒子的质量/Metadata。
+    bool useLinearFalloff = (request.materialSeedFlagsParticleCount.z & 1u) != 0u;
+    float radiusSample = FluidRandom01(seed + 2u);
+    float distance = useLinearFalloff
+        ? SampleLinearFalloffRadius(radiusSample)
+        : pow(radiusSample, 1.0f / 3.0f);
+    return direction * (distance * request.positionRadius.w);
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void InitializePool(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index < (uint)_ParticleCapacity)
+    {
+        _Positions[index] = float4(0, 0, 0, 0);
+        _PredictedPositions[index] = float4(0, 0, 0, 0);
+        _Velocities[index] = float4(0, 0, 0, 0);
+        _DensityLambda[index] = float2(0, 0);
+        _ParticleMetadata[index] = uint2(0, 0);
+        _DeltaPositions[index] = float4(0, 0, 0, 0);
+        _SpatialEntries[index] = uint2(0xffffffffu, 0xffffffffu);
+        _FreeIndices[index] = index;
+    }
+
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void InitializePoolAuxiliary(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index < (uint)_HashTableCapacity)
+        _CellRanges[index] = uint2(0xffffffffu, 0u);
+
+    if (index == 0u)
+    {
+        _Counters[FLUID_FREE_COUNT_COUNTER] = (uint)_ParticleCapacity;
+        _Counters[FLUID_ACTIVE_COUNT_COUNTER] = 0u;
+        _Counters[FLUID_DROPPED_PARTICLE_COUNTER] = 0u;
+        _Counters[FLUID_NUMERICAL_ERROR_COUNTER] = 0u;
+    }
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void InitializeActivity(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index < (uint)_ParticleCapacity)
+    {
+        _StableTickCounters[index] = 0u;
+        _WakeRequests[index] = 0u;
+    }
+    if (index < 3u)
+    {
+        _ActivityCounters[index] = 0u;
+        _SolverDispatchArgs[index] = index == 0u ? 0u : 1u;
+        _HashDispatchArgs[index] = index == 0u ? 0u : 1u;
+    }
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void SpawnParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint requestIndex = dispatchThreadId.x;
+    if (requestIndex >= (uint)_SpawnRequestCount)
+        return;
+
+    FluidGpuSpawnRequest request = _SpawnRequests[requestIndex];
+    uint requestedCount = request.materialSeedFlagsParticleCount.w;
+    uint boundedCount = min(requestedCount, (uint)_ParticleCapacity);
+    // 直接上传可绕过 CPU Validator；先聚合超出 Pool 容量的部分，随后最多循环 capacity 次。
+    AccumulateDroppedParticleCount(requestedCount - boundedCount);
+    for (uint localIndex = 0u; localIndex < boundedCount; localIndex++)
+    {
+        uint particleIndex;
+        if (!TryPopFreeIndex(particleIndex))
+        {
+            // Free Stack 一旦耗尽，本 request 的其余元素必然都无法生成；聚合后直接退出，
+            // 防止 uint.MaxValue 等恶意请求把一个 Compute Thread 变成无界空转。
+            AccumulateDroppedParticleCount(boundedCount - localIndex);
+            break;
+        }
+
+        float3 position = request.positionRadius.xyz + SpawnOffset(request, localIndex);
+        _Positions[particleIndex] = float4(position, 1.0f);
+        _PredictedPositions[particleIndex] = float4(position, 1.0f);
+        _Velocities[particleIndex] = float4(request.velocity.xyz, 0.0f);
+        _DensityLambda[particleIndex] = float2(0, 0);
+        _DeltaPositions[particleIndex] = float4(0, 0, 0, 0);
+        _ParticleMetadata[particleIndex] = uint2(
+            request.materialSeedFlagsParticleCount.x,
+            FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG);
+        uint ignoredActive;
+        InterlockedAdd(_Counters[FLUID_ACTIVE_COUNT_COUNTER], 1u, ignoredActive);
+    }
+}
+
+// 一个 Thread 处理一条低频 Gameplay Command，并用 CAS 抢占 active slot。
+// Seed 只旋转扫描起点：同一输入可重复，又不会永远优先消耗低 index 粒子。
+[numthreads(1, 1, 1)]
+void ConsumeParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint commandIndex = dispatchThreadId.x;
+    if (commandIndex >= (uint)_ReactionCommandCount || _CellSize <= 0.0f)
+        return;
+
+    FluidConsumeCommand command = _ConsumeRequests[commandIndex];
+    uint maximumCount = (uint)command.maximumCellAndParticleCount.w;
+    uint consumed = 0u;
+    uint start = _ParticleCapacity > 0
+        ? command.materialSeedPadding.y % (uint)_ParticleCapacity
+        : 0u;
+    for (uint offset = 0u; offset < (uint)_ParticleCapacity && consumed < maximumCount; offset++)
+    {
+        uint particleIndex = (start + offset) % (uint)_ParticleCapacity;
+        uint2 metadata = _ParticleMetadata[particleIndex];
+        if (!FluidIsAlive(metadata.y)
+            || metadata.x != command.materialSeedPadding.x)
+        {
+            continue;
+        }
+
+        int3 globalCell = (int3)floor(
+            (_Positions[particleIndex].xyz - _WorldOrigin.xyz) / _CellSize);
+        if (any(globalCell < command.minimumCellAndPadding.xyz)
+            || any(globalCell > command.maximumCellAndParticleCount.xyz))
+        {
+            continue;
+        }
+
+        uint originalFlags;
+        InterlockedCompareExchange(
+            _ParticleMetadata[particleIndex].y,
+            metadata.y,
+            0u,
+            originalFlags);
+        if (originalFlags != metadata.y)
+            continue;
+
+        uint freeIndex;
+        InterlockedAdd(_Counters[FLUID_FREE_COUNT_COUNTER], 1u, freeIndex);
+        if (freeIndex < (uint)_ParticleCapacity)
+            _FreeIndices[freeIndex] = particleIndex;
+        uint ignoredActive;
+        InterlockedAdd(_Counters[FLUID_ACTIVE_COUNT_COUNTER], 0xffffffffu, ignoredActive);
+
+        _Positions[particleIndex] = float4(0, 0, 0, 0);
+        _PredictedPositions[particleIndex] = float4(0, 0, 0, 0);
+        _Velocities[particleIndex] = float4(0, 0, 0, 0);
+        _DensityLambda[particleIndex] = float2(0, 0);
+        _DeltaPositions[particleIndex] = float4(0, 0, 0, 0);
+        consumed++;
+    }
+}
+
+[numthreads(1, 1, 1)]
+void ClearActivityCounters(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    _ActivityCounters[FLUID_AWAKE_ACTIVITY_COUNTER] = 0u;
+    _ActivityCounters[FLUID_SLEEPING_ACTIVITY_COUNTER] = 0u;
+    _ActivityCounters[FLUID_INTEREST_ACTIVITY_COUNTER] = 0u;
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void UpdateParticleActivity(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity)
+        return;
+
+    uint2 metadata = _ParticleMetadata[index];
+    uint flags = metadata.y;
+    if (!FluidIsAlive(flags))
+    {
+        _StableTickCounters[index] = 0u;
+        _WakeRequests[index] = 0u;
+        return;
+    }
+
+    float3 position = _Positions[index].xyz;
+    bool inside = all(position >= _ActiveBoundsMin.xyz)
+        && all(position < _ActiveBoundsMax.xyz);
+    if (!inside)
+    {
+        flags = FLUID_ALIVE_FLAG;
+        _StableTickCounters[index] = 0u;
+        _WakeRequests[index] = 0u;
+        _ParticleMetadata[index] = uint2(metadata.x, flags);
+        return;
+    }
+
+    bool wasInside = (flags & FLUID_INTEREST_ACTIVE_FLAG) != 0u;
+    bool wake = _WakeAllInterestParticles != 0 || _WakeRequests[index] != 0u || !wasInside;
+    _WakeRequests[index] = 0u;
+    uint stableTicks = _StableTickCounters[index];
+    if (wake)
+    {
+        flags = FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG;
+        stableTicks = 0u;
+    }
+    else if ((flags & FLUID_SLEEPING_FLAG) == 0u)
+    {
+        float speed = length(_Velocities[index].xyz);
+        float relativeDensityError = abs(_DensityLambda[index].x - _RestDensity)
+            / max(_RestDensity, 1e-6f);
+        bool stable = speed <= _SleepVelocityThreshold
+            && relativeDensityError <= _SleepDensityErrorThreshold;
+        stableTicks = stable
+            ? (stableTicks == 0xffffffffu ? 0xffffffffu : stableTicks + 1u)
+            : 0u;
+        if (stable && stableTicks >= (uint)max(1, _SleepAfterStableTicks))
+            flags = FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_SLEEPING_FLAG;
+        else
+            flags = FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG;
+    }
+
+    _StableTickCounters[index] = stableTicks;
+    _ParticleMetadata[index] = uint2(metadata.x, flags);
+    uint ignored;
+    InterlockedAdd(_ActivityCounters[FLUID_INTEREST_ACTIVITY_COUNTER], 1u, ignored);
+    if (FluidRequiresSimulation(flags))
+        InterlockedAdd(_ActivityCounters[FLUID_AWAKE_ACTIVITY_COUNTER], 1u, ignored);
+    else if ((flags & FLUID_SLEEPING_FLAG) != 0u)
+        InterlockedAdd(_ActivityCounters[FLUID_SLEEPING_ACTIVITY_COUNTER], 1u, ignored);
+}
+
+[numthreads(1, 1, 1)]
+void WriteSolverDispatchArgs(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint awakeCount = _ActivityCounters[FLUID_AWAKE_ACTIVITY_COUNTER];
+    _SolverDispatchArgs[0] = awakeCount == 0u ? 0u : (uint)_ParticleGroupCount;
+    _SolverDispatchArgs[1] = 1u;
+    _SolverDispatchArgs[2] = 1u;
+    _HashDispatchArgs[0] = awakeCount == 0u ? 0u : (uint)_HashTableGroupCount;
+    _HashDispatchArgs[1] = 1u;
+    _HashDispatchArgs[2] = 1u;
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void ApplyGravity(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity || !FluidRequiresSimulation(_ParticleMetadata[index].y))
+        return;
+
+    float3 velocity = _Velocities[index].xyz + _Gravity.xyz * _DeltaTime;
+    float speed = length(velocity);
+    if (speed > _MaxSpeed && speed > 0.0f)
+        velocity *= _MaxSpeed / speed;
+    _Velocities[index] = float4(velocity, 0.0f);
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void PredictPositions(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity || !FluidRequiresSimulation(_ParticleMetadata[index].y))
+        return;
+
+    _PredictedPositions[index] = float4(
+        _Positions[index].xyz + _Velocities[index].xyz * _DeltaTime,
+        1.0f);
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void CommitPositions(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity || !FluidRequiresSimulation(_ParticleMetadata[index].y))
+        return;
+
+    // Task 2 到此为止：只提交预测位置，尚未执行任何 PBF density/neighbor constraint。
+    _Positions[index] = _PredictedPositions[index];
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void PackGameplaySamples(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity)
+        return;
+
+    uint2 metadata = _ParticleMetadata[index];
+    bool active = FluidIsAlive(metadata.y);
+    // tag=0 是 inactive；active 使用 materialId+1，避免 materialId=0 与 inactive 混淆。
+    float tag = active ? (float)(metadata.x + 1u) : 0.0f;
+    _GameplaySamples[index] = float4(_Positions[index].xyz, tag);
+}

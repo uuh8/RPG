@@ -4,9 +4,9 @@ using Game.Core;
 namespace Game.Combat
 {
     /// <summary>
-    /// 生命值管理 + IDamageable 实现。封装自身防御档案，受击时调用纯函数
-    /// 实现了一个挂在"能挨打的 GameObject"上的 MonoBehaviour，它是 IDamageable 的具体实现
-    /// 负责：持有血量/阵营/防御档案 → 受击时调 DamagePipeline 算账 → 扣血 → 同帧发受击事件 → 血量归零再发死亡事件。
+    /// 挂在“能受伤 GameObject”上的生命值组件，也是 IDamageable 的具体实现。
+    /// 它持有目标自己的血量、阵营和防御配置，并作为统一 Damage Funnel：调用 DamagePipeline 纯计算，
+    /// 再修改 Runtime HP，同帧发布受击事件；HP 归零时继续发布死亡事件。
     /// </summary>
     public class HealthComponent : MonoBehaviour, IDamageable
     {
@@ -14,6 +14,7 @@ namespace Game.Combat
         [SerializeField] private byte _teamId = 0;
         [SerializeField] private DefenseProfile _defenseProfile;
 
+        // Inspector 字段提供初始配置；当前生命值、实例 Id 和无敌开关是场景实例各自拥有的 Runtime State。
         private float _currentHp;
         private int _id;
         private bool _isInvulnerable;
@@ -27,22 +28,26 @@ namespace Game.Combat
 
         private void Awake()
         {
+            // Awake 对每个组件实例调用一次，因此每个角色都会获得独立的初始 HP。
             _currentHp = _maxHp;
+            // GetInstanceID 返回本次 Unity 运行期间对象的实例标识，供事件消费者筛选目标；它不是跨存档的永久 Id。
             _id = gameObject.GetInstanceID();
         }
 
+        /// <summary>统一伤害入口：入口过滤 → 纯计算 → 扣血 → 同步发布表现/死亡所需的事实事件。</summary>
         public void ReceiveHit(in DamageRequest req)
         {
             // Invulnerability 是 Damage Funnel 的入口 Gate：既不扣血，也不发布“0 伤害”事件。
             // 这样 HUD、受击闪白和死亡逻辑不会把 Phase Transition 期间的命中误认成有效伤害。
             if (!IsAlive || _isInvulnerable) return;
 
-            // 算出最终伤害
+            // DamagePipeline 只算结果，不直接碰 MonoBehaviour 状态；HealthComponent 才拥有并修改 _currentHp。
             DamageResult result = DamagePipeline.Resolve(in req, in _defenseProfile);
             _currentHp -= result.Final;
             if (_currentHp < 0f) _currentHp = 0f;   // 扣血钳制到 ≥0
 
-            // 同帧 Publish 受击事件
+            // EventBus.Publish 是同步调用：当前 ReceiveHit 返回前，已订阅的 HUD、受击表现等消费者就会收到事件。
+            // 事件只携带值数据，不把 HealthComponent 或攻击者对象直接暴露给表现模块。
             EventBus<DamageReceivedEvent>.Publish(new DamageReceivedEvent
             {
                 TargetId     = _id,
@@ -55,7 +60,7 @@ namespace Game.Combat
                 TriggerHitReaction = req.TriggerHitReaction,
             });
 
-            // 若血量 ≤0，同帧 Publish 死亡事件
+            // 受击事件总是先于死亡事件，消费者可以先显示本次伤害和 0 HP，再进入死亡表现。
             if (_currentHp <= 0f)
             {
                 EventBus<DeathEvent>.Publish(new DeathEvent

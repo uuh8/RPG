@@ -7,7 +7,8 @@
         "Game.Core",
         "Game.Combat",
         "Game.ElementField",
-        "Game.Rendering"
+        "Game.Rendering",
+        "Unity.Collections"
     ],
     "includePlatforms": [
         "Editor"

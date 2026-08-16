@@ -6,7 +6,7 @@ namespace Game.ElementField
     /// 固定容量 Ring Buffer。容量在初始化时确定，运行时只移动 Head/Tail，
     /// 避免 List 扩容和 Projectile 命中高峰造成不可预测的 GC Alloc。
     /// </summary>
-    public sealed class ElementWriteQueue
+    public sealed class ElementWriteQueue : IElementWriteSink
     {
         private readonly ElementWriteRequest[] _buffer;
         private int _head;
@@ -38,6 +38,9 @@ namespace Game.ElementField
             _count++;
             return true;
         }
+
+        bool IElementWriteSink.TryEnqueueWrite(in ElementWriteRequest request) =>
+            TryEnqueue(in request);
 
         public bool TryDequeue(out ElementWriteRequest request)
         {

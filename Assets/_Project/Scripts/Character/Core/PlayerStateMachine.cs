@@ -7,12 +7,15 @@ namespace Game.Character
     /// </summary>
     public class PlayerStateMachine
     {
-        // 当前正在运行的状态，外部只读
+        // 单一当前状态引用：外部只能读取，只有 ChangeState 能替换，保证每帧最多路由到一个 Gameplay State。
         public PlayerStateBase CurrentState { get; private set; }
 
+        /// <summary>
+        /// 按固定顺序切换状态：旧状态释放资源 -> 替换唯一引用 -> 新状态初始化。
+        /// ?. 是 C# null 条件运算符；首次进入状态时 CurrentState 为 null，因此不会调用 Exit。
+        /// </summary>
         public void ChangeState(PlayerStateBase newState)
         {
-            // ?. 是空条件运算符，CurrentState 为 null（初始化时）时不调用 Exit
             CurrentState?.Exit();
             CurrentState = newState;
             CurrentState.Enter();

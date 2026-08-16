@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Game.Skills
 {
     /// <summary>
-    /// 互斥的投射物主运动控制器。后出现的冲突类 Modify 会覆盖前一个模式。
+    /// 互斥的投射物主运动模式。追踪与轨道都需要接管主要方向，因此后出现的有效 Modify 覆盖前一个模式。
     /// </summary>
     public enum ProjectileMotionMode : byte
     {
@@ -13,8 +13,9 @@ namespace Game.Skills
     }
 
     /// <summary>
-    /// 求值过程中当前累积的修正状态。解释器从左到右读取 Modify 法术时更新它，
-    /// 产出投射物时把它快照进 EmitCommand。readonly struct 保持值传递和低开销。
+    /// 一次 CastEvaluator 调用中的修正快照。解释器持有一个局部值，读到 Modify 时用 Apply 返回新值，
+    /// 读到 Emit 时把当前值复制进 EmitCommand；它从不回写共享的 SpellDefinition 资产。
+    /// readonly struct 的字段构造后不可变，值复制也避免多个施法层共享同一个可变 Modifier 对象。
     /// </summary>
     public readonly struct CastModifierState
     {
@@ -55,8 +56,13 @@ namespace Game.Skills
             MotionMode = motionMode;
         }
 
+        // 恒等状态：加法项为 0、乘法项为 1、能力开关关闭，应用后不会改变基础投射物。
         public static CastModifierState Default => new CastModifierState(0f, 1f, 1f, 0f, 0, false, 0f, 0f, 0f, 0f, 0f, 0f, 0f, ProjectileMotionMode.None);
 
+        /// <summary>
+        /// 把一条 Modify 指令合并到当前快照并返回新快照。加法、乘法和 bool OR 分别表达不同叠加语义；
+        /// 调用方必须接住返回值，因为 readonly struct 不会原地修改自身。
+        /// </summary>
         public CastModifierState Apply(SpellDefinition modify)
         {
             ProjectileMotionMode motionMode = ResolveMotionMode(modify);
@@ -89,6 +95,7 @@ namespace Game.Skills
             if (enablesHoming)
                 mode = ProjectileMotionMode.Homing;
 
+            // Approximately 用带容差的浮点比较代替 == 0，避免 Inspector 浮点误差把“近似零”当成有效角速度。
             bool enablesOrbit = modify.ModOrbitRadius > 0f
                 && !Mathf.Approximately(modify.ModOrbitAngularSpeedDegrees, 0f);
             if (enablesOrbit)

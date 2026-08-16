@@ -5,13 +5,15 @@ using Game.Combat;
 namespace Game.Skills
 {
     /// <summary>
-    /// 一个法术的数据定义（数据驱动：新增法术 = 新建一份本资产，不写代码）。
-    /// 字段按 Kind 分组使用：求值器对 Emit 读 Base*/ProjectilePrefab；对 Modify 读 Mod*；对 Multicast 读 ExtraDraws。
+    /// 一个可复用法术指令的 Authoring Data。它是 Project Asset，不是场景中的投射物，也不保存某次施法的临时状态。
+    /// 在现有语义范围内新增配置只需创建资产；若新增一种全新规则，仍需同步扩展 CastEvaluator、EmitCommand 与 SpellCaster。
+    /// 字段按 Kind 分组读取：Emit/StaticProjectile 读取产出字段，Modify 读取 Mod*，Multicast 读取 ExtraDraws。
     /// </summary>
+    // CreateAssetMenu 让策划可从 Unity 的 Assets/Create 菜单创建该 ScriptableObject 资产。
     [CreateAssetMenu(menuName = "Game/Skills/Spell Definition", fileName = "SpellDefinition")]
     public class SpellDefinition : ScriptableObject
     {
-        #region 通用字段
+        #region 通用字段（所有 Kind 都可被 UI、法力系统或内容检索读取）
 
         [Header("通用")]
         public SpellKind Kind = SpellKind.Emit;
@@ -29,7 +31,7 @@ namespace Game.Skills
         #endregion
 
 
-        #region Emit（投射物）字段
+        #region Emit / StaticProjectile 产出字段（解释器会把有效字段烘焙进 EmitCommand）
 
         [Header("Emit（投射物）—— 仅 Kind=Emit 用")]
         [Tooltip("要生成的投射物预制体（其上需有 ProjectileBase 派生组件，如 Fireball）")]
@@ -81,6 +83,7 @@ namespace Game.Skills
         [Tooltip("保护盾可反弹投射物的次数。每成功反弹一次减 1，耗尽后护盾销毁。")]
         public int ShieldReflectCount = 3;
 
+        // 这两个隐藏字段只服务旧资产迁移：FormerlySerializedAs 让 Unity 把旧字段 IsTrigger 的序列化值读入新字段。
         [SerializeField, HideInInspector, FormerlySerializedAs("IsTrigger")]
         private bool _legacyIsTrigger;
         [SerializeField, HideInInspector]
@@ -89,7 +92,7 @@ namespace Game.Skills
         #endregion
 
 
-        #region Modify（修正）字段
+        #region Modify 修正字段（不直接修改 SpellDefinition 资产，而是累计到 CastModifierState）
 
         [Header("Modify（修正）—— 仅 Kind=Modify 用（默认值为恒等：不改变任何东西）")]
         public float ModDamageAddFlat = 0f;
@@ -129,6 +132,8 @@ namespace Game.Skills
 
         private void OnValidate()
         {
+            // OnValidate 由 Unity Editor 在资产载入或 Inspector 改值时调用，不属于玩家每帧 Runtime 流程。
+            // 迁移标记保证旧 bool 只转换一次，避免设计者之后主动选择 None 又被自动改回 OnImpact。
             if (!_legacyTriggerMigrated)
             {
                 if (_legacyIsTrigger && PayloadTrigger == PayloadTriggerMode.None)

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using Game.Core;
 using Game.Skills;
 using Game.UI;
 using NUnit.Framework;
@@ -17,6 +18,9 @@ namespace Game.Run.Tests
         private RunSessionCoordinator _sessionCoordinator;
         private DemoSceneTransitionController _transition;
         private DemoPauseMenuController _menu;
+        private RunPauseCoordinator _pauseCoordinator;
+        private GameObject _victoryPanel;
+        private GameObject _defeatPanel;
 
         [UnitySetUp]
         public IEnumerator SetUp()
@@ -60,7 +64,17 @@ namespace Game.Run.Tests
             GameObject menuObject = new GameObject("Pause Menu");
             menuObject.SetActive(false);
             _createdObjects.Add(menuObject);
+            _pauseCoordinator = menuObject.AddComponent<RunPauseCoordinator>();
             _menu = menuObject.AddComponent<DemoPauseMenuController>();
+
+            _victoryPanel = new GameObject("Victory Panel");
+            _victoryPanel.transform.SetParent(menuObject.transform);
+            _defeatPanel = new GameObject("Defeat Panel");
+            _defeatPanel.transform.SetParent(menuObject.transform);
+
+            SetPrivateField(_menu, "_pauseCoordinator", _pauseCoordinator);
+            SetPrivateField(_menu, "_victoryPanel", _victoryPanel);
+            SetPrivateField(_menu, "_defeatPanel", _defeatPanel);
             SetPrivateField(_menu, "_sceneTransition", _transition);
             SetPrivateField(_menu, "_sessionCoordinator", _sessionCoordinator);
             SetPrivateField(_menu, "_bossSceneName", "P8_BossField");
@@ -123,6 +137,63 @@ namespace Game.Run.Tests
             Assert.That(RunSpellSession.Current, Is.Null);
             Assert.That(RunSessionCoordinator.Current, Is.Null);
             Assert.That(_transition.IsTransitioning, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator TerminalResult_EventFrameKeepsDeathPresentationVisible()
+        {
+            EventBus<RunStateChangedEvent>.Publish(new RunStateChangedEvent
+            {
+                PreviousState = RunState.Running,
+                CurrentState = RunState.Completed,
+                CurrentEncounterIndex = -1
+            });
+
+            yield return null;
+
+            Assert.That(_victoryPanel.activeSelf, Is.False,
+                "死亡展示延迟结束前不应显示胜利界面。");
+            Assert.That(_defeatPanel.activeSelf, Is.False);
+            Assert.That(
+                _pauseCoordinator.HasReason(RunPauseReason.TerminalResult),
+                Is.False,
+                "事件同帧不能硬暂停，否则 Die 动画会被冻结。");
+            Assert.That(Time.timeScale, Is.EqualTo(1f));
+        }
+
+        [UnityTest]
+        public IEnumerator TerminalResult_FadeContinuesAfterTerminalPause()
+        {
+            SetPrivateField(_menu, "_victoryRevealDelay", 0f);
+            SetPrivateField(_menu, "_resultFadeDuration", 0.15f);
+            SetPrivateField(_menu, "_resultStartScale", 0.8f);
+
+            EventBus<RunStateChangedEvent>.Publish(new RunStateChangedEvent
+            {
+                PreviousState = RunState.Running,
+                CurrentState = RunState.Completed,
+                CurrentEncounterIndex = -1
+            });
+
+            yield return null;
+
+            CanvasGroup canvasGroup = _victoryPanel.GetComponent<CanvasGroup>();
+            Assert.That(_victoryPanel.activeSelf, Is.True);
+            Assert.That(canvasGroup, Is.Not.Null,
+                "结果 Panel 应通过 CanvasGroup 统一控制整组 UI 的透明度。");
+            Assert.That(
+                _pauseCoordinator.HasReason(RunPauseReason.TerminalResult),
+                Is.True);
+            Assert.That(Time.timeScale, Is.EqualTo(0f));
+            Assert.That(canvasGroup.alpha, Is.GreaterThan(0f).And.LessThan(1f));
+            Assert.That(_victoryPanel.transform.localScale.x,
+                Is.GreaterThan(0.8f).And.LessThan(1f));
+
+            yield return new WaitForSecondsRealtime(0.2f);
+
+            Assert.That(canvasGroup.alpha, Is.EqualTo(1f).Within(0.001f));
+            Assert.That(_victoryPanel.transform.localScale,
+                Is.EqualTo(Vector3.one));
         }
 
         private static void SetPrivateField(

@@ -1,0 +1,157 @@
+#pragma kernel BuildSpatialEntries
+#pragma kernel BitonicSort
+#pragma kernel ClearCellRanges
+#pragma kernel BuildCellRanges
+#pragma kernel MarkNeighborWakeRequests
+
+#include "FluidGpuCommon.hlsl"
+
+StructuredBuffer<float4> _PredictedPositions;
+StructuredBuffer<uint2> _ParticleMetadata;
+RWStructuredBuffer<uint> _WakeRequests;
+RWStructuredBuffer<int4> _SpatialCells;
+RWStructuredBuffer<uint2> _SpatialEntries;
+RWStructuredBuffer<uint2> _CellRanges;
+
+int _ParticleCapacity;
+int _HashTableCapacity;
+float _SmoothingRadius;
+int _BitonicStage;
+int _BitonicPass;
+
+static const uint FLUID_INACTIVE_BUCKET = 0xffffffffu;
+
+int3 PositionToCell(float3 position)
+{
+    // int 的截断会把 -0.01 误归到 0；Floor 才能与 CPU reference 保持负坐标一致。
+    return int3(floor(position / _SmoothingRadius));
+}
+
+uint HashCell(int3 cell)
+{
+    // 转 uint 保留负 cell 坐标的补码，和 C# (uint)cell.x 的 Hash Contract 一致。
+    uint hash = (uint)cell.x * 73856093u;
+    hash ^= (uint)cell.y * 19349663u;
+    hash ^= (uint)cell.z * 83492791u;
+    return hash & (uint)(_HashTableCapacity - 1);
+}
+
+bool IsEntryGreater(uint2 left, uint2 right)
+{
+    return left.x > right.x || (left.x == right.x && left.y > right.y);
+}
+
+[numthreads(64, 1, 1)]
+void BuildSpatialEntries(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return;
+
+    float4 predictedPosition = _PredictedPositions[particleIndex];
+    bool isActive = predictedPosition.w > 0.5f
+        && FluidIsInInterest(_ParticleMetadata[particleIndex].y);
+    int3 cell = isActive ? PositionToCell(predictedPosition.xyz) : int3(0, 0, 0);
+    // 这一份 int4 是本 Substep 的 immutable cell snapshot。PBF Apply 会改预测位置，
+    // 但不能让一次 Sort 生成的 Range 在同一 Substep 内失去其 build-time cell 语义。
+    _SpatialCells[particleIndex] = int4(cell, isActive ? 1 : 0);
+    uint bucket = isActive ? HashCell(cell) : FLUID_INACTIVE_BUCKET;
+    // uint2 的 8-byte Layout 已由 FluidGpuLayout.UInt2Stride 锁定；真实 cell 不冗余存入此 Buffer。
+    _SpatialEntries[particleIndex] = uint2(bucket, particleIndex);
+}
+
+[numthreads(64, 1, 1)]
+void BitonicSort(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint leftIndex = dispatchThreadId.x;
+    if (leftIndex >= (uint)_ParticleCapacity)
+        return;
+
+    uint rightIndex = leftIndex ^ (uint)_BitonicPass;
+    if (rightIndex >= (uint)_ParticleCapacity || leftIndex >= rightIndex)
+        return;
+
+    uint2 left = _SpatialEntries[leftIndex];
+    uint2 right = _SpatialEntries[rightIndex];
+    bool ascending = (leftIndex & (uint)_BitonicStage) == 0u;
+    bool shouldSwap = ascending ? IsEntryGreater(left, right) : IsEntryGreater(right, left);
+    if (!shouldSwap)
+        return;
+
+    // 每对只由较小 index 的一个线程写两个槽位；跨 Dispatch 的顺序提供上一 Pass 的全局可见性。
+    _SpatialEntries[leftIndex] = right;
+    _SpatialEntries[rightIndex] = left;
+}
+
+[numthreads(64, 1, 1)]
+void ClearCellRanges(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint bucket = dispatchThreadId.x;
+    if (bucket >= (uint)_HashTableCapacity)
+        return;
+
+    _CellRanges[bucket] = uint2(FLUID_INACTIVE_BUCKET, 0u);
+}
+
+[numthreads(64, 1, 1)]
+void BuildCellRanges(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint sortedIndex = dispatchThreadId.x;
+    if (sortedIndex >= (uint)_ParticleCapacity)
+        return;
+
+    uint bucket = _SpatialEntries[sortedIndex].x;
+    if (bucket == FLUID_INACTIVE_BUCKET || bucket >= (uint)_HashTableCapacity)
+        return;
+
+    // GPU thread 没有固定执行顺序；不能 read-modify-write uint2。分别原子收敛 start 与 end，得到 [start,end)。
+    InterlockedMin(_CellRanges[bucket].x, sortedIndex);
+    InterlockedMax(_CellRanges[bucket].y, sortedIndex + 1u);
+}
+
+[numthreads(64, 1, 1)]
+void MarkNeighborWakeRequests(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return;
+    uint flags = _ParticleMetadata[particleIndex].y;
+    if ((flags & FLUID_SLEEPING_FLAG) == 0u || !FluidIsInInterest(flags))
+        return;
+
+    int4 sourceCell = _SpatialCells[particleIndex];
+    if (sourceCell.w == 0)
+        return;
+    float3 sourcePosition = _PredictedPositions[particleIndex].xyz;
+    float radiusSquared = _SmoothingRadius * _SmoothingRadius;
+    [unroll]
+    for (int offsetIndex = 0; offsetIndex < 27; offsetIndex++)
+    {
+        int3 neighborCell = sourceCell.xyz + int3(
+            offsetIndex % 3 - 1,
+            (offsetIndex / 3) % 3 - 1,
+            offsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+        for (uint sortedIndex = range.x; sortedIndex < range.y; sortedIndex++)
+        {
+            uint2 entry = _SpatialEntries[sortedIndex];
+            if (entry.x != HashCell(neighborCell) || entry.y >= (uint)_ParticleCapacity)
+                continue;
+            int4 candidateCell = _SpatialCells[entry.y];
+            uint candidateFlags = _ParticleMetadata[entry.y].y;
+            if (any(candidateCell.xyz != neighborCell)
+                || !FluidRequiresSimulation(candidateFlags))
+            {
+                continue;
+            }
+            float3 difference = _PredictedPositions[entry.y].xyz - sourcePosition;
+            if (dot(difference, difference) < radiusSquared)
+            {
+                _WakeRequests[particleIndex] = 1u;
+                return;
+            }
+        }
+    }
+}

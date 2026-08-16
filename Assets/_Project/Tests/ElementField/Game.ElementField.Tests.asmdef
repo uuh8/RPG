@@ -6,7 +6,8 @@
         "UnityEditor.TestRunner",
         "Game.ElementField",
         "Game.Combat",
-        "Game.Core"
+        "Game.Core",
+        "Unity.Collections"
     ],
     "includePlatforms": [
         "Editor"

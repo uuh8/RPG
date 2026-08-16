@@ -1,0 +1,582 @@
+#pragma kernel ComputeDensityLambda
+#pragma kernel ComputeDeltaPosition
+#pragma kernel ApplyDeltaPosition
+#pragma kernel UpdateVelocities
+#pragma kernel ComputeXsphDeltaVelocities
+#pragma kernel ApplyDeltaVelocities
+#pragma kernel ComputeVorticities
+#pragma kernel ComputeVorticityDeltaVelocities
+#pragma kernel ClampVelocities
+
+#include "FluidGpuCommon.hlsl"
+
+// 每个 Kernel 只绑定它实际读写的 Buffer。尤其 D3D11 同一 Kernel 最多 8 个 RW UAV，
+// 所有邻居读取 Buffer 均保持 StructuredBuffer，避免为方便而把整套 SoA 都绑成 UAV。
+StructuredBuffer<float4> _Positions;
+RWStructuredBuffer<float4> _PredictedPositions;
+RWStructuredBuffer<float4> _Velocities;
+RWStructuredBuffer<float2> _DensityLambda;
+StructuredBuffer<uint2> _ParticleMetadata;
+RWStructuredBuffer<float4> _DeltaPositions;
+RWStructuredBuffer<float4> _DeltaVelocities;
+RWStructuredBuffer<float4> _Vorticities;
+StructuredBuffer<uint2> _SpatialEntries;
+StructuredBuffer<uint2> _CellRanges;
+StructuredBuffer<int4> _SpatialCells;
+RWStructuredBuffer<uint> _Counters;
+
+int _ParticleCapacity;
+int _HashTableCapacity;
+float _SmoothingRadius;
+float _ParticleMass;
+float _RestDensity;
+float _LambdaEpsilon;
+float _ArtificialPressure;
+float _MaximumPositionCorrection;
+float _DeltaTime;
+float _Viscosity;
+float _Vorticity;
+float _MaxSpeed;
+
+static const uint FLUID_INACTIVE_BUCKET = 0xffffffffu;
+static const float FLUID_PI = 3.14159265359f;
+static const float FLUID_DIRECTION_EPSILON_SQUARED = 1e-12f;
+static const float FLUID_ARTIFICIAL_PRESSURE_RATIO = 0.3f;
+
+bool IsFiniteFloat(float value)
+{
+    return !isnan(value) && !isinf(value);
+}
+
+bool IsFiniteFloat3(float3 value)
+{
+    return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+void RecordNumericalError()
+{
+    uint ignored;
+    InterlockedAdd(_Counters[FLUID_NUMERICAL_ERROR_COUNTER], 1u, ignored);
+}
+
+bool IsActive(uint particleIndex)
+{
+    return particleIndex < (uint)_ParticleCapacity
+        && FluidRequiresSimulation(_ParticleMetadata[particleIndex].y)
+        && _PredictedPositions[particleIndex].w > 0.5f;
+}
+
+uint HashCell(int3 cell)
+{
+    uint hash = (uint)cell.x * 73856093u;
+    hash ^= (uint)cell.y * 19349663u;
+    hash ^= (uint)cell.z * 83492791u;
+    return hash & (uint)(_HashTableCapacity - 1);
+}
+
+float Poly6(float distance)
+{
+    if (distance < 0.0f || distance >= _SmoothingRadius || !IsFiniteFloat(distance))
+        return 0.0f;
+
+    float h2 = _SmoothingRadius * _SmoothingRadius;
+    float difference = h2 - distance * distance;
+    float h9 = pow(_SmoothingRadius, 9.0f);
+    return 315.0f / (64.0f * FLUID_PI * h9) * difference * difference * difference;
+}
+
+float3 SpikyGradient(float3 offset)
+{
+    float distanceSquared = dot(offset, offset);
+    if (!IsFiniteFloat3(offset) || distanceSquared <= FLUID_DIRECTION_EPSILON_SQUARED)
+        return 0.0f;
+
+    float distance = sqrt(distanceSquared);
+    if (distance >= _SmoothingRadius)
+        return 0.0f;
+
+    float coefficient = -45.0f / (FLUID_PI * pow(_SmoothingRadius, 6.0f));
+    return coefficient * pow(_SmoothingRadius - distance, 2.0f) * (offset / distance);
+}
+
+float ArtificialPressure(float distance)
+{
+    if (_ArtificialPressure <= 0.0f || distance >= _SmoothingRadius)
+        return 0.0f;
+
+    // sCorr 的 ratio 截断到 1，保证该项位于 [-ArtificialPressure, 0]，而非在重合时无界放大。
+    float denominator = max(Poly6(FLUID_ARTIFICIAL_PRESSURE_RATIO * _SmoothingRadius), 1e-6f);
+    float ratio = saturate(Poly6(distance) / denominator);
+    return -_ArtificialPressure * ratio * ratio * ratio * ratio;
+}
+
+bool TryGetNeighbor(uint sortedIndex, int3 requiredCell, out uint neighborIndex)
+{
+    neighborIndex = 0u;
+    if (sortedIndex >= (uint)_ParticleCapacity)
+        return false;
+
+    uint2 entry = _SpatialEntries[sortedIndex];
+    if (entry.x != HashCell(requiredCell) || entry.y >= (uint)_ParticleCapacity)
+        return false;
+
+    float4 candidatePosition = _PredictedPositions[entry.y];
+    int4 candidateCell = _SpatialCells[entry.y];
+    if (!FluidIsInInterest(_ParticleMetadata[entry.y].y)
+        || candidatePosition.w <= 0.5f
+        || candidateCell.w == 0
+        || !IsFiniteFloat3(candidatePosition.xyz))
+    {
+        return false;
+    }
+
+    // 这里必须消费 Build 时写入的 snapshot，而不是 Apply 后再 Floor 当前 Position：
+    // 同一 Substep 只 Sort 一次时，当前 cell 已变化会与旧 Range 失配，错误地丢失 self/邻居。
+    if (any(candidateCell.xyz != requiredCell))
+        return false;
+
+    neighborIndex = entry.y;
+    return true;
+}
+
+bool TryGetSpatialCell(uint particleIndex, out int3 cell)
+{
+    cell = int3(0, 0, 0);
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return false;
+
+    int4 snapshot = _SpatialCells[particleIndex];
+    if (snapshot.w == 0)
+        return false;
+
+    cell = snapshot.xyz;
+    return true;
+}
+
+[numthreads(64, 1, 1)]
+void ComputeDensityLambda(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    if (!IsFiniteFloat3(position))
+    {
+        _DensityLambda[particleIndex] = float2(0.0f, 0.0f);
+        RecordNumericalError();
+        return;
+    }
+
+    int3 cell;
+    if (!TryGetSpatialCell(particleIndex, cell))
+    {
+        _DensityLambda[particleIndex] = float2(0.0f, 0.0f);
+        RecordNumericalError();
+        return;
+    }
+    float density = 0.0f;
+    float3 gradientI = 0.0f;
+    float gradientSumSquared = 0.0f;
+
+    [unroll]
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 neighborCell = cell + int3(
+            cellOffsetIndex % 3 - 1,
+            (cellOffsetIndex / 3) % 3 - 1,
+            cellOffsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+
+        uint end = min(range.y, (uint)_ParticleCapacity);
+        for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
+        {
+            uint neighborIndex;
+            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex))
+                continue;
+
+            float3 offset = position - _PredictedPositions[neighborIndex].xyz;
+            float distance = length(offset);
+            density += _ParticleMass * Poly6(distance);
+            if (neighborIndex == particleIndex)
+                continue;
+
+            float3 gradientJ = -(_ParticleMass / _RestDensity) * SpikyGradient(offset);
+            gradientI -= gradientJ;
+            gradientSumSquared += dot(gradientJ, gradientJ);
+        }
+    }
+
+    gradientSumSquared += dot(gradientI, gradientI);
+    float lambda = -(density / _RestDensity - 1.0f) / (gradientSumSquared + _LambdaEpsilon);
+    if (!IsFiniteFloat(density) || !IsFiniteFloat(lambda))
+    {
+        _DensityLambda[particleIndex] = float2(0.0f, 0.0f);
+        RecordNumericalError();
+        return;
+    }
+
+    _DensityLambda[particleIndex] = float2(density, lambda);
+}
+
+[numthreads(64, 1, 1)]
+void ComputeDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    float lambdaI = _DensityLambda[particleIndex].y;
+    if (!IsFiniteFloat3(position) || !IsFiniteFloat(lambdaI))
+    {
+        _DeltaPositions[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    int3 cell;
+    if (!TryGetSpatialCell(particleIndex, cell))
+    {
+        _DeltaPositions[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+    float3 deltaPosition = 0.0f;
+
+    [unroll]
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 neighborCell = cell + int3(
+            cellOffsetIndex % 3 - 1,
+            (cellOffsetIndex / 3) % 3 - 1,
+            cellOffsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+
+        uint end = min(range.y, (uint)_ParticleCapacity);
+        for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
+        {
+            uint neighborIndex;
+            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex)
+                || neighborIndex == particleIndex)
+            {
+                continue;
+            }
+
+            float3 offset = position - _PredictedPositions[neighborIndex].xyz;
+            float lambdaJ = _DensityLambda[neighborIndex].y;
+            float3 gradient = SpikyGradient(offset);
+            deltaPosition += (lambdaI + lambdaJ + ArtificialPressure(length(offset)))
+                * gradient / _RestDensity;
+        }
+    }
+
+    if (!IsFiniteFloat3(deltaPosition))
+    {
+        _DeltaPositions[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    // 该 Kernel 只写私有 Delta 槽位，绝不直接写 PredictedPositions；下一 Dispatch 才统一 Apply。
+    _DeltaPositions[particleIndex] = float4(deltaPosition, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
+void ApplyDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 correction = _DeltaPositions[particleIndex].xyz;
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    bool numericalError = !IsFiniteFloat3(correction) || !IsFiniteFloat3(position);
+    if (numericalError)
+    {
+        _DeltaPositions[particleIndex] = 0.0f;
+        _PredictedPositions[particleIndex] = float4(
+            IsFiniteFloat3(position) ? position : 0.0f,
+            1.0f);
+        RecordNumericalError();
+        return;
+    }
+
+    float correctionLength = length(correction);
+    if (correctionLength > _MaximumPositionCorrection && correctionLength > 0.0f)
+        correction *= _MaximumPositionCorrection / correctionLength;
+
+    float3 correctedPosition = position + correction;
+    if (!IsFiniteFloat3(correctedPosition))
+    {
+        _DeltaPositions[particleIndex] = 0.0f;
+        _PredictedPositions[particleIndex] = float4(position, 1.0f);
+        RecordNumericalError();
+        return;
+    }
+
+    _PredictedPositions[particleIndex] = float4(correctedPosition, 1.0f);
+}
+
+[numthreads(64, 1, 1)]
+void UpdateVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 oldPosition = _Positions[particleIndex].xyz;
+    float3 predictedPosition = _PredictedPositions[particleIndex].xyz;
+    float3 velocity = (predictedPosition - oldPosition) / _DeltaTime;
+    if (_DeltaTime <= 0.0f || !IsFiniteFloat3(oldPosition) || !IsFiniteFloat3(predictedPosition)
+        || !IsFiniteFloat3(velocity))
+    {
+        _Velocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _Velocities[particleIndex] = float4(velocity, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
+void ComputeXsphDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    float3 velocity = _Velocities[particleIndex].xyz;
+    if (!IsFiniteFloat3(position) || !IsFiniteFloat3(velocity))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    int3 cell;
+    if (!TryGetSpatialCell(particleIndex, cell))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+    float3 deltaVelocity = 0.0f;
+    [unroll]
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 neighborCell = cell + int3(cellOffsetIndex % 3 - 1, (cellOffsetIndex / 3) % 3 - 1, cellOffsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+
+        uint end = min(range.y, (uint)_ParticleCapacity);
+        for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
+        {
+            uint neighborIndex;
+            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex) || neighborIndex == particleIndex)
+                continue;
+
+            float3 neighborVelocity = _Velocities[neighborIndex].xyz;
+            float neighborDensity = _DensityLambda[neighborIndex].x;
+            if (!IsFiniteFloat3(neighborVelocity) || !IsFiniteFloat(neighborDensity)
+                || neighborDensity <= 1e-6f)
+            {
+                continue;
+            }
+
+            float distance = length(position - _PredictedPositions[neighborIndex].xyz);
+            // 标准 XSPH：c * (m_j/rho_j) * (v_j-v_i) * W。rho 来自本轮 Density Kernel，
+            // 不能偷用 RestDensity，否则不同密度区域会得到错误的平滑尺度。
+            deltaVelocity += _Viscosity * (_ParticleMass / neighborDensity)
+                * (neighborVelocity - velocity) * Poly6(distance);
+        }
+    }
+
+    if (!IsFiniteFloat3(deltaVelocity))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _DeltaVelocities[particleIndex] = float4(deltaVelocity, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
+void ApplyDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 velocity = _Velocities[particleIndex].xyz;
+    float3 deltaVelocity = _DeltaVelocities[particleIndex].xyz;
+    float3 correctedVelocity = velocity + deltaVelocity;
+    if (!IsFiniteFloat3(velocity) || !IsFiniteFloat3(deltaVelocity) || !IsFiniteFloat3(correctedVelocity))
+    {
+        _Velocities[particleIndex] = 0.0f;
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _Velocities[particleIndex] = float4(correctedVelocity, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
+void ComputeVorticities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    float3 velocity = _Velocities[particleIndex].xyz;
+    if (!IsFiniteFloat3(position) || !IsFiniteFloat3(velocity))
+    {
+        _Vorticities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    int3 cell;
+    if (!TryGetSpatialCell(particleIndex, cell))
+    {
+        _Vorticities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+    float3 vorticity = 0.0f;
+    [unroll]
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 neighborCell = cell + int3(cellOffsetIndex % 3 - 1, (cellOffsetIndex / 3) % 3 - 1, cellOffsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+
+        uint end = min(range.y, (uint)_ParticleCapacity);
+        for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
+        {
+            uint neighborIndex;
+            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex) || neighborIndex == particleIndex)
+                continue;
+
+            float neighborDensity = _DensityLambda[neighborIndex].x;
+            float3 neighborVelocity = _Velocities[neighborIndex].xyz;
+            if (!IsFiniteFloat(neighborDensity) || neighborDensity <= 1e-6f
+                || !IsFiniteFloat3(neighborVelocity))
+            {
+                continue;
+            }
+
+            float3 offset = position - _PredictedPositions[neighborIndex].xyz;
+            vorticity += (_ParticleMass / neighborDensity)
+                * cross(neighborVelocity - velocity, SpikyGradient(offset));
+        }
+    }
+
+    if (!IsFiniteFloat3(vorticity))
+    {
+        _Vorticities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _Vorticities[particleIndex] = float4(vorticity, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
+void ComputeVorticityDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    float3 vorticity = _Vorticities[particleIndex].xyz;
+    if (!IsFiniteFloat3(position) || !IsFiniteFloat3(vorticity))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    int3 cell;
+    if (!TryGetSpatialCell(particleIndex, cell))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+    float3 eta = 0.0f;
+    float vorticityMagnitude = length(vorticity);
+    [unroll]
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 neighborCell = cell + int3(cellOffsetIndex % 3 - 1, (cellOffsetIndex / 3) % 3 - 1, cellOffsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+
+        uint end = min(range.y, (uint)_ParticleCapacity);
+        for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
+        {
+            uint neighborIndex;
+            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex) || neighborIndex == particleIndex)
+                continue;
+
+            float neighborDensity = _DensityLambda[neighborIndex].x;
+            float3 neighborVorticity = _Vorticities[neighborIndex].xyz;
+            if (!IsFiniteFloat(neighborDensity) || neighborDensity <= 1e-6f
+                || !IsFiniteFloat3(neighborVorticity))
+            {
+                continue;
+            }
+
+            float3 offset = position - _PredictedPositions[neighborIndex].xyz;
+            // eta 是 |omega| 的归一化差分梯度；减去本粒子项才能得到局部变化而非整体尺度偏移。
+            eta += (_ParticleMass / neighborDensity)
+                * (length(neighborVorticity) - vorticityMagnitude) * SpikyGradient(offset);
+        }
+    }
+
+    float etaLength = length(eta);
+    float3 force = etaLength > 1e-6f ? _Vorticity * cross(eta / etaLength, vorticity) : 0.0f;
+    float3 deltaVelocity = force * _DeltaTime;
+    if (!IsFiniteFloat3(deltaVelocity))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _DeltaVelocities[particleIndex] = float4(deltaVelocity, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
+void ClampVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 velocity = _Velocities[particleIndex].xyz;
+    if (!IsFiniteFloat3(velocity))
+    {
+        _Velocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    float speed = length(velocity);
+    if (speed > _MaxSpeed && speed > 0.0f)
+        velocity *= _MaxSpeed / speed;
+    _Velocities[particleIndex] = float4(velocity, 0.0f);
+}

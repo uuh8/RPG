@@ -1,0 +1,252 @@
+#pragma kernel GatherIsotropicDensity
+#pragma kernel GatherAnisotropicDensity
+
+#include "FluidGpuCommon.hlsl"
+
+// Rendering 只读 Simulation Buffer；唯一 UAV 是当前 voxel 对应的 R32_SFloat Density Texture。
+// 每个 thread 覆盖一个 sample，所以不需要先 Clear，也不存在多个线程对同一 texel 的原子竞争。
+StructuredBuffer<float4> _PredictedPositions;
+StructuredBuffer<uint2> _ParticleMetadata;
+StructuredBuffer<uint2> _SpatialEntries;
+StructuredBuffer<uint2> _CellRanges;
+StructuredBuffer<int4> _SpatialCells;
+struct FluidAnisotropyTransform
+{
+    float4 row0;
+    float4 row1;
+    float4 row2;
+    float4 scaleValidity;
+};
+StructuredBuffer<FluidAnisotropyTransform> _AnisotropyTransforms;
+RWTexture3D<float> _DensityTexture;
+
+int _ParticleCapacity;
+int _HashTableCapacity;
+float _SmoothingRadius;
+float _ParticleMass;
+int _GridResolutionX;
+int _GridResolutionY;
+int _GridResolutionZ;
+int _AnisotropyCellRadius;
+float3 _WorldOrigin;
+float3 _VoxelSize;
+
+static const uint FLUID_INACTIVE_BUCKET = 0xffffffffu;
+static const float FLUID_PI = 3.14159265359f;
+
+bool IsFiniteFloat(float value)
+{
+    return !isnan(value) && !isinf(value);
+}
+
+bool IsFiniteFloat3(float3 value)
+{
+    return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+int3 PositionToCell(float3 position)
+{
+    // 负世界坐标必须使用 floor：-0.01/h 属于 cell -1，而不是截断后的 cell 0。
+    return int3(floor(position / _SmoothingRadius));
+}
+
+uint HashCell(int3 cell)
+{
+    uint hash = (uint)cell.x * 73856093u;
+    hash ^= (uint)cell.y * 19349663u;
+    hash ^= (uint)cell.z * 83492791u;
+    return hash & (uint)(_HashTableCapacity - 1);
+}
+
+float Poly6(float distance)
+{
+    if (!IsFiniteFloat(distance) || distance < 0.0f || distance >= _SmoothingRadius)
+        return 0.0f;
+
+    float h2 = _SmoothingRadius * _SmoothingRadius;
+    float difference = h2 - distance * distance;
+    // h 恒为正，但部分 D3D11 compiler 仍对通用 pow(f,e) 发出“负底数”保守 warning；
+    // 固定九次方拆成乘法后数学等价，也让 importer 保持安静。
+    float h9 = h2 * h2 * h2 * h2 * _SmoothingRadius;
+    return 315.0f / (64.0f * FLUID_PI * h9)
+        * difference * difference * difference;
+}
+
+bool TryGetParticle(
+    uint sortedIndex,
+    int3 requiredCell,
+    out uint particleIndex,
+    out float3 particlePosition)
+{
+    particleIndex = 0u;
+    particlePosition = 0.0f;
+    if (sortedIndex >= (uint)_ParticleCapacity)
+        return false;
+
+    uint2 entry = _SpatialEntries[sortedIndex];
+    if (entry.x != HashCell(requiredCell) || entry.y >= (uint)_ParticleCapacity)
+        return false;
+
+    particleIndex = entry.y;
+    uint2 metadata = _ParticleMetadata[particleIndex];
+    float4 predictedPosition = _PredictedPositions[particleIndex];
+    int4 buildCell = _SpatialCells[particleIndex];
+    float3 surfaceBoundsMax = _WorldOrigin
+        + float3(_GridResolutionX - 1, _GridResolutionY - 1, _GridResolutionZ - 1) * _VoxelSize;
+    if (!FluidIsInInterest(metadata.y)
+        || predictedPosition.w <= 0.5f
+        || buildCell.w == 0
+        || any(buildCell.xyz != requiredCell)
+        || !IsFiniteFloat3(predictedPosition.xyz)
+        || any(predictedPosition.xyz < _WorldOrigin)
+        || any(predictedPosition.xyz > surfaceBoundsMax))
+    {
+        return false;
+    }
+
+    // bucket 只是候选集合；真实 int3 cell 比较负责排除 Hash Collision。
+    particlePosition = predictedPosition.xyz;
+    return true;
+}
+
+[numthreads(4, 4, 4)]
+void GatherIsotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    if (dispatchThreadId.x >= (uint)_GridResolutionX
+        || dispatchThreadId.y >= (uint)_GridResolutionY
+        || dispatchThreadId.z >= (uint)_GridResolutionZ)
+    {
+        return;
+    }
+
+    float3 worldPosition = _WorldOrigin + (float3)dispatchThreadId * _VoxelSize;
+    float density = 0.0f;
+    if (IsFiniteFloat3(worldPosition)
+        && IsFiniteFloat(_SmoothingRadius)
+        && _SmoothingRadius > 0.0f
+        && IsFiniteFloat(_ParticleMass)
+        && _ParticleMass > 0.0f
+        && _HashTableCapacity > 0)
+    {
+        int3 centerCell = PositionToCell(worldPosition);
+        [unroll]
+        for (int z = -1; z <= 1; z++)
+        {
+            [unroll]
+            for (int y = -1; y <= 1; y++)
+            {
+                [unroll]
+                for (int x = -1; x <= 1; x++)
+                {
+                    int3 requiredCell = centerCell + int3(x, y, z);
+                    uint bucket = HashCell(requiredCell);
+                    uint2 range = _CellRanges[bucket];
+                    if (range.x == FLUID_INACTIVE_BUCKET
+                        || range.x > range.y
+                        || range.y > (uint)_ParticleCapacity)
+                    {
+                        continue;
+                    }
+
+                    for (uint sortedIndex = range.x; sortedIndex < range.y; sortedIndex++)
+                    {
+                        uint particleIndex;
+                        float3 particlePosition;
+                        if (!TryGetParticle(
+                                sortedIndex,
+                                requiredCell,
+                                particleIndex,
+                                particlePosition))
+                            continue;
+
+                        float distance = length(worldPosition - particlePosition);
+                        density += _ParticleMass * Poly6(distance);
+                    }
+                }
+            }
+        }
+    }
+
+    // Invalid 输入不会把 NaN 传播到 Marching Cubes；它只让当前 Sample 安全回退为 0。
+    _DensityTexture[dispatchThreadId] = IsFiniteFloat(density) ? max(0.0f, density) : 0.0f;
+}
+
+[numthreads(4, 4, 4)]
+void GatherAnisotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    if (dispatchThreadId.x >= (uint)_GridResolutionX
+        || dispatchThreadId.y >= (uint)_GridResolutionY
+        || dispatchThreadId.z >= (uint)_GridResolutionZ)
+    {
+        return;
+    }
+
+    float3 worldPosition = _WorldOrigin + (float3)dispatchThreadId * _VoxelSize;
+    float density = 0.0f;
+    int cellRadius = clamp(_AnisotropyCellRadius, 1, 2);
+    if (IsFiniteFloat3(worldPosition)
+        && IsFiniteFloat(_SmoothingRadius)
+        && _SmoothingRadius > 0.0f
+        && IsFiniteFloat(_ParticleMass)
+        && _ParticleMass > 0.0f
+        && _HashTableCapacity > 0)
+    {
+        int3 centerCell = PositionToCell(worldPosition);
+        // Anisotropic Kernel 的世界支持域最长可达 scale*h，因此不能继续只查询固定 27 Cell。
+        // Profile 把 scale 硬限制到 2，故最坏 5^3=125 Cell；transformed distance 再做精确支持域过滤。
+        [loop]
+        for (int z = -cellRadius; z <= cellRadius; z++)
+        {
+            [loop]
+            for (int y = -cellRadius; y <= cellRadius; y++)
+            {
+                [loop]
+                for (int x = -cellRadius; x <= cellRadius; x++)
+                {
+                    int3 requiredCell = centerCell + int3(x, y, z);
+                    uint2 range = _CellRanges[HashCell(requiredCell)];
+                    if (range.x == FLUID_INACTIVE_BUCKET
+                        || range.x > range.y
+                        || range.y > (uint)_ParticleCapacity)
+                    {
+                        continue;
+                    }
+
+                    for (uint sortedIndex = range.x; sortedIndex < range.y; sortedIndex++)
+                    {
+                        uint particleIndex;
+                        float3 particlePosition;
+                        if (!TryGetParticle(
+                                sortedIndex,
+                                requiredCell,
+                                particleIndex,
+                                particlePosition))
+                        {
+                            continue;
+                        }
+
+                        FluidAnisotropyTransform transform = _AnisotropyTransforms[particleIndex];
+                        // inactive slot 的记录可能仍是零矩阵；若它刚被 Spawn/reuse，零 affine 会让所有
+                        // sample 都错误落到 Poly6(0) 峰值。valid 不成立或矩阵损坏时，以当前 Position
+                        // 为中心做 Identity fallback，形成独立于 CPU schedule 的消费端防线。
+                        float3 kernelPosition = worldPosition - particlePosition;
+                        if (IsFiniteFloat(transform.scaleValidity.w)
+                            && transform.scaleValidity.w > 0.5f)
+                        {
+                            float3 transformedPosition = float3(
+                                dot(transform.row0.xyz, worldPosition) + transform.row0.w,
+                                dot(transform.row1.xyz, worldPosition) + transform.row1.w,
+                                dot(transform.row2.xyz, worldPosition) + transform.row2.w);
+                            if (IsFiniteFloat3(transformedPosition))
+                                kernelPosition = transformedPosition;
+                        }
+
+                        density += _ParticleMass * Poly6(length(kernelPosition));
+                    }
+                }
+            }
+        }
+    }
+
+    _DensityTexture[dispatchThreadId] = IsFiniteFloat(density) ? max(0.0f, density) : 0.0f;
+}

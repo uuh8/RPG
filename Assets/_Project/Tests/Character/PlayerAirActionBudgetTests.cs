@@ -25,5 +25,20 @@ namespace Game.Character.Tests
             Assert.That(budget.TryConsumeAirDash(), Is.False);
             Assert.That(budget.TryConsumeExtraJump(), Is.True);
         }
+
+        [TestCase(-20f, 0f, 0f)]
+        [TestCase(-20f, 0.25f, -5f)]
+        [TestCase(10f, 0.5f, 5f)]
+        [TestCase(-20f, -1f, 0f)]
+        [TestCase(-20f, 2f, -20f)]
+        public void AirDashVerticalVelocityRetention_ScalesAndClamps(
+            float incomingVelocity,
+            float retention,
+            float expected)
+        {
+            float result = AirDashVerticalVelocityPolicy.Apply(incomingVelocity, retention);
+
+            Assert.That(result, Is.EqualTo(expected).Within(0.0001f));
+        }
     }
 }

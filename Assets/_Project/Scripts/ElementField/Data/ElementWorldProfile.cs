@@ -31,6 +31,10 @@ namespace Game.ElementField
         [SerializeField, Range(0, byte.MaxValue)] private int _maxLateralFlowPerTick = 16;
         [SerializeField, Range(0, byte.MaxValue)] private int _fireDecayPerTick = 1;
 
+        [Header("Water Simulation Backend")]
+        [Tooltip("Legacy Cell 为序列化默认值 0；Gpu PBF 只在退出并重新进入 Play Mode 后生效。")]
+        [SerializeField] private WaterSimulationMode _waterSimulationMode = WaterSimulationMode.LegacyCell;
+
         [Header("Shared P2 Reaction Rules")]
         [SerializeField] private ElementReactionProfile _reactionProfile;
 
@@ -47,6 +51,7 @@ namespace Game.ElementField
         public byte MaxDownFlowPerTick => (byte)_maxDownFlowPerTick;
         public byte MaxLateralFlowPerTick => (byte)_maxLateralFlowPerTick;
         public byte FireDecayPerTick => (byte)_fireDecayPerTick;
+        public WaterSimulationMode WaterSimulationMode => _waterSimulationMode;
         public ElementReactionProfile ReactionProfile => _reactionProfile;
 
         public long SleepGraceTicks
@@ -72,6 +77,7 @@ namespace Game.ElementField
                 (byte)_maxLateralFlowPerTick,
                 (byte)_fireDecayPerTick,
                 _chunkSize,
+                _waterSimulationMode == WaterSimulationMode.LegacyCell,
                 _reactionProfile.Extinguish);
         }
 
