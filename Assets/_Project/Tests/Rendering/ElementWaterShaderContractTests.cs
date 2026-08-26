@@ -1,5 +1,6 @@
 using System.IO;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Game.Rendering.Tests
@@ -33,6 +34,17 @@ namespace Game.Rendering.Tests
         }
 
         [Test]
+        public void ProceduralLiquidImportsWithoutShaderCompilerErrors()
+        {
+            Shader shader = Shader.Find("Game/Elemental/Liquid Procedural");
+            Assert.That(shader, Is.Not.Null);
+            Assert.That(
+                ShaderUtil.ShaderHasError(shader),
+                Is.False,
+                "ElementLiquidProcedural.shader has a Unity Shader Import/compile error.");
+        }
+
+        [Test]
         public void ProceduralLiquidUsesUnityIndirectContractAndSharedWaterCore()
         {
             const string shaderPath =
@@ -45,10 +57,42 @@ namespace Game.Rendering.Tests
             StringAssert.Contains("InitIndirectDrawArgs(0)", source);
             StringAssert.Contains("GetIndirectVertexID(input.vertexID)", source);
             StringAssert.Contains("StructuredBuffer<FluidSurfaceTriangle> _FluidSurfaceTriangles", source);
+            // Unity 6 的 DXC/HLSL 语法会把 triangle 识别为几何着色器输入修饰符，
+            // 因此它不能再作为局部变量名，否则 Shader Import 失败并让所有液体不可见。
+            StringAssert.Contains("FluidSurfaceTriangle surfaceTriangle", source);
+            StringAssert.DoesNotContain("FluidSurfaceTriangle triangle =", source);
+            // Unity 6 DXC 也不能用 ?: 在两个自定义 Struct 之间选返回值；
+            // 三个 Corner 必须各自通过显式 return 返回。
+            StringAssert.Contains("if (cornerIndex == 1u)", source);
+            StringAssert.DoesNotContain(
+                "return cornerIndex == 1u ? surfaceTriangle.v1 : surfaceTriangle.v2;",
+                source);
             StringAssert.Contains("ElementWaterCore.hlsl", source);
             StringAssert.Contains("ElementWaterBuildOrthonormalBasis", source);
             StringAssert.Contains("\"Queue\" = \"Transparent\"", source);
             StringAssert.Contains("Cull Back", source);
+        }
+
+        [Test]
+        public void ProceduralLiquidOpaqueFragmentDiagnosticIsBoundPerDraw()
+        {
+            const string shaderPath =
+                "Assets/_Project/Art/Elemental/Shaders/ElementLiquidProcedural.shader";
+            const string rendererPath =
+                "Assets/_Project/Scripts/Rendering/ElementField/GpuLiquidSurfaceRenderer.cs";
+            string shaderSource = File.ReadAllText(shaderPath);
+            string rendererSource = File.ReadAllText(rendererPath);
+
+            // 诊断开关必须从 Component 经 MaterialPropertyBlock 到达 Fragment；
+            // 只在 Material 上声明但 Draw 时未绑定，会制造“参数怎么调都没变化”的假象。
+            StringAssert.Contains("_DebugForceOpaqueFragment", shaderSource);
+            StringAssert.Contains("if (_DebugForceOpaqueFragment > 0.5f)", shaderSource);
+            StringAssert.Contains("return half4(_ShallowColor.rgb, 1.0h);", shaderSource);
+            StringAssert.Contains("Shader.PropertyToID(\"_DebugForceOpaqueFragment\")", rendererSource);
+            StringAssert.Contains("private bool _debugForceOpaqueFragment = true", rendererSource);
+            StringAssert.Contains(
+                "SetFloat(DebugForceOpaqueFragmentId, _debugForceOpaqueFragment ? 1f : 0f)",
+                rendererSource);
         }
 
         private static void AssertSharedProperties(string shaderName)

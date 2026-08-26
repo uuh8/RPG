@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Core;
 using Game.ElementField;
 using Unity.Profiling;
@@ -185,7 +186,7 @@ namespace Game.Rendering
                 for (int x = 0; x < dimensions.x; x++, cellIndex++)
                 {
                     ElementCell cell = _field.GetCell(x, y, z);
-                    if (cell.IsEmpty || cell.MaterialKind != ElementMaterialKind.Fire)
+                    if (cell.IsEmpty || cell.MaterialKind != MaterialId.Fire)
                         continue;
 
                     int currentOrdinal = activeOrdinal;
@@ -266,7 +267,7 @@ namespace Game.Rendering
             for (int x = 0; x < dimensions.x; x++)
             {
                 ElementCell cell = _field.GetCell(x, y, z);
-                if (!cell.IsEmpty && cell.MaterialKind == ElementMaterialKind.Fire)
+                if (!cell.IsEmpty && cell.MaterialKind == MaterialId.Fire)
                     count++;
             }
 

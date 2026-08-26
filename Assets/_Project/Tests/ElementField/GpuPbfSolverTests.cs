@@ -2,6 +2,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
+using Game.Materials;
 
 namespace Game.ElementField.Tests
 {
@@ -23,6 +24,202 @@ namespace Game.ElementField.Tests
         private const float MaximumPositionCorrection = 0.04f;
         private const float XsphViscosity = 0.25f;
         private const float VorticityStrength = 0.1f;
+        private const float MaximumTensilePositionCorrection = 0.0001f;
+
+        [Test]
+        public void Density_IgnoresDifferentMaterialInsideSameHashCell()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader solver = LoadRequiredShader(SolverShaderPath);
+            ComputeShader spatialHash = LoadRequiredShader(SpatialHashShaderPath);
+            var rows = new FluidGpuLiquidMaterialParameters[256];
+            LiquidMaterialSettings water = CreateMaterialSettings(MaterialId.Water, ParticleMass, RestDensity);
+            LiquidMaterialSettings poison = CreateMaterialSettings(MaterialId.Poison, ParticleMass * 5f, RestDensity * 2f);
+            rows[(byte)MaterialId.Water] = new FluidGpuLiquidMaterialParameters(in water);
+            rows[(byte)MaterialId.Poison] = new FluidGpuLiquidMaterialParameters(in poison);
+            var resources = new FluidGpuResourceSet(2, 16, 1, liquidMaterialParameters: rows);
+            try
+            {
+                UploadMixedMaterialParticles(resources);
+                RunPbf(solver, spatialHash, resources, iterations: 0);
+
+                var result = new Vector2[2];
+                resources.DensityLambda.GetData(result);
+                float selfKernel = PbfKernelMath.Poly6(0f, SmoothingRadius);
+                Assert.That(result[0].x, Is.EqualTo(water.ParticleMass * selfKernel).Within(1e-3f));
+                Assert.That(result[1].x, Is.EqualTo(poison.ParticleMass * selfKernel).Within(1e-3f));
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void UnderdenseFreeSurfaceProducesZeroGpuLambda()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader solver = LoadRequiredShader(SolverShaderPath);
+            ComputeShader spatialHash = LoadRequiredShader(SpatialHashShaderPath);
+            var resources = new FluidGpuResourceSet(1, 2, 1);
+            try
+            {
+                UploadActiveParticles(resources, new[] { new Vector4(0f, 0f, 0f, 1f) });
+                RunPbf(solver, spatialHash, resources, iterations: 0);
+
+                var densityLambda = new Vector2[1];
+                resources.DensityLambda.GetData(densityLambda);
+                Assert.That(densityLambda[0].x, Is.LessThan(RestDensity));
+                Assert.That(densityLambda[0].y, Is.Zero,
+                    "真实 GPU Kernel 不得把自由表面欠密度转换成会反复拉扯边缘的正 Lambda。");
+                AssertNoNumericalErrors(resources);
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void TensileConstraint_AttractsUnderdensePairAndClampsEachIteration()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader solver = LoadRequiredShader(SolverShaderPath);
+            ComputeShader spatialHash = LoadRequiredShader(SpatialHashShaderPath);
+            var resources = new FluidGpuResourceSet(2, 16, 1);
+            try
+            {
+                var original = new[]
+                {
+                    new Vector4(-0.05f, 0f, 0f, 1f),
+                    new Vector4(0.05f, 0f, 0f, 1f),
+                };
+                UploadActiveParticles(resources, original);
+
+                RunTensileIteration(
+                    solver,
+                    spatialHash,
+                    resources,
+                    density: 0.5f * RestDensity,
+                    strength: 1000f,
+                    maximumCorrection: MaximumTensilePositionCorrection);
+
+                var corrected = new Vector4[2];
+                resources.PredictedPositions.GetData(corrected);
+                Assert.That(corrected[0].x, Is.GreaterThan(original[0].x));
+                Assert.That(corrected[1].x, Is.LessThan(original[1].x));
+                Assert.That(Vector3.Distance(corrected[0], corrected[1]),
+                    Is.LessThan(Vector3.Distance(original[0], original[1])));
+                Assert.That(Vector3.Distance(corrected[0], original[0]),
+                    Is.LessThanOrEqualTo(MaximumTensilePositionCorrection + 1e-6f));
+                Assert.That(Vector3.Distance(corrected[1], original[1]),
+                    Is.LessThanOrEqualTo(MaximumTensilePositionCorrection + 1e-6f));
+                AssertNoNumericalErrors(resources);
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void TensileConstraint_DoesNotMoveParticlesAtOrAboveRestDensity()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader solver = LoadRequiredShader(SolverShaderPath);
+            ComputeShader spatialHash = LoadRequiredShader(SpatialHashShaderPath);
+            var resources = new FluidGpuResourceSet(2, 16, 1);
+            try
+            {
+                var original = new[]
+                {
+                    new Vector4(-0.05f, 0f, 0f, 1f),
+                    new Vector4(0.05f, 0f, 0f, 1f),
+                };
+                UploadActiveParticles(resources, original);
+
+                RunTensileIteration(
+                    solver,
+                    spatialHash,
+                    resources,
+                    density: RestDensity,
+                    strength: 1000f,
+                    maximumCorrection: MaximumTensilePositionCorrection);
+
+                var corrected = new Vector4[2];
+                resources.PredictedPositions.GetData(corrected);
+                Assert.That(corrected[0], Is.EqualTo(original[0]));
+                Assert.That(corrected[1], Is.EqualTo(original[1]));
+                AssertNoNumericalErrors(resources);
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void Cohesion_AttractsFreeSurfaceCancelsSymmetricInteriorAndClampsDeltaSpeed()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader solver = LoadRequiredShader(SolverShaderPath);
+            ComputeShader spatialHash = LoadRequiredShader(SpatialHashShaderPath);
+            // Spatial Hash 的 Bitonic Sort 需要 2 的幂容量；只激活 3 个 slot，第四个保持 inactive。
+            var resources = new FluidGpuResourceSet(4, 16, 1);
+            try
+            {
+                UploadActiveParticles(resources, new[]
+                {
+                    new Vector4(-0.125f, 0f, 0f, 1f),
+                    new Vector4(0f, 0f, 0f, 1f),
+                    new Vector4(0.125f, 0f, 0f, 1f),
+                });
+
+                RunCohesion(solver, spatialHash, resources, strength: 10000f, maximumDeltaSpeed: 0.02f);
+
+                var velocities = new Vector4[4];
+                resources.Velocities.GetData(velocities);
+                Assert.That(velocities[0].x, Is.GreaterThan(0f));
+                Assert.That(Mathf.Abs(velocities[1].x), Is.LessThan(1e-5f));
+                Assert.That(velocities[2].x, Is.LessThan(0f));
+                Assert.That(((Vector3)velocities[0]).magnitude, Is.LessThanOrEqualTo(0.02001f));
+                Assert.That(((Vector3)velocities[2]).magnitude, Is.LessThanOrEqualTo(0.02001f));
+                AssertNoNumericalErrors(resources);
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void Cohesion_DoesNotAttractParticlesOutsideCompactSupport()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader solver = LoadRequiredShader(SolverShaderPath);
+            ComputeShader spatialHash = LoadRequiredShader(SpatialHashShaderPath);
+            var resources = new FluidGpuResourceSet(2, 16, 1);
+            try
+            {
+                UploadActiveParticles(resources, new[]
+                {
+                    new Vector4(0f, 0f, 0f, 1f),
+                    new Vector4(SmoothingRadius + 0.01f, 0f, 0f, 1f),
+                });
+
+                RunCohesion(solver, spatialHash, resources, strength: 12f, maximumDeltaSpeed: 0.2f);
+
+                var velocities = new Vector4[2];
+                resources.Velocities.GetData(velocities);
+                Assert.That(velocities[0], Is.EqualTo(Vector4.zero));
+                Assert.That(velocities[1], Is.EqualTo(Vector4.zero));
+                AssertNoNumericalErrors(resources);
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
 
         [Test]
         public void FourPbfIterationsReduceDenseTwoByTwoByTwoDensityErrorWithoutChangingActiveCount()
@@ -291,6 +488,7 @@ namespace Game.ElementField.Tests
             BindNeighborReadBuffers(solver, deltaPositionKernel, resources);
             solver.SetBuffer(deltaPositionKernel, "_DensityLambda", resources.DensityLambda);
             solver.SetBuffer(deltaPositionKernel, "_DeltaPositions", resources.DeltaPositions);
+            solver.SetBuffer(deltaPositionKernel, "_DeltaVelocities", resources.DeltaVelocities);
             solver.SetBuffer(deltaPositionKernel, "_Counters", resources.Counters);
 
             solver.SetBuffer(applyPositionKernel, "_ParticleMetadata", resources.Metadata);
@@ -403,6 +601,66 @@ namespace Game.ElementField.Tests
             solver.Dispatch(clampKernel, groups, 1, 1);
         }
 
+        private static void RunCohesion(
+            ComputeShader solver,
+            ComputeShader spatialHash,
+            FluidGpuResourceSet resources,
+            float strength,
+            float maximumDeltaSpeed)
+        {
+            BuildSpatialHash(spatialHash, resources);
+            SetUniformActiveDensity(resources, RestDensity);
+            SetSolverParameters(solver, resources, viscosity: 0f, vorticity: 0f);
+            solver.SetFloat("_CohesionStrength", strength);
+            solver.SetFloat("_CohesionRestDistance", 0.1f);
+            solver.SetFloat("_MaximumCohesionDeltaSpeed", maximumDeltaSpeed);
+
+            int cohesionKernel = solver.FindKernel("ComputeCohesionDeltaVelocities");
+            BindNeighborReadBuffers(solver, cohesionKernel, resources);
+            solver.SetBuffer(cohesionKernel, "_DensityLambda", resources.DensityLambda);
+            solver.SetBuffer(cohesionKernel, "_DeltaVelocities", resources.DeltaVelocities);
+            solver.SetBuffer(cohesionKernel, "_Counters", resources.Counters);
+            int groups = DivideRoundUp(resources.ParticleCapacity);
+            solver.Dispatch(cohesionKernel, groups, 1, 1);
+            DispatchApplyDeltaVelocities(
+                solver,
+                solver.FindKernel("ApplyDeltaVelocities"),
+                resources,
+                groups);
+        }
+
+        private static void RunTensileIteration(
+            ComputeShader solver,
+            ComputeShader spatialHash,
+            FluidGpuResourceSet resources,
+            float density,
+            float strength,
+            float maximumCorrection)
+        {
+            BuildSpatialHash(spatialHash, resources);
+            SetUniformActiveDensity(resources, density);
+            SetSolverParameters(solver, resources, viscosity: 0f, vorticity: 0f);
+            solver.SetFloat("_TensileStrength", strength);
+            solver.SetFloat("_MaximumTensilePositionCorrection", maximumCorrection);
+
+            int computeKernel = solver.FindKernel("ComputeDeltaPosition");
+            BindNeighborReadBuffers(solver, computeKernel, resources);
+            solver.SetBuffer(computeKernel, "_DensityLambda", resources.DensityLambda);
+            solver.SetBuffer(computeKernel, "_DeltaPositions", resources.DeltaPositions);
+            solver.SetBuffer(computeKernel, "_DeltaVelocities", resources.DeltaVelocities);
+            solver.SetBuffer(computeKernel, "_Counters", resources.Counters);
+
+            int applyKernel = solver.FindKernel("ApplyTensileDeltaPosition");
+            solver.SetBuffer(applyKernel, "_ParticleMetadata", resources.Metadata);
+            solver.SetBuffer(applyKernel, "_PredictedPositions", resources.PredictedPositions);
+            solver.SetBuffer(applyKernel, "_DeltaVelocities", resources.DeltaVelocities);
+            solver.SetBuffer(applyKernel, "_Counters", resources.Counters);
+
+            int groups = DivideRoundUp(resources.ParticleCapacity);
+            solver.Dispatch(computeKernel, groups, 1, 1);
+            solver.Dispatch(applyKernel, groups, 1, 1);
+        }
+
         private static void DispatchApplyDeltaVelocities(
             ComputeShader solver,
             int applyDeltaVelocityKernel,
@@ -431,6 +689,8 @@ namespace Game.ElementField.Tests
             solver.SetFloat("_LambdaEpsilon", 0.0001f);
             solver.SetFloat("_ArtificialPressure", 0.001f);
             solver.SetFloat("_MaximumPositionCorrection", MaximumPositionCorrection);
+            solver.SetFloat("_TensileStrength", 0f);
+            solver.SetFloat("_MaximumTensilePositionCorrection", MaximumTensilePositionCorrection);
             solver.SetFloat("_DeltaTime", DeltaTime);
             solver.SetFloat("_Viscosity", viscosity);
             solver.SetFloat("_Vorticity", vorticity);
@@ -447,6 +707,10 @@ namespace Game.ElementField.Tests
             shader.SetBuffer(kernel, "_SpatialEntries", resources.SpatialEntries);
             shader.SetBuffer(kernel, "_CellRanges", resources.CellRanges);
             shader.SetBuffer(kernel, "_SpatialCells", resources.SpatialCells);
+            shader.SetBuffer(
+                kernel,
+                "_LiquidMaterialParameters",
+                resources.LiquidMaterialParameters);
         }
 
         private static void BuildSpatialHash(ComputeShader shader, FluidGpuResourceSet resources)
@@ -520,6 +784,31 @@ namespace Game.ElementField.Tests
             resources.Vorticities.SetData(vorticities);
             resources.Metadata.SetData(metadata);
             resources.Counters.SetData(counters);
+        }
+
+        private static void UploadMixedMaterialParticles(FluidGpuResourceSet resources)
+        {
+            // Position.w 是 GPU Slot 的 active 标记；Vector4.zero 会让第一个粒子直接被 Kernel 跳过。
+            var positions = new[] { new Vector4(0f, 0f, 0f, 1f), new Vector4(0.01f, 0f, 0f, 1f) };
+            resources.Positions.SetData(positions);
+            resources.PredictedPositions.SetData(positions);
+            resources.Velocities.SetData(new Vector4[2]);
+            resources.DensityLambda.SetData(new Vector2[2]);
+            resources.Metadata.SetData(new[]
+            {
+                new FluidGpuUInt2((uint)MaterialId.Water, FluidGpuLayout.ActiveFlag),
+                new FluidGpuUInt2((uint)MaterialId.Poison, FluidGpuLayout.ActiveFlag),
+            });
+            resources.Counters.SetData(new uint[FluidGpuLayout.CounterCount]);
+        }
+
+        private static LiquidMaterialSettings CreateMaterialSettings(
+            MaterialId material,
+            float mass,
+            float restDensity)
+        {
+            return new LiquidMaterialSettings(
+                material, 8u, mass, restDensity, 0.1f, 0.001f, 12f, 1f, 0.2f, 0.02f);
         }
 
         private static void UploadActiveParticlesAtSlots(

@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using Game.ElementField;
 using UnityEngine;
@@ -318,7 +319,7 @@ namespace Game.Rendering
                     return _workspace.TryGetCachedVisualWater(cell, out amount);
                 if (_world.TryGetCell(cell, out ElementCell value)
                     && !value.IsEmpty
-                    && value.MaterialKind == ElementMaterialKind.Water)
+                    && value.MaterialKind == MaterialId.Water)
                 {
                     amount = value.Amount;
                     return true;

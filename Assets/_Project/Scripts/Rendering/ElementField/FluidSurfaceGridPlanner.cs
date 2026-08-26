@@ -60,7 +60,6 @@ namespace Game.Rendering
         public bool IsResourceCompatibleWith(in FluidSurfaceGridSettings other)
         {
             return Resolution == other.Resolution
-                && VoxelSize == other.VoxelSize
                 && MaximumTriangleCount == other.MaximumTriangleCount;
         }
 
@@ -100,8 +99,9 @@ namespace Game.Rendering
 
             Vector3 paddedSize = size + Vector3.one * (settings.BoundsPadding * 2f);
             RequirePositiveFinite(paddedSize, nameof(interestBounds));
-            Vector3 worldOrigin = interestBounds.min - Vector3.one * settings.BoundsPadding;
-            RequireFinite(worldOrigin, nameof(interestBounds));
+            Vector3 desiredWorldOrigin =
+                interestBounds.min - Vector3.one * settings.BoundsPadding;
+            RequireFinite(desiredWorldOrigin, nameof(interestBounds));
 
             var resolution = new Vector3Int(
                 CalculateResolution(paddedSize.x, in settings),
@@ -111,12 +111,67 @@ namespace Game.Rendering
                 paddedSize.x / (resolution.x - 1),
                 paddedSize.y / (resolution.y - 1),
                 paddedSize.z / (resolution.z - 1));
+            Vector3 gridSpan = Vector3.Scale(
+                actualVoxelSize,
+                resolution - Vector3Int.one);
+
+            // Density Field 必须锚定在世界格点上。若直接使用跟随角色连续移动的 Bounds.min，
+            // 相同粒子每帧会落到不同的采样相位，Marching Cubes 的边界就会闪烁。
+            // 这里把 Origin 量化到完整 Voxel 步长，同时限制在“仍能覆盖 interestBounds”的区间内；
+            // 当 Padding 小到无法容纳任何格点时才退回连续 Origin，优先避免裁掉可见液体。
+            Vector3 worldOrigin = new Vector3(
+                SnapOriginAxis(
+                    desiredWorldOrigin.x,
+                    actualVoxelSize.x,
+                    gridSpan.x,
+                    interestBounds.min.x,
+                    interestBounds.max.x),
+                SnapOriginAxis(
+                    desiredWorldOrigin.y,
+                    actualVoxelSize.y,
+                    gridSpan.y,
+                    interestBounds.min.y,
+                    interestBounds.max.y),
+                SnapOriginAxis(
+                    desiredWorldOrigin.z,
+                    actualVoxelSize.z,
+                    gridSpan.z,
+                    interestBounds.min.z,
+                    interestBounds.max.z));
 
             return new FluidSurfaceGridSettings(
                 resolution,
                 worldOrigin,
                 actualVoxelSize,
                 settings.MaximumTriangleCount);
+        }
+
+        private static float SnapOriginAxis(
+            float desiredOrigin,
+            float voxelSize,
+            float gridSpan,
+            float interestMin,
+            float interestMax)
+        {
+            float minimumCoveringOrigin = interestMax - gridSpan;
+            float maximumCoveringOrigin = interestMin;
+            double latticeCoordinate = desiredOrigin / voxelSize;
+            float snappedOrigin = (float)(
+                Math.Round(latticeCoordinate, MidpointRounding.AwayFromZero) * voxelSize);
+
+            if (snappedOrigin < minimumCoveringOrigin)
+            {
+                snappedOrigin = (float)(Math.Ceiling(minimumCoveringOrigin / voxelSize) * voxelSize);
+            }
+            else if (snappedOrigin > maximumCoveringOrigin)
+            {
+                snappedOrigin = (float)(Math.Floor(maximumCoveringOrigin / voxelSize) * voxelSize);
+            }
+
+            const float CoverageEpsilon = 1e-5f;
+            bool coversAxis = snappedOrigin + CoverageEpsilon >= minimumCoveringOrigin
+                && snappedOrigin <= maximumCoveringOrigin + CoverageEpsilon;
+            return coversAxis ? snappedOrigin : desiredOrigin;
         }
 
         private static int CalculateResolution(float paddedAxisSize, in LiquidRenderSettings settings)

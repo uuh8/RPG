@@ -27,6 +27,14 @@ namespace Game.Rendering
         [Tooltip("毒爆 Resolved 瞬时视觉；Task 10 将通过对象池播放。")]
         public GameObject ToxicResolvedPrefab;
 
+        [Min(0.05f)]
+        [Tooltip("每次毒爆 VFX 保持激活的秒数；应略大于 Particle System 的完整播放时长。")]
+        public float ToxicResolvedLifetime = 2f;
+
+        [Range(1, 16)]
+        [Tooltip("预创建的毒爆 VFX 数量。池满时循环复用最早的槽位，避免战斗中 Instantiate/Destroy。")]
+        public int ToxicBurstPoolCapacity = 4;
+
         [Tooltip("毒爆 Cancelled 瞬时视觉；Task 10 将通过对象池播放。")]
         public GameObject ToxicCancelledPrefab;
     }

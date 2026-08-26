@@ -21,11 +21,13 @@ namespace Game.ElementField
         public readonly GraphicsBuffer SpatialEntries;
         public readonly GraphicsBuffer CellRanges;
         public readonly GraphicsBuffer SpatialCells;
+        public readonly GraphicsBuffer LiquidMaterialParameters;
         public readonly int ParticleCapacity;
         public readonly int HashTableCapacity;
         public readonly float SmoothingRadius;
         public readonly float ParticleMass;
         public readonly Bounds ActiveBounds;
+        public readonly Bounds ResidentRenderBounds;
         public readonly uint LayoutVersion;
         // 只描述粒子 slot 的 spawn/reuse 拓扑，不替代 LayoutVersion；Rendering 用不等比较即可安全跨 uint wrap。
         public readonly uint TopologyVersion;
@@ -45,6 +47,79 @@ namespace Game.ElementField
             Bounds activeBounds,
             uint layoutVersion,
             uint topologyVersion)
+            : this(
+                positions,
+                predictedPositions,
+                velocities,
+                metadata,
+                spatialEntries,
+                cellRanges,
+                spatialCells,
+                null,
+                particleCapacity,
+                hashTableCapacity,
+                smoothingRadius,
+                particleMass,
+                activeBounds,
+                activeBounds,
+                layoutVersion,
+                topologyVersion)
+        {
+        }
+
+        public FluidGpuSnapshot(
+            GraphicsBuffer positions,
+            GraphicsBuffer predictedPositions,
+            GraphicsBuffer velocities,
+            GraphicsBuffer metadata,
+            GraphicsBuffer spatialEntries,
+            GraphicsBuffer cellRanges,
+            GraphicsBuffer spatialCells,
+            GraphicsBuffer liquidMaterialParameters,
+            int particleCapacity,
+            int hashTableCapacity,
+            float smoothingRadius,
+            float particleMass,
+            Bounds activeBounds,
+            uint layoutVersion,
+            uint topologyVersion)
+            : this(
+                positions,
+                predictedPositions,
+                velocities,
+                metadata,
+                spatialEntries,
+                cellRanges,
+                spatialCells,
+                liquidMaterialParameters,
+                particleCapacity,
+                hashTableCapacity,
+                smoothingRadius,
+                particleMass,
+                activeBounds,
+                activeBounds,
+                layoutVersion,
+                topologyVersion)
+        {
+        }
+
+        public FluidGpuSnapshot(
+            GraphicsBuffer positions,
+            GraphicsBuffer predictedPositions,
+            GraphicsBuffer velocities,
+            GraphicsBuffer metadata,
+            GraphicsBuffer spatialEntries,
+            GraphicsBuffer cellRanges,
+            GraphicsBuffer spatialCells,
+            GraphicsBuffer liquidMaterialParameters,
+            int particleCapacity,
+            int hashTableCapacity,
+            float smoothingRadius,
+            float particleMass,
+            Bounds activeBounds,
+            Bounds residentRenderBounds,
+            uint layoutVersion,
+            uint topologyVersion)
         {
             Positions = positions;
             PredictedPositions = predictedPositions;
@@ -53,14 +128,70 @@ namespace Game.ElementField
             SpatialEntries = spatialEntries;
             CellRanges = cellRanges;
             SpatialCells = spatialCells;
+            LiquidMaterialParameters = liquidMaterialParameters;
             ParticleCapacity = particleCapacity;
             HashTableCapacity = hashTableCapacity;
             SmoothingRadius = smoothingRadius;
             ParticleMass = particleMass;
             ActiveBounds = activeBounds;
+            ResidentRenderBounds = residentRenderBounds;
             LayoutVersion = layoutVersion;
             TopologyVersion = topologyVersion;
         }
+    }
+
+    /// <summary>
+    /// 记录 GPU 粒子可能驻留过的世界范围。它只增不减：角色离开后粒子会退出
+    /// Interest/Solver，但 Presentation 仍需要覆盖这些 Alive 且冻结的粒子。
+    /// </summary>
+    public struct FluidResidentBoundsTracker
+    {
+        private Bounds _bounds;
+        private bool _hasBounds;
+
+        public readonly bool HasBounds => _hasBounds;
+        public readonly Bounds Bounds => _hasBounds ? _bounds : default;
+
+        public void Include(Bounds bounds)
+        {
+            if (!IsFinite(bounds.center) || !IsPositiveFinite(bounds.size))
+                throw new ArgumentOutOfRangeException(nameof(bounds));
+
+            if (!_hasBounds)
+            {
+                _bounds = bounds;
+                _hasBounds = true;
+                return;
+            }
+
+            _bounds.Encapsulate(bounds.min);
+            _bounds.Encapsulate(bounds.max);
+        }
+
+        public void IncludeSpawn(Vector3 center, float requestRadius, float particleSupportRadius)
+        {
+            if (!IsFinite(center)
+                || !IsNonNegativeFinite(requestRadius)
+                || !IsNonNegativeFinite(particleSupportRadius))
+            {
+                throw new ArgumentOutOfRangeException(nameof(center));
+            }
+
+            float extent = requestRadius + particleSupportRadius;
+            Include(new Bounds(center, Vector3.one * (extent * 2f)));
+        }
+
+        private static bool IsFinite(Vector3 value) =>
+            IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+
+        private static bool IsPositiveFinite(Vector3 value) =>
+            value.x > 0f && value.y > 0f && value.z > 0f && IsFinite(value);
+
+        private static bool IsNonNegativeFinite(float value) =>
+            value >= 0f && IsFinite(value);
+
+        private static bool IsFinite(float value) =>
+            !float.IsNaN(value) && !float.IsInfinity(value);
     }
 
     /// <summary>
@@ -73,8 +204,8 @@ namespace Game.ElementField
     }
 
     /// <summary>
-    /// 粒子 topology 的 CPU 发布时钟。Queue enqueue 只是未来工作，不能改变此版本；
-    /// Runtime 只有在非空 Spawn Dispatch 已提交到 Graphics Queue 后才调用发布入口。
+    /// 粒子 topology/material-membership 的 CPU 发布时钟。Queue enqueue 只是未来工作，不能改变此版本；
+    /// Runtime 只有在非空 Spawn/Consume/Convert Dispatch 已提交到 Graphics Queue 后才发布。
     /// </summary>
     internal struct FluidTopologyVersionTracker
     {
@@ -101,6 +232,11 @@ namespace Game.ElementField
         {
             PublishAfterSpawnDispatch(commandCount);
         }
+
+        internal void PublishAfterConvertDispatch(int commandCount)
+        {
+            PublishAfterSpawnDispatch(commandCount);
+        }
     }
 
     /// <summary>
@@ -112,8 +248,10 @@ namespace Game.ElementField
         public const int UInt2Stride = 8;
         public const int UInt4Stride = 16;
         public const int Int4Stride = 16;
-        public const int SpawnRequestStride = 48;
+        public const int SpawnRequestStride = 64;
+        public const int LiquidMaterialParameterStride = 32;
         public const int ConsumeRequestStride = 48;
+        public const int ConvertRequestStride = 48;
         public const int ColliderProxyStride = 64;
         public const int CollisionContactManifoldStride = 64;
         public const int CounterCount = 4;
@@ -129,10 +267,11 @@ namespace Game.ElementField
         public const uint InterestActiveFlag = FluidActivityFlags.InterestActive;
         public const uint RequiresSimulationFlag = FluidActivityFlags.RequiresSimulation;
         public const uint SleepingFlag = FluidActivityFlags.Sleeping;
+        public const uint RemoteSpawnActiveFlag = FluidActivityFlags.RemoteSpawnActive;
         // 兼容既有 Test/工具构造“默认 awake 粒子”；新 Production 必须使用四个精确命名。
         public const uint ActiveFlag = AliveFlag | InterestActiveFlag | RequiresSimulationFlag;
-        // v6 增加 Activity Flags、Sleep/Wake Buffer 与 Solver Indirect Args。
-        public const uint LayoutVersion = 6u;
+        // v8 增加 RemoteSpawnActive Metadata 位；Buffer Stride 不变，但消费者必须理解新活动语义。
+        public const uint LayoutVersion = 8u;
     }
 
     /// <summary>
@@ -215,7 +354,7 @@ namespace Game.ElementField
     }
 
     /// <summary>
-    /// GPU 侧 Spawn Request：两个 float4 加一个 uint4，固定为 48 bytes，
+    /// GPU 侧 Spawn Request：三个旧 Vector 保持原顺序，末尾追加 PackingParameters，固定 64 bytes，
     /// 使方向/半径与整型 material/seed/flags 在 HLSL 中保持无歧义的读取方式。
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -224,6 +363,7 @@ namespace Game.ElementField
         public readonly Vector4 PositionRadius;
         public readonly Vector4 Velocity;
         public readonly FluidGpuUInt4 MaterialSeedFlagsParticleCount;
+        public readonly Vector4 PackingParameters;
 
         public FluidGpuSpawnRequest(in FluidSpawnRequest request)
         {
@@ -242,6 +382,7 @@ namespace Game.ElementField
                 request.Seed,
                 request.Flags,
                 request.ParticleCount);
+            PackingParameters = new Vector4(request.RestSpacing, 0f, 0f, 0f);
         }
     }
 
@@ -251,6 +392,7 @@ namespace Game.ElementField
     public static class FluidSpawnFlags
     {
         public const uint UseLinearFalloff = 1u;
+        public const uint DensityPacked = 1u << 1;
     }
 
     /// <summary>
@@ -267,6 +409,9 @@ namespace Game.ElementField
                 && request.ParticleCount > 0u
                 && request.ParticleCount <= (uint)particleCapacity
                 && IsNonNegativeFinite(request.Radius)
+                && ((request.Flags & FluidSpawnFlags.DensityPacked) == 0u
+                    ? IsNonNegativeFinite(request.RestSpacing)
+                    : IsPositiveFinite(request.RestSpacing))
                 && IsFinite(request.WorldPosition)
                 && IsFinite(request.InitialVelocity);
         }
@@ -285,6 +430,11 @@ namespace Game.ElementField
         private static bool IsFinite(float value)
         {
             return !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static bool IsPositiveFinite(float value)
+        {
+            return value > 0f && IsFinite(value);
         }
     }
 }

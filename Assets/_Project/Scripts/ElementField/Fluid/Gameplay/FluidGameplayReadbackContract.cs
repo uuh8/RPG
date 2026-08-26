@@ -1,3 +1,4 @@
+using Game.Materials;
 using UnityEngine;
 
 namespace Game.ElementField
@@ -160,31 +161,6 @@ namespace Game.ElementField
         {
             _leaseHeld = false;
             _releasePending = false;
-        }
-    }
-
-    /// <summary>Exposure 的 pure 路由矩阵：PBF 仅替换 Water，Fire 永远保留 Legacy Cell 权威。</summary>
-    internal static class ElementExposureSourcePolicy
-    {
-        internal static bool ShouldReadOccupancy(
-            WaterSimulationMode mode,
-            ElementMaterialKind materialKind)
-        {
-            return mode == WaterSimulationMode.GpuPbf
-                && materialKind == ElementMaterialKind.Water;
-        }
-
-        internal static byte ResolveAmount(
-            WaterSimulationMode mode,
-            ElementMaterialKind materialKind,
-            bool hasLegacyCell,
-            byte legacyAmount,
-            bool hasOccupancy,
-            byte occupancyAmount)
-        {
-            if (ShouldReadOccupancy(mode, materialKind))
-                return hasOccupancy ? occupancyAmount : (byte)0;
-            return hasLegacyCell ? legacyAmount : (byte)0;
         }
     }
 

@@ -1,19 +1,27 @@
 #ifndef GAME_ELEMENT_FIELD_FLUID_GPU_COMMON_INCLUDED
 #define GAME_ELEMENT_FIELD_FLUID_GPU_COMMON_INCLUDED
 
-// 与 IFluidGpuSource.cs 中的 FluidGpuSpawnRequest 保持 48-byte 顺序一致。
+// 与 IFluidGpuSource.cs 中的 FluidGpuSpawnRequest 保持 64-byte 顺序一致。
 // StructuredBuffer 的 element stride 是 CPU/GPU Contract，字段重排会直接读错 VRAM。
 struct FluidGpuSpawnRequest
 {
     float4 positionRadius;
     float4 velocity;
     uint4 materialSeedFlagsParticleCount;
+    float4 packingParameters;
+};
+
+struct FluidGpuLiquidMaterialParameters
+{
+    float4 massDensityViscosityPressure;
+    float4 cohesionAndSleep;
 };
 
 static const uint FLUID_ALIVE_FLAG = 1u << 0;
 static const uint FLUID_INTEREST_ACTIVE_FLAG = 1u << 1;
 static const uint FLUID_REQUIRES_SIMULATION_FLAG = 1u << 2;
 static const uint FLUID_SLEEPING_FLAG = 1u << 3;
+static const uint FLUID_REMOTE_SPAWN_ACTIVE_FLAG = 1u << 4;
 // 旧名字仅供旧 fixture 构造默认 awake 状态；新 Kernel 必须选择精确 predicate。
 static const uint FLUID_ACTIVE_FLAG = FLUID_ALIVE_FLAG
     | FLUID_INTEREST_ACTIVE_FLAG
@@ -39,8 +47,11 @@ bool FluidIsInInterest(uint flags)
 
 bool FluidRequiresSimulation(uint flags)
 {
-    return (flags & (FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG))
-        == (FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG)
+    // Solver Eligibility 有两个来源：玩家附近 Interest，或远处新生粒子尚未落稳的临时 Lease。
+    // RequiresSimulation 不能单独成立，否则历史 Resident 会被无意全部唤醒。
+    return (flags & (FLUID_ALIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG))
+        == (FLUID_ALIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG)
+        && (flags & (FLUID_INTEREST_ACTIVE_FLAG | FLUID_REMOTE_SPAWN_ACTIVE_FLAG)) != 0u
         && (flags & FLUID_SLEEPING_FLAG) == 0u;
 }
 

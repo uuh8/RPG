@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using System.Collections.Generic;
 using Game.ElementField;
@@ -36,7 +37,7 @@ namespace Game.Rendering
                 var globalCell = new Vector3Int(baseX + x, baseY + y, baseZ + z);
                 if (world.TryGetCell(globalCell, out ElementCell cell)
                     && !cell.IsEmpty
-                    && cell.MaterialKind == ElementMaterialKind.Water)
+                    && cell.MaterialKind == MaterialId.Water)
                 {
                     return true;
                 }

@@ -1,3 +1,4 @@
+using Game.Materials;
 using NUnit.Framework;
 
 namespace Game.ElementField.Tests
@@ -32,7 +33,7 @@ namespace Game.ElementField.Tests
         {
             var request = new ElementWriteRequest(
                 UnityEngine.Vector3.one,
-                ElementMaterialKind.Water,
+                MaterialId.Water,
                 totalAmount: 12,
                 radius: 0f,
                 useLinearFalloff: false);
@@ -70,7 +71,7 @@ namespace Game.ElementField.Tests
         {
             var request = new ElementWriteRequest(
                 UnityEngine.Vector3.zero,
-                ElementMaterialKind.Fire,
+                MaterialId.Fire,
                 totalAmount: 8,
                 radius: 0f,
                 useLinearFalloff: false);

@@ -1,4 +1,5 @@
 using Game.Core;
+using UnityEngine;
 
 namespace Game.Combat
 {
@@ -12,6 +13,9 @@ namespace Game.Combat
         public int TargetId;
         public ElementReactionId Reaction;
         public ElementReactionPhase Phase;
+
+        // 世界坐标让全局 Burst 表现不必反查 Target；TargetId=0 时表示反应发生在环境物质中。
+        public Vector3 WorldPosition;
 
         // [0,1] 强度与预计时长只用于表现调制，不允许表现层据此反写战斗状态。
         public float NormalizedStrength;

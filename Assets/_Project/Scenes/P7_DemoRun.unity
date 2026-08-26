@@ -241,6 +241,7 @@ GameObject:
   - component: {fileID: 29622492}
   - component: {fileID: 29622491}
   - component: {fileID: 29622490}
+  - component: {fileID: 29622493}
   m_Layer: 8
   m_Name: Wall_East (8)
   m_TagString: Untagged
@@ -341,6 +342,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 29622488}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &29622493
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 29622488}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 29622490}
+  _isDynamic: 0
 --- !u!1001 &35638162
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1267,6 +1282,7 @@ GameObject:
   - component: {fileID: 85308399}
   - component: {fileID: 85308398}
   - component: {fileID: 85308397}
+  - component: {fileID: 85308400}
   m_Layer: 8
   m_Name: ElitePillar_NE
   m_TagString: Untagged
@@ -1367,6 +1383,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 85308395}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &85308400
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 85308395}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 85308397}
+  _isDynamic: 0
 --- !u!1 &96249247
 GameObject:
   m_ObjectHideFlags: 0
@@ -1731,7 +1761,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 70bac533a845ec14b82b33078f2e6ee0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.ElementField::Game.ElementField.ElementWorldRuntime
-  _profile: {fileID: 11400000, guid: febd475ae1d3eab48b813b17c279c321, type: 2}
+  _profile: {fileID: 11400000, guid: d7c060df9bccb0e4ebdb267833739571, type: 2}
+  _gpuPbfFluidRuntime: {fileID: 319159749}
+  _fluidGameplayOccupancy: {fileID: 319159748}
   _interestPoint: {fileID: 6283186940027858164}
   _interestGlobalCell: {x: 0, y: 0, z: 0}
   _interestChunkKey: {x: 0, y: 0, z: 0}
@@ -1764,7 +1796,8 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 793021263}
-  - {fileID: 2137146183}
+  - {fileID: 319159746}
+  - {fileID: 752384239}
   m_Father: {fileID: 845486997}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &107819197
@@ -1784,12 +1817,13 @@ MonoBehaviour:
     m_Bits: 192
   _exposureInterval: 0.25
   _naturalDecayHoldGraceSeconds: 0.1
-  _maxWetApplyPerTick: 10
-  _maxBurningApplyPerTick: 10
+  _liquidOccupancyComponent: {fileID: 319159748}
   _lastColliderCount: 0
   _lastStatusTargetCount: 0
   _lastWetApplicationCount: 0
   _lastBurningApplicationCount: 0
+  _lastPoisonedApplicationCount: 0
+  _lastStickyApplicationCount: 0
   _lastMaximumWaterAmount: 0
   _lastMaximumFireAmount: 0
 --- !u!114 &107819198
@@ -1819,6 +1853,7 @@ GameObject:
   - component: {fileID: 109341494}
   - component: {fileID: 109341493}
   - component: {fileID: 109341492}
+  - component: {fileID: 109341495}
   m_Layer: 8
   m_Name: Wall_East (11)
   m_TagString: Untagged
@@ -1919,6 +1954,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 109341490}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &109341495
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 109341490}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 109341492}
+  _isDynamic: 0
 --- !u!1001 &110135149
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1993,6 +2042,7 @@ GameObject:
   - component: {fileID: 113826288}
   - component: {fileID: 113826287}
   - component: {fileID: 113826286}
+  - component: {fileID: 113826289}
   m_Layer: 0
   m_Name: Wall_East (3)
   m_TagString: Untagged
@@ -2093,6 +2143,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 113826284}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &113826289
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 113826284}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 113826286}
+  _isDynamic: 0
 --- !u!1 &120853387
 GameObject:
   m_ObjectHideFlags: 0
@@ -2358,6 +2422,7 @@ GameObject:
   - component: {fileID: 133075335}
   - component: {fileID: 133075334}
   - component: {fileID: 133075333}
+  - component: {fileID: 133075336}
   m_Layer: 8
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -2458,6 +2523,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 133075331}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &133075336
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 133075331}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 133075333}
+  _isDynamic: 0
 --- !u!1 &143536779
 GameObject:
   m_ObjectHideFlags: 0
@@ -2888,6 +2967,7 @@ GameObject:
   - component: {fileID: 167521825}
   - component: {fileID: 167521824}
   - component: {fileID: 167521823}
+  - component: {fileID: 167521826}
   m_Layer: 8
   m_Name: Wall_South
   m_TagString: Untagged
@@ -2988,6 +3068,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 167521821}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &167521826
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 167521821}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 167521823}
+  _isDynamic: 0
 --- !u!1 &168948150
 GameObject:
   m_ObjectHideFlags: 0
@@ -3000,6 +3094,7 @@ GameObject:
   - component: {fileID: 168948154}
   - component: {fileID: 168948153}
   - component: {fileID: 168948152}
+  - component: {fileID: 168948155}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -3100,6 +3195,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 168948150}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &168948155
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 168948150}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 168948152}
+  _isDynamic: 0
 --- !u!1 &172742801
 GameObject:
   m_ObjectHideFlags: 0
@@ -3112,6 +3221,7 @@ GameObject:
   - component: {fileID: 172742805}
   - component: {fileID: 172742804}
   - component: {fileID: 172742803}
+  - component: {fileID: 172742806}
   m_Layer: 8
   m_Name: Wall_East (1)
   m_TagString: Untagged
@@ -3212,6 +3322,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 172742801}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &172742806
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 172742801}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 172742803}
+  _isDynamic: 0
 --- !u!1 &173572561
 GameObject:
   m_ObjectHideFlags: 0
@@ -3729,6 +3853,7 @@ GameObject:
   - component: {fileID: 193666405}
   - component: {fileID: 193666404}
   - component: {fileID: 193666403}
+  - component: {fileID: 193666406}
   m_Layer: 8
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -3829,6 +3954,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 193666401}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &193666406
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 193666401}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 193666403}
+  _isDynamic: 0
 --- !u!1 &202388865
 GameObject:
   m_ObjectHideFlags: 0
@@ -3841,6 +3980,7 @@ GameObject:
   - component: {fileID: 202388869}
   - component: {fileID: 202388868}
   - component: {fileID: 202388867}
+  - component: {fileID: 202388870}
   m_Layer: 8
   m_Name: Wall_East
   m_TagString: Untagged
@@ -3941,6 +4081,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 202388865}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &202388870
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 202388865}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 202388867}
+  _isDynamic: 0
 --- !u!1 &204213249
 GameObject:
   m_ObjectHideFlags: 0
@@ -3953,6 +4107,7 @@ GameObject:
   - component: {fileID: 204213253}
   - component: {fileID: 204213252}
   - component: {fileID: 204213251}
+  - component: {fileID: 204213254}
   m_Layer: 0
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -4053,6 +4208,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 204213249}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &204213254
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 204213249}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 204213251}
+  _isDynamic: 0
 --- !u!1 &215693568
 GameObject:
   m_ObjectHideFlags: 0
@@ -5286,6 +5455,7 @@ GameObject:
   - component: {fileID: 288525185}
   - component: {fileID: 288525184}
   - component: {fileID: 288525183}
+  - component: {fileID: 288525186}
   m_Layer: 8
   m_Name: Wall_East (3)
   m_TagString: Untagged
@@ -5386,6 +5556,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 288525181}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &288525186
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 288525181}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 288525183}
+  _isDynamic: 0
 --- !u!1 &289651543
 GameObject:
   m_ObjectHideFlags: 0
@@ -5398,6 +5582,7 @@ GameObject:
   - component: {fileID: 289651547}
   - component: {fileID: 289651546}
   - component: {fileID: 289651545}
+  - component: {fileID: 289651548}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -5498,6 +5683,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 289651543}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &289651548
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 289651543}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 289651545}
+  _isDynamic: 0
 --- !u!1 &307889341
 GameObject:
   m_ObjectHideFlags: 0
@@ -5688,6 +5887,207 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 311592800}
   m_CullTransparentMesh: 1
+--- !u!1 &319159745
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 319159746}
+  - component: {fileID: 319159749}
+  - component: {fileID: 319159748}
+  - component: {fileID: 319159747}
+  - component: {fileID: 319159750}
+  - component: {fileID: 319159751}
+  m_Layer: 0
+  m_Name: GPU_PBF_Fluid
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &319159746
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 319159745}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 107819196}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &319159747
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 319159745}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c84e2615eba595040be01ad8f8760788, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.GpuLiquidSurfaceRenderer
+  _fluidSourceComponent: {fileID: 319159749}
+  _worldRuntime: {fileID: 107819195}
+  _profile: {fileID: 11400000, guid: a43b714aec0514a408e17179121c8d63, type: 2}
+  _densityCompute: {fileID: 7200000, guid: 564399929e4c12a4eacf9302089e9ebf, type: 3}
+  _anisotropyCompute: {fileID: 7200000, guid: f20c673f5e379bb42a287dcd272cd02a, type: 3}
+  _marchingCubesCompute: {fileID: 7200000, guid: 6f9c1dd0137aea548868049dd085288a, type: 3}
+  _material: {fileID: 2100000, guid: 7f8679ef9df382c49a4d066692874ec7, type: 2}
+  _targetMaterial: 1
+  _debugForceOpaqueFragment: 0
+  _debugStage: 0
+  _debugHasSnapshot: 0
+  _debugResourcesReady: 0
+  _debugGridResolution: {x: 0, y: 0, z: 0}
+  _debugVoxelSize: {x: 0, y: 0, z: 0}
+  _debugTriangleCount: 0
+  _debugIndirectVertexCount: 0
+  _debugIndirectInstanceCount: 0
+  _debugIndirectStartVertex: 0
+  _debugIndirectStartInstance: 0
+  _debugTriangleOverflow: 0
+  _debugGeometryStage: 0
+  _debugDrawBoundsCenter: {x: 0, y: 0, z: 0}
+  _debugDrawBoundsSize: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition0: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition1: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition2: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal0: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal1: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal2: {x: 0, y: 0, z: 0}
+--- !u!114 &319159748
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 319159745}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ea6713ac4a05ad94eaad4aa78082ba9c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidGameplayOccupancyBridge
+  _fluidSourceComponent: {fileID: 319159749}
+  _elementWorldRuntime: {fileID: 107819195}
+  _readbackInterval: 0.25
+--- !u!114 &319159749
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 319159745}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6561a0706ed061b419d388d7b721b921, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.GpuPbfFluidRuntime
+  _profile: {fileID: 11400000, guid: d6a1fa67ab8fe1b4aaf953910ae95b68, type: 2}
+  _particleLifecycleShader: {fileID: 7200000, guid: ab79b0c7258602748a178bfe12e3842c, type: 3}
+  _spatialHashShader: {fileID: 7200000, guid: 0db8ac1f56716b14cb358cea59131f1d, type: 3}
+  _pbfSolverShader: {fileID: 7200000, guid: 0239cfc622603fa4889cddcd846131c4, type: 3}
+  _collisionShader: {fileID: 7200000, guid: de43a4445f4545046a70efaadc89d38e, type: 3}
+  _fluidColliderRoot: {fileID: 961848630}
+  _simulationBoundsCenter: {fileID: 6283186940027858164}
+  _simulationBoundsSize: {x: 24, y: 12, z: 24}
+  _debugAwakeParticleCount: 0
+  _debugSleepingParticleCount: 0
+  _debugInterestParticleCount: 0
+  _debugRejectedParticleCount: 0
+  _debugSpawnRequestOverflow: 0
+  _debugColliderOverflow: 0
+  _debugReactionQueueOverflow: 0
+--- !u!114 &319159750
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 319159745}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c84e2615eba595040be01ad8f8760788, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.GpuLiquidSurfaceRenderer
+  _fluidSourceComponent: {fileID: 319159749}
+  _worldRuntime: {fileID: 107819195}
+  _profile: {fileID: 11400000, guid: 50b8d59e0f977e34b8c9aa54f422828a, type: 2}
+  _densityCompute: {fileID: 7200000, guid: 564399929e4c12a4eacf9302089e9ebf, type: 3}
+  _anisotropyCompute: {fileID: 7200000, guid: f20c673f5e379bb42a287dcd272cd02a, type: 3}
+  _marchingCubesCompute: {fileID: 7200000, guid: 6f9c1dd0137aea548868049dd085288a, type: 3}
+  _material: {fileID: 2100000, guid: 95242a276213be144baabd011891e82d, type: 2}
+  _targetMaterial: 3
+  _debugForceOpaqueFragment: 0
+  _debugStage: 0
+  _debugHasSnapshot: 0
+  _debugResourcesReady: 0
+  _debugGridResolution: {x: 0, y: 0, z: 0}
+  _debugVoxelSize: {x: 0, y: 0, z: 0}
+  _debugTriangleCount: 0
+  _debugIndirectVertexCount: 0
+  _debugIndirectInstanceCount: 0
+  _debugIndirectStartVertex: 0
+  _debugIndirectStartInstance: 0
+  _debugTriangleOverflow: 0
+  _debugGeometryStage: 0
+  _debugDrawBoundsCenter: {x: 0, y: 0, z: 0}
+  _debugDrawBoundsSize: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition0: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition1: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition2: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal0: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal1: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal2: {x: 0, y: 0, z: 0}
+--- !u!114 &319159751
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 319159745}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c84e2615eba595040be01ad8f8760788, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.GpuLiquidSurfaceRenderer
+  _fluidSourceComponent: {fileID: 319159749}
+  _worldRuntime: {fileID: 107819195}
+  _profile: {fileID: 11400000, guid: e7ffbba84e4bdd4418cb84e30e6032fa, type: 2}
+  _densityCompute: {fileID: 7200000, guid: 564399929e4c12a4eacf9302089e9ebf, type: 3}
+  _anisotropyCompute: {fileID: 7200000, guid: f20c673f5e379bb42a287dcd272cd02a, type: 3}
+  _marchingCubesCompute: {fileID: 7200000, guid: 6f9c1dd0137aea548868049dd085288a, type: 3}
+  _material: {fileID: 2100000, guid: 38fbe696b847c3548aca45b054739b7c, type: 2}
+  _targetMaterial: 4
+  _debugForceOpaqueFragment: 0
+  _debugStage: 0
+  _debugHasSnapshot: 0
+  _debugResourcesReady: 0
+  _debugGridResolution: {x: 0, y: 0, z: 0}
+  _debugVoxelSize: {x: 0, y: 0, z: 0}
+  _debugTriangleCount: 0
+  _debugIndirectVertexCount: 0
+  _debugIndirectInstanceCount: 0
+  _debugIndirectStartVertex: 0
+  _debugIndirectStartInstance: 0
+  _debugTriangleOverflow: 0
+  _debugGeometryStage: 0
+  _debugDrawBoundsCenter: {x: 0, y: 0, z: 0}
+  _debugDrawBoundsSize: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition0: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition1: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition2: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal0: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal1: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal2: {x: 0, y: 0, z: 0}
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
@@ -6388,6 +6788,7 @@ GameObject:
   - component: {fileID: 403762905}
   - component: {fileID: 403762904}
   - component: {fileID: 403762903}
+  - component: {fileID: 403762906}
   m_Layer: 8
   m_Name: ElitePillar_SW
   m_TagString: Untagged
@@ -6488,6 +6889,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 403762901}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &403762906
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 403762901}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 403762903}
+  _isDynamic: 0
 --- !u!1 &408054088
 GameObject:
   m_ObjectHideFlags: 0
@@ -6808,6 +7223,7 @@ GameObject:
   - component: {fileID: 419655344}
   - component: {fileID: 419655343}
   - component: {fileID: 419655342}
+  - component: {fileID: 419655345}
   m_Layer: 8
   m_Name: ElementPlatform_B (1)
   m_TagString: Untagged
@@ -6908,6 +7324,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 419655340}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &419655345
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 419655340}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 419655342}
+  _isDynamic: 0
 --- !u!1 &423195878
 GameObject:
   m_ObjectHideFlags: 0
@@ -7081,6 +7511,7 @@ GameObject:
   - component: {fileID: 443631793}
   - component: {fileID: 443631792}
   - component: {fileID: 443631791}
+  - component: {fileID: 443631794}
   m_Layer: 8
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -7181,6 +7612,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 443631789}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &443631794
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 443631789}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 443631791}
+  _isDynamic: 0
 --- !u!1 &452887857
 GameObject:
   m_ObjectHideFlags: 0
@@ -7193,6 +7638,7 @@ GameObject:
   - component: {fileID: 452887861}
   - component: {fileID: 452887860}
   - component: {fileID: 452887859}
+  - component: {fileID: 452887862}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -7293,6 +7739,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 452887857}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &452887862
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 452887857}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 452887859}
+  _isDynamic: 0
 --- !u!1 &465024628
 GameObject:
   m_ObjectHideFlags: 0
@@ -7458,6 +7918,7 @@ GameObject:
   - component: {fileID: 489805453}
   - component: {fileID: 489805452}
   - component: {fileID: 489805451}
+  - component: {fileID: 489805454}
   m_Layer: 0
   m_Name: Wall_East (6)
   m_TagString: Untagged
@@ -7558,6 +8019,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 489805449}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &489805454
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 489805449}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 489805451}
+  _isDynamic: 0
 --- !u!1001 &499143003
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -7632,6 +8107,7 @@ GameObject:
   - component: {fileID: 511996384}
   - component: {fileID: 511996383}
   - component: {fileID: 511996382}
+  - component: {fileID: 511996385}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -7732,6 +8208,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 511996380}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &511996385
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 511996380}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 511996382}
+  _isDynamic: 0
 --- !u!1 &512769087
 GameObject:
   m_ObjectHideFlags: 0
@@ -7972,6 +8462,7 @@ GameObject:
   - component: {fileID: 526919977}
   - component: {fileID: 526919976}
   - component: {fileID: 526919975}
+  - component: {fileID: 526919978}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -8072,6 +8563,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 526919973}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &526919978
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 526919973}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 526919975}
+  _isDynamic: 0
 --- !u!1 &527245027
 GameObject:
   m_ObjectHideFlags: 0
@@ -8120,6 +8625,7 @@ GameObject:
   - component: {fileID: 531803585}
   - component: {fileID: 531803584}
   - component: {fileID: 531803583}
+  - component: {fileID: 531803586}
   m_Layer: 8
   m_Name: Wall_East (10)
   m_TagString: Untagged
@@ -8220,6 +8726,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 531803581}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &531803586
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 531803581}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 531803583}
+  _isDynamic: 0
 --- !u!114 &536088783 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 2849083668247548528, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
@@ -8253,6 +8773,7 @@ GameObject:
   - component: {fileID: 560450539}
   - component: {fileID: 560450538}
   - component: {fileID: 560450537}
+  - component: {fileID: 560450540}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -8353,6 +8874,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 560450535}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &560450540
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 560450535}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 560450537}
+  _isDynamic: 0
 --- !u!1 &576143476
 GameObject:
   m_ObjectHideFlags: 0
@@ -8440,6 +8975,7 @@ GameObject:
   - component: {fileID: 577097456}
   - component: {fileID: 577097455}
   - component: {fileID: 577097454}
+  - component: {fileID: 577097457}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -8540,6 +9076,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 577097452}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &577097457
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 577097452}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 577097454}
+  _isDynamic: 0
 --- !u!1 &587677701
 GameObject:
   m_ObjectHideFlags: 0
@@ -8971,6 +9521,7 @@ GameObject:
   - component: {fileID: 616776860}
   - component: {fileID: 616776859}
   - component: {fileID: 616776858}
+  - component: {fileID: 616776861}
   m_Layer: 8
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -9071,6 +9622,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 616776856}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &616776861
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 616776856}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 616776858}
+  _isDynamic: 0
 --- !u!1001 &619314684
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -9161,6 +9726,7 @@ GameObject:
   - component: {fileID: 660122137}
   - component: {fileID: 660122136}
   - component: {fileID: 660122135}
+  - component: {fileID: 660122138}
   m_Layer: 8
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -9261,6 +9827,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 660122133}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &660122138
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 660122133}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 660122135}
+  _isDynamic: 0
 --- !u!1 &667001441
 GameObject:
   m_ObjectHideFlags: 0
@@ -9292,7 +9872,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Game.Run::Game.Run.RunSpellSession
   _startingLibrary: {fileID: 11400000, guid: 8e198102f5ef3b24c911c247b53bb224, type: 2}
-  _startingWand: {fileID: 11400000, guid: 754ab3f598b712343b05f6ccfb343382, type: 2}
+  _startingWand: {fileID: 11400000, guid: 3adc568c118deb84f8fa39fbdca0742c, type: 2}
   _fullLibrary: {fileID: 11400000, guid: f9f697b94d4ac504ea9526e2c23df1bc, type: 2}
 --- !u!114 &667001443
 MonoBehaviour:
@@ -9334,6 +9914,7 @@ GameObject:
   - component: {fileID: 674704366}
   - component: {fileID: 674704365}
   - component: {fileID: 674704364}
+  - component: {fileID: 674704367}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -9434,6 +10015,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 674704362}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &674704367
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 674704362}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 674704364}
+  _isDynamic: 0
 --- !u!1 &684033075
 GameObject:
   m_ObjectHideFlags: 0
@@ -9446,6 +10041,7 @@ GameObject:
   - component: {fileID: 684033079}
   - component: {fileID: 684033078}
   - component: {fileID: 684033077}
+  - component: {fileID: 684033080}
   m_Layer: 8
   m_Name: Wall_East (3)
   m_TagString: Untagged
@@ -9546,6 +10142,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 684033075}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &684033080
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 684033075}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 684033077}
+  _isDynamic: 0
 --- !u!1 &684905378
 GameObject:
   m_ObjectHideFlags: 0
@@ -10165,6 +10775,58 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 4423021510411649036, guid: 67a947349d295fd4daf93b234ac85cc3, type: 3}
   m_PrefabInstance: {fileID: 741592395}
   m_PrefabAsset: {fileID: 0}
+--- !u!1 &752384238
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 752384239}
+  - component: {fileID: 752384240}
+  m_Layer: 0
+  m_Name: GpuFireParcelVisuals
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &752384239
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 752384238}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 107819196}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &752384240
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 752384238}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fec44c8772a0d574e931ca149fa7e6ba, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.GpuFireParcelRenderer
+  _worldRuntime: {fileID: 107819195}
+  _interestCenter: {fileID: 6283186940027858164}
+  _profile: {fileID: 11400000, guid: 618f1c45c53b17e49a89101533bed155, type: 2}
+  _lifecycleCompute: {fileID: 7200000, guid: 5d6400484b60232488b0c95c31478983, type: 3}
+  _surfaceDensityCompute: {fileID: 7200000, guid: c81c3a1b12cfeae469909214ebc38ed8, type: 3}
+  _surfaceMarchingCubesCompute: {fileID: 7200000, guid: 3ec909d847a00134eba37f4993750970, type: 3}
+  _surfaceMaterial: {fileID: 2100000, guid: 055fcf5c5fcbe5c4bb5ac801879e8606, type: 2}
+  _gasMaterial: {fileID: 2100000, guid: 526180dea5a58cd4d8db45931b096ad6, type: 2}
 --- !u!1 &752862261
 GameObject:
   m_ObjectHideFlags: 0
@@ -10177,6 +10839,7 @@ GameObject:
   - component: {fileID: 752862265}
   - component: {fileID: 752862264}
   - component: {fileID: 752862263}
+  - component: {fileID: 752862266}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -10277,6 +10940,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 752862261}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &752862266
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 752862261}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 752862263}
+  _isDynamic: 0
 --- !u!1 &754183956
 GameObject:
   m_ObjectHideFlags: 0
@@ -10494,6 +11171,7 @@ GameObject:
   - component: {fileID: 769916367}
   - component: {fileID: 769916366}
   - component: {fileID: 769916365}
+  - component: {fileID: 769916368}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -10594,6 +11272,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 769916363}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &769916368
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 769916363}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 769916365}
+  _isDynamic: 0
 --- !u!1 &772502106
 GameObject:
   m_ObjectHideFlags: 0
@@ -10816,6 +11508,7 @@ GameObject:
   - component: {fileID: 779165811}
   - component: {fileID: 779165810}
   - component: {fileID: 779165809}
+  - component: {fileID: 779165812}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -10916,6 +11609,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 779165807}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &779165812
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 779165807}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 779165809}
+  _isDynamic: 0
 --- !u!1 &786408513
 GameObject:
   m_ObjectHideFlags: 0
@@ -11257,6 +11964,7 @@ GameObject:
   - component: {fileID: 830046293}
   - component: {fileID: 830046292}
   - component: {fileID: 830046291}
+  - component: {fileID: 830046294}
   m_Layer: 0
   m_Name: Wall_East (11)
   m_TagString: Untagged
@@ -11357,6 +12065,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 830046289}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &830046294
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 830046289}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 830046291}
+  _isDynamic: 0
 --- !u!1 &832560427
 GameObject:
   m_ObjectHideFlags: 0
@@ -11513,6 +12235,7 @@ GameObject:
   - component: {fileID: 835598790}
   - component: {fileID: 835598789}
   - component: {fileID: 835598788}
+  - component: {fileID: 835598791}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -11613,6 +12336,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 835598786}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &835598791
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 835598786}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 835598788}
+  _isDynamic: 0
 --- !u!1 &845486996
 GameObject:
   m_ObjectHideFlags: 0
@@ -11648,6 +12385,7 @@ Transform:
   - {fileID: 832575519}
   - {fileID: 514646548}
   - {fileID: 107819196}
+  - {fileID: 1086499559}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &848585920
@@ -11929,6 +12667,7 @@ GameObject:
   - component: {fileID: 866291911}
   - component: {fileID: 866291910}
   - component: {fileID: 866291909}
+  - component: {fileID: 866291912}
   m_Layer: 8
   m_Name: ElitePillar_SE
   m_TagString: Untagged
@@ -12029,6 +12768,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 866291907}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &866291912
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 866291907}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 866291909}
+  _isDynamic: 0
 --- !u!1 &872784512
 GameObject:
   m_ObjectHideFlags: 0
@@ -12558,6 +13311,7 @@ GameObject:
   - component: {fileID: 926767353}
   - component: {fileID: 926767352}
   - component: {fileID: 926767351}
+  - component: {fileID: 926767354}
   m_Layer: 8
   m_Name: Wall_East (7)
   m_TagString: Untagged
@@ -12658,6 +13412,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 926767349}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &926767354
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 926767349}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 926767351}
+  _isDynamic: 0
 --- !u!1 &933653433
 GameObject:
   m_ObjectHideFlags: 0
@@ -12670,6 +13438,7 @@ GameObject:
   - component: {fileID: 933653437}
   - component: {fileID: 933653436}
   - component: {fileID: 933653435}
+  - component: {fileID: 933653438}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -12770,6 +13539,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 933653433}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &933653438
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 933653433}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 933653435}
+  _isDynamic: 0
 --- !u!1 &942585242
 GameObject:
   m_ObjectHideFlags: 0
@@ -12782,6 +13565,7 @@ GameObject:
   - component: {fileID: 942585246}
   - component: {fileID: 942585245}
   - component: {fileID: 942585244}
+  - component: {fileID: 942585247}
   m_Layer: 8
   m_Name: Wall_East (7)
   m_TagString: Untagged
@@ -12882,6 +13666,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 942585242}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &942585247
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 942585242}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 942585244}
+  _isDynamic: 0
 --- !u!1 &951859201
 GameObject:
   m_ObjectHideFlags: 0
@@ -13055,6 +13853,7 @@ GameObject:
   - component: {fileID: 952675850}
   - component: {fileID: 952675849}
   - component: {fileID: 952675848}
+  - component: {fileID: 952675851}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -13155,6 +13954,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 952675846}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &952675851
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 952675846}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 952675848}
+  _isDynamic: 0
 --- !u!1 &954547158
 GameObject:
   m_ObjectHideFlags: 0
@@ -13167,6 +13980,7 @@ GameObject:
   - component: {fileID: 954547162}
   - component: {fileID: 954547161}
   - component: {fileID: 954547160}
+  - component: {fileID: 954547163}
   m_Layer: 8
   m_Name: Wall_East (8)
   m_TagString: Untagged
@@ -13267,6 +14081,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 954547158}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &954547163
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 954547158}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 954547160}
+  _isDynamic: 0
 --- !u!1 &961450998
 GameObject:
   m_ObjectHideFlags: 0
@@ -13279,6 +14107,7 @@ GameObject:
   - component: {fileID: 961451002}
   - component: {fileID: 961451001}
   - component: {fileID: 961451000}
+  - component: {fileID: 961451003}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -13379,6 +14208,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 961450998}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &961451003
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 961450998}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 961451000}
+  _isDynamic: 0
 --- !u!1 &961848629
 GameObject:
   m_ObjectHideFlags: 0
@@ -13512,6 +14355,7 @@ GameObject:
   - component: {fileID: 977963142}
   - component: {fileID: 977963141}
   - component: {fileID: 977963140}
+  - component: {fileID: 977963143}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -13612,6 +14456,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 977963138}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &977963143
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 977963138}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 977963140}
+  _isDynamic: 0
 --- !u!1 &981357226
 GameObject:
   m_ObjectHideFlags: 0
@@ -13826,6 +14684,7 @@ GameObject:
   - component: {fileID: 986287021}
   - component: {fileID: 986287020}
   - component: {fileID: 986287019}
+  - component: {fileID: 986287022}
   m_Layer: 8
   m_Name: Wall_East (9)
   m_TagString: Untagged
@@ -13926,6 +14785,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 986287017}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &986287022
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 986287017}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 986287019}
+  _isDynamic: 0
 --- !u!1 &992746956
 GameObject:
   m_ObjectHideFlags: 0
@@ -13938,6 +14811,7 @@ GameObject:
   - component: {fileID: 992746960}
   - component: {fileID: 992746959}
   - component: {fileID: 992746958}
+  - component: {fileID: 992746961}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -14038,6 +14912,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 992746956}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &992746961
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 992746956}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 992746958}
+  _isDynamic: 0
 --- !u!1 &1008397286
 GameObject:
   m_ObjectHideFlags: 0
@@ -14072,6 +14960,75 @@ Transform:
   - {fileID: 632654122}
   m_Father: {fileID: 182092516}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &1010560959
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 535515680107075426, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: _radius
+      value: 1.2
+      objectReference: {fileID: 0}
+    - target: {fileID: 535515680107075426, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: _totalAmount
+      value: 8000
+      objectReference: {fileID: 0}
+    - target: {fileID: 535515680107075426, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: _materialKind
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 3.34
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 2.96
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6372270413305927110, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_Name
+      value: PoisonDeposit_Test
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
 --- !u!1 &1013981311
 GameObject:
   m_ObjectHideFlags: 0
@@ -14261,6 +15218,7 @@ GameObject:
   - component: {fileID: 1030910646}
   - component: {fileID: 1030910645}
   - component: {fileID: 1030910644}
+  - component: {fileID: 1030910647}
   m_Layer: 8
   m_Name: Wall_East (7)
   m_TagString: Untagged
@@ -14361,6 +15319,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1030910642}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1030910647
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1030910642}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1030910644}
+  _isDynamic: 0
 --- !u!1 &1034581834
 GameObject:
   m_ObjectHideFlags: 0
@@ -14626,6 +15598,7 @@ GameObject:
   - component: {fileID: 1062425152}
   - component: {fileID: 1062425151}
   - component: {fileID: 1062425150}
+  - component: {fileID: 1062425153}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -14726,6 +15699,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1062425148}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1062425153
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1062425148}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1062425150}
+  _isDynamic: 0
 --- !u!1 &1070088771
 GameObject:
   m_ObjectHideFlags: 0
@@ -15090,6 +16077,52 @@ RectTransform:
   m_AnchoredPosition: {x: -186.86, y: -354.18}
   m_SizeDelta: {x: 206.8044, y: 77.107}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!1 &1086499558
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1086499559}
+  - component: {fileID: 1086499560}
+  m_Layer: 0
+  m_Name: ReactionBurstVisuals
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1086499559
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1086499558}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 845486997}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1086499560
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1086499558}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc6eecc50b6623f468b8cf1d6071c9a3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.ReactionBurstVisualController
+  _profile: {fileID: 11400000, guid: 9b4d0d9ed7796cc43b36cc2b067ca46c, type: 2}
+  _visualRoot: {fileID: 0}
 --- !u!1 &1096321542
 GameObject:
   m_ObjectHideFlags: 0
@@ -15102,6 +16135,7 @@ GameObject:
   - component: {fileID: 1096321546}
   - component: {fileID: 1096321545}
   - component: {fileID: 1096321544}
+  - component: {fileID: 1096321547}
   m_Layer: 8
   m_Name: Wall_East (6)
   m_TagString: Untagged
@@ -15202,6 +16236,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1096321542}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1096321547
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1096321542}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1096321544}
+  _isDynamic: 0
 --- !u!1 &1127607791
 GameObject:
   m_ObjectHideFlags: 0
@@ -16162,6 +17210,7 @@ GameObject:
   - component: {fileID: 1252095621}
   - component: {fileID: 1252095620}
   - component: {fileID: 1252095619}
+  - component: {fileID: 1252095622}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -16262,6 +17311,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1252095617}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1252095622
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1252095617}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1252095619}
+  _isDynamic: 0
 --- !u!1 &1263094101
 GameObject:
   m_ObjectHideFlags: 0
@@ -16401,6 +17464,7 @@ GameObject:
   - component: {fileID: 1265405278}
   - component: {fileID: 1265405277}
   - component: {fileID: 1265405276}
+  - component: {fileID: 1265405279}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -16501,6 +17565,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1265405274}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1265405279
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1265405274}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1265405276}
+  _isDynamic: 0
 --- !u!1 &1275280214
 GameObject:
   m_ObjectHideFlags: 0
@@ -17179,6 +18257,7 @@ GameObject:
   - component: {fileID: 1312147432}
   - component: {fileID: 1312147431}
   - component: {fileID: 1312147430}
+  - component: {fileID: 1312147433}
   m_Layer: 8
   m_Name: Wall_East (9)
   m_TagString: Untagged
@@ -17279,6 +18358,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1312147428}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1312147433
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1312147428}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1312147430}
+  _isDynamic: 0
 --- !u!1 &1312592782
 GameObject:
   m_ObjectHideFlags: 0
@@ -17662,6 +18755,7 @@ GameObject:
   - component: {fileID: 1383606450}
   - component: {fileID: 1383606449}
   - component: {fileID: 1383606448}
+  - component: {fileID: 1383606451}
   m_Layer: 8
   m_Name: ElitePillar_NW
   m_TagString: Untagged
@@ -17762,6 +18856,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1383606446}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1383606451
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1383606446}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1383606448}
+  _isDynamic: 0
 --- !u!1 &1405858551
 GameObject:
   m_ObjectHideFlags: 0
@@ -17774,6 +18882,7 @@ GameObject:
   - component: {fileID: 1405858555}
   - component: {fileID: 1405858554}
   - component: {fileID: 1405858553}
+  - component: {fileID: 1405858556}
   m_Layer: 8
   m_Name: Wall_East (5)
   m_TagString: Untagged
@@ -17874,6 +18983,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1405858551}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1405858556
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1405858551}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1405858553}
+  _isDynamic: 0
 --- !u!1 &1411714265
 GameObject:
   m_ObjectHideFlags: 0
@@ -17924,8 +19047,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: af573d07005bf6c4e8ccf430b69ebccc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.UI::Game.UI.StatusIconView
-  _icon: {fileID: 1792952898}
-  _percentageText: {fileID: 1702302500}
+  _icon: {fileID: 1278333783}
+  _percentageText: {fileID: 285353042}
 --- !u!1 &1421144611
 GameObject:
   m_ObjectHideFlags: 0
@@ -17938,6 +19061,7 @@ GameObject:
   - component: {fileID: 1421144615}
   - component: {fileID: 1421144614}
   - component: {fileID: 1421144613}
+  - component: {fileID: 1421144616}
   m_Layer: 8
   m_Name: Wall_East (2)
   m_TagString: Untagged
@@ -18038,6 +19162,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1421144611}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1421144616
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1421144611}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1421144613}
+  _isDynamic: 0
 --- !u!1001 &1431997346
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -19306,6 +20444,7 @@ GameObject:
   - component: {fileID: 1549905046}
   - component: {fileID: 1549905045}
   - component: {fileID: 1549905044}
+  - component: {fileID: 1549905047}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -19406,6 +20545,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1549905042}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1549905047
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1549905042}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1549905044}
+  _isDynamic: 0
 --- !u!1 &1556074094
 GameObject:
   m_ObjectHideFlags: 0
@@ -19803,6 +20956,7 @@ GameObject:
   - component: {fileID: 1583989644}
   - component: {fileID: 1583989643}
   - component: {fileID: 1583989642}
+  - component: {fileID: 1583989645}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -19903,6 +21057,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1583989640}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1583989645
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1583989640}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1583989642}
+  _isDynamic: 0
 --- !u!1001 &1587088713
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -19977,6 +21145,7 @@ GameObject:
   - component: {fileID: 1595474024}
   - component: {fileID: 1595474023}
   - component: {fileID: 1595474022}
+  - component: {fileID: 1595474025}
   m_Layer: 0
   m_Name: Wall_East (10)
   m_TagString: Untagged
@@ -20077,6 +21246,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1595474020}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1595474025
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1595474020}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1595474022}
+  _isDynamic: 0
 --- !u!1001 &1596059504
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -20150,6 +21333,75 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5d6260d1317e52b4fb9a05435c1ce13b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.HealthComponent
+--- !u!1001 &1598966319
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 535515680107075426, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: _radius
+      value: 1.2
+      objectReference: {fileID: 0}
+    - target: {fileID: 535515680107075426, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: _totalAmount
+      value: 8000
+      objectReference: {fileID: 0}
+    - target: {fileID: 535515680107075426, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: _materialKind
+      value: 4
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -2.76
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 2.96
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4423021510411649036, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6372270413305927110, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
+      propertyPath: m_Name
+      value: StickyDeposit_Test
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 6a297638b5ab88843bc0a97b4d8ffd56, type: 3}
 --- !u!1 &1605022555
 GameObject:
   m_ObjectHideFlags: 0
@@ -20162,6 +21414,7 @@ GameObject:
   - component: {fileID: 1605022559}
   - component: {fileID: 1605022558}
   - component: {fileID: 1605022557}
+  - component: {fileID: 1605022560}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -20262,6 +21515,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1605022555}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1605022560
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1605022555}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1605022557}
+  _isDynamic: 0
 --- !u!1 &1631821369
 GameObject:
   m_ObjectHideFlags: 0
@@ -20818,6 +22085,7 @@ GameObject:
   - component: {fileID: 1675702889}
   - component: {fileID: 1675702888}
   - component: {fileID: 1675702887}
+  - component: {fileID: 1675702890}
   m_Layer: 8
   m_Name: Wall_East (6)
   m_TagString: Untagged
@@ -20918,6 +22186,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1675702885}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1675702890
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1675702885}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1675702887}
+  _isDynamic: 0
 --- !u!1 &1691830587
 GameObject:
   m_ObjectHideFlags: 0
@@ -21255,6 +22537,7 @@ GameObject:
   - component: {fileID: 1713386040}
   - component: {fileID: 1713386039}
   - component: {fileID: 1713386038}
+  - component: {fileID: 1713386041}
   m_Layer: 8
   m_Name: Floor
   m_TagString: Untagged
@@ -21355,6 +22638,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1713386036}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1713386041
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1713386036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1713386038}
+  _isDynamic: 0
 --- !u!1 &1720816873
 GameObject:
   m_ObjectHideFlags: 0
@@ -21367,6 +22664,7 @@ GameObject:
   - component: {fileID: 1720816877}
   - component: {fileID: 1720816876}
   - component: {fileID: 1720816875}
+  - component: {fileID: 1720816878}
   m_Layer: 8
   m_Name: Wall_East (12)
   m_TagString: Untagged
@@ -21467,6 +22765,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1720816873}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1720816878
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1720816873}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1720816875}
+  _isDynamic: 0
 --- !u!1001 &1724956630
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -21903,6 +23215,7 @@ GameObject:
   - component: {fileID: 1785240744}
   - component: {fileID: 1785240743}
   - component: {fileID: 1785240742}
+  - component: {fileID: 1785240745}
   m_Layer: 0
   m_Name: Wall_East (8)
   m_TagString: Untagged
@@ -22003,6 +23316,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1785240740}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1785240745
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1785240740}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1785240742}
+  _isDynamic: 0
 --- !u!1 &1787532863
 GameObject:
   m_ObjectHideFlags: 0
@@ -22320,6 +23647,7 @@ GameObject:
   - component: {fileID: 1793780247}
   - component: {fileID: 1793780246}
   - component: {fileID: 1793780245}
+  - component: {fileID: 1793780248}
   m_Layer: 8
   m_Name: ElementPlatform_A
   m_TagString: Untagged
@@ -22420,6 +23748,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1793780243}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1793780248
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1793780243}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1793780245}
+  _isDynamic: 0
 --- !u!1 &1794829424
 GameObject:
   m_ObjectHideFlags: 0
@@ -22512,6 +23854,7 @@ GameObject:
   - component: {fileID: 1803173414}
   - component: {fileID: 1803173413}
   - component: {fileID: 1803173412}
+  - component: {fileID: 1803173415}
   m_Layer: 0
   m_Name: Wall_East (7)
   m_TagString: Untagged
@@ -22612,6 +23955,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1803173410}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1803173415
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1803173410}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1803173412}
+  _isDynamic: 0
 --- !u!1 &1826131100
 GameObject:
   m_ObjectHideFlags: 0
@@ -22624,6 +23981,7 @@ GameObject:
   - component: {fileID: 1826131104}
   - component: {fileID: 1826131103}
   - component: {fileID: 1826131102}
+  - component: {fileID: 1826131105}
   m_Layer: 8
   m_Name: Wall_East (10)
   m_TagString: Untagged
@@ -22724,6 +24082,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1826131100}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1826131105
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1826131100}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1826131102}
+  _isDynamic: 0
 --- !u!1 &1829676945
 GameObject:
   m_ObjectHideFlags: 0
@@ -22902,6 +24274,7 @@ GameObject:
   - component: {fileID: 1867962394}
   - component: {fileID: 1867962393}
   - component: {fileID: 1867962392}
+  - component: {fileID: 1867962395}
   m_Layer: 8
   m_Name: Wall_East (6)
   m_TagString: Untagged
@@ -23002,6 +24375,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1867962390}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1867962395
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1867962390}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1867962392}
+  _isDynamic: 0
 --- !u!1 &1870211189
 GameObject:
   m_ObjectHideFlags: 0
@@ -23226,6 +24613,7 @@ GameObject:
   - component: {fileID: 1881585019}
   - component: {fileID: 1881585018}
   - component: {fileID: 1881585017}
+  - component: {fileID: 1881585020}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -23326,6 +24714,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1881585015}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1881585020
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1881585015}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1881585017}
+  _isDynamic: 0
 --- !u!1 &1885614162
 GameObject:
   m_ObjectHideFlags: 0
@@ -23781,6 +25183,7 @@ GameObject:
   - component: {fileID: 1917558344}
   - component: {fileID: 1917558343}
   - component: {fileID: 1917558342}
+  - component: {fileID: 1917558345}
   m_Layer: 8
   m_Name: Wall_East (9)
   m_TagString: Untagged
@@ -23881,6 +25284,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1917558340}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1917558345
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1917558340}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 1917558342}
+  _isDynamic: 0
 --- !u!1 &1941493180
 GameObject:
   m_ObjectHideFlags: 0
@@ -24640,6 +26057,7 @@ GameObject:
   - component: {fileID: 2024373710}
   - component: {fileID: 2024373709}
   - component: {fileID: 2024373708}
+  - component: {fileID: 2024373711}
   m_Layer: 8
   m_Name: ElementPlatform_B
   m_TagString: Untagged
@@ -24740,6 +26158,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2024373706}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &2024373711
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2024373706}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 2024373708}
+  _isDynamic: 0
 --- !u!1 &2024491327
 GameObject:
   m_ObjectHideFlags: 0
@@ -25118,6 +26550,7 @@ GameObject:
   - component: {fileID: 2046724240}
   - component: {fileID: 2046724239}
   - component: {fileID: 2046724238}
+  - component: {fileID: 2046724241}
   m_Layer: 0
   m_Name: Wall_East (9)
   m_TagString: Untagged
@@ -25218,6 +26651,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2046724236}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &2046724241
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2046724236}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 2046724238}
+  _isDynamic: 0
 --- !u!1 &2047651645
 GameObject:
   m_ObjectHideFlags: 0
@@ -25362,6 +26809,7 @@ GameObject:
   - component: {fileID: 2063493901}
   - component: {fileID: 2063493900}
   - component: {fileID: 2063493899}
+  - component: {fileID: 2063493902}
   m_Layer: 8
   m_Name: Ceiling
   m_TagString: Untagged
@@ -25462,6 +26910,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2063493897}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &2063493902
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2063493897}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 2063493899}
+  _isDynamic: 0
 --- !u!1001 &2064166625
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -25708,6 +27170,7 @@ GameObject:
   - component: {fileID: 2090452724}
   - component: {fileID: 2090452723}
   - component: {fileID: 2090452722}
+  - component: {fileID: 2090452725}
   m_Layer: 8
   m_Name: Wall_East (4)
   m_TagString: Untagged
@@ -25808,6 +27271,20 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2090452720}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &2090452725
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2090452720}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c73519ed37b6f554b85890e47912611b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidColliderAuthoring
+  _collider: {fileID: 2090452722}
+  _isDynamic: 0
 --- !u!1 &2100982917
 GameObject:
   m_ObjectHideFlags: 0
@@ -26088,72 +27565,6 @@ MonoBehaviour:
   m_Spacing: {x: 8, y: 8}
   m_Constraint: 2
   m_ConstraintCount: 1
---- !u!1001 &2137146182
-PrefabInstance:
-  m_ObjectHideFlags: 0
-  serializedVersion: 2
-  m_Modification:
-    serializedVersion: 3
-    m_TransformParent: {fileID: 107819196}
-    m_Modifications:
-    - target: {fileID: 761104846804424284, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_Name
-      value: PF_ElementWorldFireEmitter
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalPosition.x
-      value: -16.2857
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalPosition.y
-      value: 1.11025
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalPosition.z
-      value: -12.54282
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalRotation.w
-      value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalRotation.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalRotation.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalRotation.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.x
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.y
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: m_LocalEulerAnglesHint.z
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5318981402672008419, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-      propertyPath: _worldRuntime
-      value: 
-      objectReference: {fileID: 107819195}
-    m_RemovedComponents: []
-    m_RemovedGameObjects: []
-    m_AddedGameObjects: []
-    m_AddedComponents: []
-  m_SourcePrefab: {fileID: 100100000, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
---- !u!4 &2137146183 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: 3059568457029228050, guid: 8398b1bea5780dc44beda6e054469885, type: 3}
-  m_PrefabInstance: {fileID: 2137146182}
-  m_PrefabAsset: {fileID: 0}
 --- !u!1001 &2732184912457883561
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -26591,8 +28002,16 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+      propertyPath: _pitchMin
+      value: -60
+      objectReference: {fileID: 0}
+    - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
       propertyPath: _jumpVfxLifetime
       value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
+      propertyPath: _gravityMultiplier
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 8535652037302946367, guid: fd60d5bc69c575e418e96a7d1b0fb869, type: 3}
       propertyPath: _jumpVfxVerticalOffset
@@ -26645,3 +28064,5 @@ SceneRoots:
   - {fileID: 85056757}
   - {fileID: 1669573310}
   - {fileID: 60816559}
+  - {fileID: 1010560959}
+  - {fileID: 1598966319}

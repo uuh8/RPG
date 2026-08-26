@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using UnityEngine;
 
@@ -113,7 +114,7 @@ namespace Game.ElementField
         private static bool ApplyAmount(
             ElementGrid grid,
             Vector3Int coordinate,
-            ElementMaterialKind incomingKind,
+            MaterialId incomingKind,
             int incomingAmount)
         {
             ElementCell before = grid.GetCell(coordinate);
@@ -151,22 +152,22 @@ namespace Game.ElementField
             return true;
         }
 
-        private static bool CanAccept(ElementCell cell, ElementMaterialKind incomingKind)
+        private static bool CanAccept(ElementCell cell, MaterialId incomingKind)
         {
             return cell.IsEmpty
                 || cell.MaterialKind == incomingKind
                 || IsOpposedWaterFire(cell.MaterialKind, incomingKind);
         }
 
-        private static bool IsOpposedWaterFire(ElementMaterialKind a, ElementMaterialKind b)
+        private static bool IsOpposedWaterFire(MaterialId a, MaterialId b)
         {
-            return (a == ElementMaterialKind.Water && b == ElementMaterialKind.Fire)
-                || (a == ElementMaterialKind.Fire && b == ElementMaterialKind.Water);
+            return (a == MaterialId.Water && b == MaterialId.Fire)
+                || (a == MaterialId.Fire && b == MaterialId.Water);
         }
 
-        private static bool IsSupported(ElementMaterialKind kind)
+        private static bool IsSupported(MaterialId kind)
         {
-            return kind == ElementMaterialKind.Water || kind == ElementMaterialKind.Fire;
+            return kind == MaterialId.Water || kind == MaterialId.Fire;
         }
 
         private static float CalculateWeight(

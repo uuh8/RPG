@@ -19460,7 +19460,7 @@ MonoBehaviour:
   _maxLifetime: 5
   _modelForwardOffsetEuler: {x: 0, y: 0, z: 0}
   _impactLingerTime: 0
-  _homingScanInterval: 0.1
+  _homingScanInterval: 0.01
   _explosionPrefab: {fileID: 7612594589912998389, guid: ff4fb4ea5cdc7a84d8eeca63b6065408, type: 3}
   _explosionLifetime: 1
   _explosionRotationEuler: {x: 90, y: 0, z: 0}
@@ -19482,6 +19482,7 @@ MonoBehaviour:
   _totalAmount: 1200
   _radius: 0.75
   _useLinearFalloff: 1
+  _fluidInitialSpeed: 0
 --- !u!1 &8982008244938986500
 GameObject:
   m_ObjectHideFlags: 0

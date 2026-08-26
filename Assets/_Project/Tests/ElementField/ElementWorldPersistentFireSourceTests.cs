@@ -1,3 +1,4 @@
+using Game.Materials;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
@@ -44,7 +45,7 @@ namespace Game.ElementField.Tests
 
             Assert.That(built, Is.True);
             Assert.That(request.WorldPosition, Is.EqualTo(position));
-            Assert.That(request.MaterialKind, Is.EqualTo(ElementMaterialKind.Fire));
+            Assert.That(request.MaterialKind, Is.EqualTo(MaterialId.Fire));
             Assert.That(request.TotalAmount, Is.EqualTo(512));
             Assert.That(request.Radius, Is.EqualTo(0.35f).Within(0.0001f));
             Assert.That(request.UseLinearFalloff, Is.True);
@@ -84,7 +85,7 @@ namespace Game.ElementField.Tests
             Assert.That(_source.SuccessfulPulseCount, Is.EqualTo(2));
             Assert.That(_source.RejectedPulseCount, Is.Zero);
             Assert.That(_sink.LastRequest.WorldPosition, Is.EqualTo(_gameObject.transform.position));
-            Assert.That(_sink.LastRequest.MaterialKind, Is.EqualTo(ElementMaterialKind.Fire));
+            Assert.That(_sink.LastRequest.MaterialKind, Is.EqualTo(MaterialId.Fire));
         }
 
         [Test]

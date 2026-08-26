@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using System.Collections.Generic;
 using Game.ElementField;
@@ -266,7 +267,7 @@ namespace Game.Rendering
             if (world.IsSolid(globalCell)
                 || !world.TryGetCell(globalCell, out ElementCell cell)
                 || cell.IsEmpty
-                || cell.MaterialKind != ElementMaterialKind.Water)
+                || cell.MaterialKind != MaterialId.Water)
             {
                 amount = 0;
                 return false;
@@ -420,7 +421,7 @@ namespace Game.Rendering
             }
 
             ElementCell cell = field.GetCell(x, y, z);
-            if (cell.IsEmpty || cell.MaterialKind != ElementMaterialKind.Water)
+            if (cell.IsEmpty || cell.MaterialKind != MaterialId.Water)
             {
                 amount = 0;
                 return false;

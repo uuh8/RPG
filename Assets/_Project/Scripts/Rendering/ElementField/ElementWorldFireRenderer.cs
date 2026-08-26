@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using Game.Core;
 using Game.ElementField;
@@ -201,7 +202,7 @@ namespace Game.Rendering
                             chunkSize);
                         if (!_world.TryGetCell(globalCell, out ElementCell cell)
                             || cell.IsEmpty
-                            || cell.MaterialKind != ElementMaterialKind.Fire)
+                            || cell.MaterialKind != MaterialId.Fire)
                         {
                             continue;
                         }
@@ -294,7 +295,7 @@ namespace Game.Rendering
                         chunkSize);
                     if (_world.TryGetCell(globalCell, out ElementCell cell)
                         && !cell.IsEmpty
-                        && cell.MaterialKind == ElementMaterialKind.Fire)
+                        && cell.MaterialKind == MaterialId.Fire)
                     {
                         count++;
                     }

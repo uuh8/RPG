@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using Unity.Collections;
 using UnityEngine;
@@ -12,21 +13,21 @@ namespace Game.ElementField
     {
         internal const int Stride = FluidGpuLayout.Float4Stride;
 
-        internal static float EncodeTag(bool active, ElementMaterialKind materialKind)
+        internal static float EncodeTag(bool active, MaterialId materialKind)
         {
             return active ? (byte)materialKind + 1f : 0f;
         }
 
-        internal static bool TryDecodeMaterial(float tag, out ElementMaterialKind materialKind)
+        internal static bool TryDecodeMaterial(float tag, out MaterialId materialKind)
         {
             int encoded = Mathf.RoundToInt(tag);
             if (encoded <= 0 || Mathf.Abs(tag - encoded) > 0.001f)
             {
-                materialKind = ElementMaterialKind.Empty;
+                materialKind = MaterialId.Empty;
                 return false;
             }
 
-            materialKind = (ElementMaterialKind)(encoded - 1);
+            materialKind = (MaterialId)(encoded - 1);
             return true;
         }
     }
@@ -41,7 +42,7 @@ namespace Game.ElementField
         internal readonly Vector3 Origin;
         internal readonly float CellSize;
         internal readonly int ParticleCapacity;
-        internal readonly uint AmountUnitsPerParticle;
+        internal readonly LiquidMaterialAmountScaleSnapshot AmountScales;
         internal readonly uint LayoutVersion;
         internal readonly uint TopologyVersion;
         internal readonly uint SnapshotVersion;
@@ -51,7 +52,7 @@ namespace Game.ElementField
             Vector3 origin,
             float cellSize,
             int particleCapacity,
-            uint amountUnitsPerParticle,
+            LiquidMaterialAmountScaleSnapshot amountScales,
             uint layoutVersion,
             uint topologyVersion,
             uint snapshotVersion)
@@ -60,7 +61,7 @@ namespace Game.ElementField
             Origin = origin;
             CellSize = cellSize;
             ParticleCapacity = particleCapacity;
-            AmountUnitsPerParticle = amountUnitsPerParticle;
+            AmountScales = amountScales;
             LayoutVersion = layoutVersion;
             TopologyVersion = topologyVersion;
             SnapshotVersion = snapshotVersion;
@@ -76,7 +77,7 @@ namespace Game.ElementField
             Vector3 minimum = metadata.Bounds.min;
             Vector3 maximum = metadata.Bounds.max;
             return metadata.ParticleCapacity > 0
-                && metadata.AmountUnitsPerParticle > 0
+                && metadata.AmountScales != null
                 && IsPositiveFinite(metadata.CellSize)
                 && IsFinite(metadata.Origin)
                 && IsFinite(center)
@@ -111,6 +112,7 @@ namespace Game.ElementField
     internal sealed class LiquidGameplaySnapshot : ILiquidOccupancyReadOnly
     {
         private readonly Vector3Int[] _cellKeys;
+        private readonly MaterialId[] _materialKeys;
         private readonly byte[] _amounts;
         private readonly byte[] _occupied;
         private readonly int _slotMask;
@@ -127,6 +129,7 @@ namespace Game.ElementField
                 slotCount <<= 1;
 
             _cellKeys = new Vector3Int[slotCount];
+            _materialKeys = new MaterialId[slotCount];
             _amounts = new byte[slotCount];
             _occupied = new byte[slotCount];
             _slotMask = slotCount - 1;
@@ -137,7 +140,7 @@ namespace Game.ElementField
         internal uint LayoutVersion { get; private set; }
         internal uint TopologyVersion { get; private set; }
         public uint SnapshotVersion { get; private set; }
-        public uint AmountUnitsPerParticle { get; private set; }
+        private LiquidMaterialAmountScaleSnapshot _amountScales;
 
         internal bool TryRebuild(
             NativeArray<Vector4> samples,
@@ -158,8 +161,8 @@ namespace Game.ElementField
             for (int particleSlot = 0; particleSlot < samples.Length; particleSlot++)
             {
                 Vector4 sample = samples[particleSlot];
-                if (!FluidGameplaySampleCodec.TryDecodeMaterial(sample.w, out ElementMaterialKind material)
-                    || material != ElementMaterialKind.Water
+                if (!FluidGameplaySampleCodec.TryDecodeMaterial(sample.w, out MaterialId material)
+                    || !metadata.AmountScales.TryGet(material, out uint amountUnitsPerParticle)
                     || !IsFinite(sample.x)
                     || !IsFinite(sample.y)
                     || !IsFinite(sample.z))
@@ -178,7 +181,7 @@ namespace Game.ElementField
                     new Vector3(sample.x, sample.y, sample.z),
                     metadata.Origin,
                     metadata.CellSize);
-                Accumulate(cell, metadata.AmountUnitsPerParticle);
+                Accumulate(cell, material, amountUnitsPerParticle);
             }
 
             float inset = Mathf.Min(0.0001f, metadata.CellSize * 0.001f);
@@ -192,18 +195,19 @@ namespace Game.ElementField
             LayoutVersion = metadata.LayoutVersion;
             TopologyVersion = metadata.TopologyVersion;
             SnapshotVersion = metadata.SnapshotVersion;
-            AmountUnitsPerParticle = metadata.AmountUnitsPerParticle;
+            _amountScales = metadata.AmountScales;
             HasValidSnapshot = true;
             return true;
         }
 
         public bool TryGetAmount(
             Vector3Int globalCell,
-            ElementMaterialKind materialKind,
+            MaterialId materialKind,
             out byte amount)
         {
             if (!HasValidSnapshot
-                || materialKind != ElementMaterialKind.Water
+                || _amountScales == null
+                || !_amountScales.TryGet(materialKind, out _)
                 || globalCell.x < _minimumCell.x || globalCell.x > _maximumCell.x
                 || globalCell.y < _minimumCell.y || globalCell.y > _maximumCell.y
                 || globalCell.z < _minimumCell.z || globalCell.z > _maximumCell.z)
@@ -212,18 +216,48 @@ namespace Game.ElementField
                 return false;
             }
 
-            int slot = FindSlot(globalCell);
+            int slot = FindSlot(globalCell, materialKind);
             amount = _occupied[slot] != 0 ? _amounts[slot] : (byte)0;
             return true;
         }
 
-        private void Accumulate(Vector3Int cell, uint amountUnitsPerParticle)
+        public bool TryGetAmountUnitsPerParticle(MaterialId material, out uint amountUnits)
         {
-            int slot = FindSlot(cell);
+            amountUnits = 0u;
+            return HasValidSnapshot
+                && _amountScales != null
+                && _amountScales.TryGet(material, out amountUnits);
+        }
+
+        public int CopyOccupiedCells(MaterialId material, LiquidMaterialCellSample[] destination)
+        {
+            if (destination == null)
+                throw new ArgumentNullException(nameof(destination));
+            if (!HasValidSnapshot || _amountScales == null || !_amountScales.TryGet(material, out _))
+                return 0;
+
+            int count = 0;
+            // 直接扫描固定 Open Addressing Table，不创建 List/Enumerator，低频 Readback 路径保持 zero-GC。
+            for (int slot = 0; slot < _occupied.Length && count < destination.Length; slot++)
+            {
+                if (_occupied[slot] == 0 || _materialKeys[slot] != material || _amounts[slot] == 0)
+                    continue;
+                destination[count++] = new LiquidMaterialCellSample(_cellKeys[slot], _amounts[slot]);
+            }
+            return count;
+        }
+
+        private void Accumulate(
+            Vector3Int cell,
+            MaterialId material,
+            uint amountUnitsPerParticle)
+        {
+            int slot = FindSlot(cell, material);
             if (_occupied[slot] == 0)
             {
                 _occupied[slot] = 1;
                 _cellKeys[slot] = cell;
+                _materialKeys[slot] = material;
             }
 
             uint accumulated = (uint)_amounts[slot] + amountUnitsPerParticle;
@@ -232,21 +266,23 @@ namespace Game.ElementField
                 : (byte)accumulated;
         }
 
-        private int FindSlot(Vector3Int cell)
+        private int FindSlot(Vector3Int cell, MaterialId material)
         {
-            int slot = Hash(cell) & _slotMask;
-            while (_occupied[slot] != 0 && _cellKeys[slot] != cell)
+            int slot = Hash(cell, material) & _slotMask;
+            while (_occupied[slot] != 0
+                && (_cellKeys[slot] != cell || _materialKeys[slot] != material))
                 slot = (slot + 1) & _slotMask;
             return slot;
         }
 
-        private static int Hash(Vector3Int cell)
+        private static int Hash(Vector3Int cell, MaterialId material)
         {
             unchecked
             {
                 int hash = cell.x * 73856093;
                 hash ^= cell.y * 19349663;
                 hash ^= cell.z * 83492791;
+                hash ^= (byte)material * -1640531527;
                 return hash;
             }
         }

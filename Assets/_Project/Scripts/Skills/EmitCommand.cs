@@ -11,43 +11,44 @@ namespace Game.Skills
     /// </summary>
     public readonly struct EmitCommand
     {
-        // ── 生成数据：Runtime 应创建哪个 Prefab、采用哪种空间生成策略 ──
-        public readonly GameObject ProjectilePrefab;
-        public readonly SpellSpawnMode SpawnMode;
-        public readonly GameObject LandingSitePrefab;
-        public readonly float SkyfallHeight;
-        public readonly float SkyfallBackOffset;
-        public readonly float LandingSiteDuration;
-        public readonly int ShieldReflectCount;
+        // EmitCommand 具体是怎样设计的
+        // ── 第一组：应该生成什么数据：Runtime 应创建哪个 Prefab、采用哪种空间生成策略 ──
+        public readonly GameObject ProjectilePrefab;        // 投射物 Prefab 引用
+        public readonly SpellSpawnMode SpawnMode;           // 普通向前发射、定点生成还是天空坠落
+        public readonly GameObject LandingSitePrefab;       // 落地点提示特效
+        public readonly float SkyfallHeight;                // 天空生成高度
+        public readonly float SkyfallBackOffset;            // 生成点后退距离
+        public readonly float LandingSiteDuration;          // 落地点提示特效持续时间
+        public readonly int ShieldReflectCount;             // 护盾反射次数
 
-        // ── 战斗结果快照：由基础数据和 CastModifierState 在 BakeEmit 时合并 ──
-        public readonly float Damage;
-        public readonly float ExplosionDamage;
-        public readonly float FireFieldDamagePerTick;
-        public readonly float FireFieldTickInterval;
-        public readonly float FireFieldDuration;
-        public readonly float Speed;
-        public readonly DamageType DamageType;
+        // ── 第二组：这次攻击的最终战斗结果快照数据：由基础数据和 CastModifierState 在 BakeEmit 时合并 ──
+        public readonly float Damage;                       // 最终直接伤害
+        public readonly float ExplosionDamage;              // 最终爆炸伤害
+        public readonly float FireFieldDamagePerTick;       // 最终持续区域伤害
+        public readonly float FireFieldTickInterval;        // 持续区域伤害的间隔
+        public readonly float FireFieldDuration;            // 持续区域伤害的持续时间
+        public readonly float Speed;                        // 最终速度
+        public readonly DamageType DamageType;              // 伤害类型
 
-        // ── 飞行与运动快照：SpellCaster 注入 ProjectileBase/Rigidbody ──
-        public readonly float SpreadDegrees;
-        public readonly int BounceCount;
-        public readonly bool UseGravity;
-        public readonly float HomingRadius;
-        public readonly float HomingDuration;
-        public readonly float HomingTurnRateDegrees;
-        public readonly float OrbitRadius;
-        public readonly float OrbitAngularSpeedDegrees;
-        public readonly float OrbitPhaseOffsetDegrees;
-        public readonly float OrbitPlaneTiltDegrees;
-        public readonly ProjectileMotionMode MotionMode;
+        // ── 第三组：这次投射物的运动快照：SpellCaster 注入 ProjectileBase/Rigidbody ──
+        public readonly float SpreadDegrees;                // 散射角度
+        public readonly int BounceCount;                    // 剩余弹射次数
+        public readonly bool UseGravity;                    // 是否启用重力
+        public readonly float HomingRadius;                 // 追踪半径
+        public readonly float HomingDuration;               // 追踪持续时间
+        public readonly float HomingTurnRateDegrees;        // 追踪转向角速度
+        public readonly float OrbitRadius;                  // 轨道半径
+        public readonly float OrbitAngularSpeedDegrees;     // 轨道角速度
+        public readonly float OrbitPhaseOffsetDegrees;      // 轨道相位偏移
+        public readonly float OrbitPlaneTiltDegrees;        // 轨道平面倾斜角度
+        public readonly ProjectileMotionMode MotionMode;    // 当前最终采用哪一种主运动模式
 
-        // ── 表现与后续触发：Payload 是触发时才重新求值的有序子序列 ──
-        public readonly AudioClip CastSfx;
-        public readonly IReadOnlyList<SpellDefinition> Payload;
-        public readonly CastModifierState PayloadMods;
-        public readonly PayloadTriggerMode PayloadTrigger;
-        public readonly float PayloadDelaySeconds;
+        // ── 第四组：表现与后续触发上下文：Payload 是触发时才重新求值的有序子序列 ──
+        public readonly AudioClip CastSfx;                          // 施法音效引用
+        public readonly IReadOnlyList<SpellDefinition> Payload;     // 触发后要继续解释的法术子序列
+        public readonly CastModifierState PayloadMods;              // 子序列需要继承的修正状态快照
+        public readonly PayloadTriggerMode PayloadTrigger;          // 命中触发还是定时触发
+        public readonly float PayloadDelaySeconds;                  // 定时触发的延迟时间
 
         /// <summary>同时检查引用与元素数量，空 Payload 会退化为普通 Emit，不建立无意义的事件订阅。</summary>
         public bool HasPayload => Payload != null && Payload.Count > 0;

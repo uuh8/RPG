@@ -21,7 +21,13 @@ MonoBehaviour:
   _tickRate: 10
   _maxPendingWrites: 256
   _maxCatchUpTicks: 3
+  _settleAfterUnchangedTicks: 2
   _maxDownFlowPerTick: 64
   _maxLateralFlowPerTick: 16
   _fireDecayPerTick: 1
+  _waterSimulationMode: 0
+  _materialCatalog: {fileID: 0}
+  _materialSimulationRouting: {fileID: 0}
+  _materialStatusProjection: {fileID: 11400000, guid: 78cda27063bedbb4f8de3b1619086cb7, type: 2}
   _reactionProfile: {fileID: 11400000, guid: 2050fb1db1a3dc54ebdd737e0413a8b2, type: 2}
+  _materialReactionBindings: {fileID: 11400000, guid: e5eb5f30965e413489dc995e3d2a4559, type: 2}

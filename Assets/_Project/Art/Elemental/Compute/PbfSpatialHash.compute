@@ -49,8 +49,10 @@ void BuildSpatialEntries(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
 
     float4 predictedPosition = _PredictedPositions[particleIndex];
+    // Hash 是 Simulation 与 Rendering 共用的只读邻域索引，因此成员语义必须是 Alive。
+    // Solver 在消费候选时仍检查 Interest/RequiresSimulation，远处粒子不会恢复物理解算。
     bool isActive = predictedPosition.w > 0.5f
-        && FluidIsInInterest(_ParticleMetadata[particleIndex].y);
+        && FluidIsAlive(_ParticleMetadata[particleIndex].y);
     int3 cell = isActive ? PositionToCell(predictedPosition.xyz) : int3(0, 0, 0);
     // 这一份 int4 是本 Substep 的 immutable cell snapshot。PBF Apply 会改预测位置，
     // 但不能让一次 Sort 生成的 Range 在同一 Substep 内失去其 build-time cell 语义。

@@ -1,3 +1,4 @@
+using Game.Materials;
 using System.Collections.Generic;
 using Game.ElementField;
 using NUnit.Framework;
@@ -186,7 +187,7 @@ namespace Game.Rendering.Tests
 
             public void SetWater(Vector3Int globalCell, byte amount)
             {
-                _cells[globalCell] = new ElementCell(ElementMaterialKind.Water, amount);
+                _cells[globalCell] = new ElementCell(MaterialId.Water, amount);
             }
 
             public void SetSolid(Vector3Int globalCell)

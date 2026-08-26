@@ -16,6 +16,7 @@ GameObject:
   - component: {fileID: 2864754736381555578}
   - component: {fileID: 1892917282093339621}
   - component: {fileID: 4741513427180881211}
+  - component: {fileID: -3545663906316150147}
   m_Layer: 0
   m_Name: PF_ElementWaterProjectile
   m_TagString: Untagged
@@ -175,6 +176,7 @@ MonoBehaviour:
   _totalAmount: 1600
   _radius: 0.75
   _useLinearFalloff: 1
+  _fluidInitialSpeed: 0
 --- !u!114 &4741513427180881211
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -185,7 +187,21 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e8f343ff4ffe16c45a03e8b397776173, type: 3}
-  m_Name:
+  m_Name: 
   m_EditorClassIdentifier: Game.Rendering::Game.Rendering.ProjectileImpactVfx
   _impactPrefab: {fileID: 1112118466390014, guid: 401a260cd03bc694aa5ae0ab5d36c5e1, type: 3}
   _lifetime: 2
+--- !u!114 &-3545663906316150147
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2081726347723894056}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 907b92fc43303ff4d8ca1ec2ea4b4860, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Combat::Game.Combat.ProjectileStatusOnImpact
+  _status: 1
+  _amount: 25

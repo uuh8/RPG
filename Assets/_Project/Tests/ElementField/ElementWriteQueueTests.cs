@@ -1,3 +1,4 @@
+using Game.Materials;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -41,7 +42,7 @@ namespace Game.ElementField.Tests
         {
             return new ElementWriteRequest(
                 Vector3.zero,
-                ElementMaterialKind.Water,
+                MaterialId.Water,
                 amount,
                 radius: 0f,
                 useLinearFalloff: false);

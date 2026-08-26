@@ -243,6 +243,7 @@ namespace Game.Combat.Tests
             Assert.AreEqual(controller.gameObject.GetInstanceID(), received.TargetId);
             Assert.AreEqual(ElementReactionId.Extinguish, received.Reaction);
             Assert.AreEqual(ElementReactionPhase.Started, received.Phase);
+            Assert.AreEqual(controller.transform.position, received.WorldPosition);
             Object.DestroyImmediate(controller.gameObject);
             Object.DestroyImmediate(profile);
         }
@@ -260,6 +261,31 @@ namespace Game.Combat.Tests
             controller = Controller(StickyDef());
             controller.ApplyStatus(StatusKind.Sticky, 50f, 10, 1);
             Assert.AreEqual(0.8f, controller.MoveSpeedMultiplier, 1e-4f);
+            Object.DestroyImmediate(controller.gameObject);
+        }
+
+        [Test]
+        public void SustainedSticky_AlwaysUsesMaximumSlowWhileLeaseIsActive()
+        {
+            StatusController controller = Controller(StickyDef());
+
+            controller.ApplySustainedStatus(StatusKind.Sticky, 10f, 10, 1, 0.3f);
+
+            Assert.AreEqual(0.6f, controller.MoveSpeedMultiplier, 1e-4f);
+            Object.DestroyImmediate(controller.gameObject);
+        }
+
+        [Test]
+        public void SustainedSticky_ReturnsToIntensityScaledSlowAfterLeaseExpires()
+        {
+            StatusController controller = Controller(StickyDef());
+
+            controller.ApplySustainedStatus(StatusKind.Sticky, 20f, 10, 1, 0.1f);
+            Assert.AreEqual(0.6f, controller.MoveSpeedMultiplier, 1e-4f);
+
+            controller.TickForTests(0.1f);
+
+            Assert.AreEqual(0.92f, controller.MoveSpeedMultiplier, 1e-4f);
             Object.DestroyImmediate(controller.gameObject);
         }
 

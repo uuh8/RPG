@@ -1,6 +1,7 @@
 #pragma kernel ClearAnisotropyCounters
 #pragma kernel GatherAnisotropyMean
 #pragma kernel BuildAnisotropyTransform
+#pragma kernel GatherSurfaceSupport
 
 #include "FluidGpuCommon.hlsl"
 
@@ -21,10 +22,13 @@ StructuredBuffer<uint2> _CellRanges;
 StructuredBuffer<int4> _SpatialCells;
 RWStructuredBuffer<FluidAnisotropyTransform> _AnisotropyTransforms;
 RWStructuredBuffer<uint> _AnisotropyCounters;
+RWStructuredBuffer<float> _SurfaceSupports;
 
 int _ParticleCapacity;
 int _HashTableCapacity;
 int _NeighborThreshold;
+int _CrownEdgeNeighborCount;
+int _CrownInteriorNeighborCount;
 float _SmoothingRadius;
 float _MinimumAnisotropyScale;
 float _MaximumAnisotropyScale;
@@ -74,7 +78,8 @@ bool TryGetActiveParticle(uint particleIndex, out float3 position, out int3 buil
     float4 source = _PredictedPositions[particleIndex];
     uint2 metadata = _ParticleMetadata[particleIndex];
     int4 cell = _SpatialCells[particleIndex];
-    if (!FluidIsInInterest(metadata.y)
+    // Rendering 邻域覆盖全部 Alive 粒子；远处 Sleeping 粒子只重建表现，不参与 Solver。
+    if (!FluidIsAlive(metadata.y)
         || source.w <= 0.5f
         || cell.w == 0
         || !IsFiniteFloat3(source.xyz))
@@ -107,6 +112,75 @@ bool TryGetCandidate(
     }
     particleIndex = entry.y;
     return true;
+}
+
+float CalculateSurfaceSupport(uint neighborCount)
+{
+    if (_CrownEdgeNeighborCount < 0
+        || _CrownInteriorNeighborCount <= _CrownEdgeNeighborCount)
+    {
+        return 0.0f;
+    }
+
+    return saturate(
+        ((float)neighborCount - (float)_CrownEdgeNeighborCount)
+        / (float)(_CrownInteriorNeighborCount - _CrownEdgeNeighborCount));
+}
+
+[numthreads(64, 1, 1)]
+void GatherSurfaceSupport(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (particleIndex >= (uint)_ParticleCapacity)
+        return;
+
+    float3 sourcePosition;
+    int3 centerCell;
+    if (!TryGetActiveParticle(particleIndex, sourcePosition, centerCell))
+    {
+        _SurfaceSupports[particleIndex] = 0.0f;
+        return;
+    }
+
+    uint neighborCount = 0u;
+    [unroll]
+    for (int z = -1; z <= 1; z++)
+    {
+        [unroll]
+        for (int y = -1; y <= 1; y++)
+        {
+            [unroll]
+            for (int x = -1; x <= 1; x++)
+            {
+                int3 requiredCell = centerCell + int3(x, y, z);
+                uint2 range = _CellRanges[HashCell(requiredCell)];
+                if (range.x == FLUID_INACTIVE_BUCKET
+                    || range.x > range.y
+                    || range.y > (uint)_ParticleCapacity)
+                {
+                    continue;
+                }
+
+                for (uint sortedIndex = range.x; sortedIndex < range.y; sortedIndex++)
+                {
+                    uint candidateIndex;
+                    float3 candidatePosition;
+                    if (!TryGetCandidate(
+                            sortedIndex,
+                            requiredCell,
+                            candidateIndex,
+                            candidatePosition))
+                    {
+                        continue;
+                    }
+                    if (NeighborhoodWeight(length(candidatePosition - sourcePosition)) > 0.0f)
+                        neighborCount++;
+                }
+            }
+        }
+    }
+
+    _SurfaceSupports[particleIndex] = CalculateSurfaceSupport(neighborCount);
 }
 
 void WriteIdentity(uint particleIndex, float3 center, float valid)
@@ -147,6 +221,7 @@ void GatherAnisotropyMean(uint3 dispatchThreadId : SV_DispatchThreadID)
     int3 centerCell;
     if (!TryGetActiveParticle(particleIndex, sourcePosition, centerCell))
     {
+        _SurfaceSupports[particleIndex] = 0.0f;
         WriteInactive(particleIndex);
         return;
     }
@@ -196,6 +271,7 @@ void GatherAnisotropyMean(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     FluidAnisotropyTransform intermediate;
     float3 mean = weightSum > FLUID_EPSILON ? weightedSum / weightSum : sourcePosition;
+    _SurfaceSupports[particleIndex] = CalculateSurfaceSupport(neighborCount);
     // Density 最多查询 ceil(maxScale)=2 个 Hash Cell。Mean 若任意漂离原粒子，椭球最远端
     // 可能超过这个范围而被漏采样；因此限制 centerOffset + maxScale*h <= cellRadius*h。
     float cellRadius = ceil(clamp(_MaximumAnisotropyScale, 1.0f, 2.0f));

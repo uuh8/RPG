@@ -33,6 +33,58 @@ namespace Game.Rendering.Tests
         private static readonly int[] SymmetricSlots = { 1, 3, 5, 7, 9, 11, 13 };
 
         [Test]
+        public void PlanarPatchWritesHigherSupportAtCenterAndZeroForEdgeAndIsolatedParticle()
+        {
+            FluidSurfaceGridSettings grid = CreateGrid();
+            IgnoreWithoutSurfaceSupport(in grid);
+            ComputeShader anisotropy = LoadShader(AnisotropyShaderPath);
+            ComputeShader spatialHash = LoadShader(SpatialHashShaderPath);
+            int[] slots = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 15 };
+            Vector3[] positions = CreatePlanarPatchWithIsolatedParticle();
+
+            using (var particles = new FluidGpuResourceSet(ParticleCapacity, HashCapacity, 1))
+            using (var anisotropicSurface = new FluidSurfaceGpuResources(in grid, ParticleCapacity))
+            using (var supportOnlySurface = new FluidSurfaceGpuResources(in grid, ParticleCapacity))
+            {
+                UploadNonCompactParticles(particles, slots, positions);
+                BuildSpatialHash(spatialHash, particles);
+                DispatchAnisotropy(anisotropy, particles, anisotropicSurface);
+                DispatchSurfaceSupport(anisotropy, particles, supportOnlySurface);
+
+                float[] anisotropicSupports =
+                    ReadFloatTestOnly(anisotropicSurface.SurfaceSupportBuffer);
+                float[] supportOnly =
+                    ReadFloatTestOnly(supportOnlySurface.SurfaceSupportBuffer);
+
+                Assert.That(anisotropicSupports[4], Is.GreaterThan(anisotropicSupports[0]));
+                Assert.That(anisotropicSupports[0], Is.EqualTo(0f).Within(1e-6f));
+                Assert.That(anisotropicSupports[15], Is.EqualTo(0f).Within(1e-6f));
+                for (int i = 0; i < slots.Length; i++)
+                {
+                    int slot = slots[i];
+                    Assert.That(float.IsNaN(anisotropicSupports[slot])
+                        || float.IsInfinity(anisotropicSupports[slot]), Is.False);
+                    Assert.That(anisotropicSupports[slot], Is.InRange(0f, 1f));
+                    Assert.That(supportOnly[slot],
+                        Is.EqualTo(anisotropicSupports[slot]).Within(1e-5f));
+                }
+            }
+        }
+
+        [Test]
+        public void SurfaceResourcesDisposeReleasesSupportBuffer()
+        {
+            FluidSurfaceGridSettings grid = CreateGrid();
+            IgnoreWithoutSurfaceSupport(in grid);
+            var resources = new FluidSurfaceGpuResources(in grid, ParticleCapacity);
+
+            Assert.That(resources.SurfaceSupportBuffer, Is.Not.Null);
+            resources.Dispose();
+
+            Assert.That(resources.SurfaceSupportBuffer, Is.Null);
+        }
+
+        [Test]
         public void UpdateScheduleRunsImmediatelyAndAgainImmediatelyAfterResourceReset()
         {
             var schedule = new FluidAnisotropyUpdateSchedule(3);
@@ -353,6 +405,24 @@ namespace Game.Rendering.Tests
             };
         }
 
+        private static Vector3[] CreatePlanarPatchWithIsolatedParticle()
+        {
+            const float spacing = 0.55f;
+            return new[]
+            {
+                new Vector3(-spacing, 0f, -spacing),
+                new Vector3(0f, 0f, -spacing),
+                new Vector3(spacing, 0f, -spacing),
+                new Vector3(-spacing, 0f, 0f),
+                Vector3.zero,
+                new Vector3(spacing, 0f, 0f),
+                new Vector3(-spacing, 0f, spacing),
+                new Vector3(0f, 0f, spacing),
+                new Vector3(spacing, 0f, spacing),
+                new Vector3(3f, 0f, 0f)
+            };
+        }
+
         private static void UploadNonCompactParticles(
             FluidGpuResourceSet particles,
             int[] activeSlots,
@@ -418,6 +488,8 @@ namespace Game.Rendering.Tests
             shader.SetInt("_ParticleCapacity", particles.ParticleCapacity);
             shader.SetInt("_HashTableCapacity", particles.HashTableCapacity);
             shader.SetInt("_NeighborThreshold", NeighborThreshold);
+            shader.SetInt("_CrownEdgeNeighborCount", 4);
+            shader.SetInt("_CrownInteriorNeighborCount", 12);
             shader.SetFloat("_SmoothingRadius", SmoothingRadius);
             shader.SetFloat("_MinimumAnisotropyScale", MinimumScale);
             shader.SetFloat("_MaximumAnisotropyScale", MaximumScale);
@@ -426,11 +498,28 @@ namespace Game.Rendering.Tests
             shader.Dispatch(clear, 1, 1, 1);
             BindAnisotropyNeighborhood(shader, mean, particles);
             shader.SetBuffer(mean, "_AnisotropyTransforms", surface.AnisotropyBuffer);
+            shader.SetBuffer(mean, "_SurfaceSupports", surface.SurfaceSupportBuffer);
             shader.Dispatch(mean, DivideRoundUp(ParticleCapacity, 64), 1, 1);
             BindAnisotropyNeighborhood(shader, transform, particles);
             shader.SetBuffer(transform, "_AnisotropyTransforms", surface.AnisotropyBuffer);
             shader.SetBuffer(transform, "_AnisotropyCounters", surface.AnisotropyCounters);
             shader.Dispatch(transform, DivideRoundUp(ParticleCapacity, 64), 1, 1);
+        }
+
+        private static void DispatchSurfaceSupport(
+            ComputeShader shader,
+            FluidGpuResourceSet particles,
+            FluidSurfaceGpuResources surface)
+        {
+            int kernel = shader.FindKernel("GatherSurfaceSupport");
+            shader.SetInt("_ParticleCapacity", particles.ParticleCapacity);
+            shader.SetInt("_HashTableCapacity", particles.HashTableCapacity);
+            shader.SetInt("_CrownEdgeNeighborCount", 4);
+            shader.SetInt("_CrownInteriorNeighborCount", 12);
+            shader.SetFloat("_SmoothingRadius", SmoothingRadius);
+            BindAnisotropyNeighborhood(shader, kernel, particles);
+            shader.SetBuffer(kernel, "_SurfaceSupports", surface.SurfaceSupportBuffer);
+            shader.Dispatch(kernel, DivideRoundUp(ParticleCapacity, 64), 1, 1);
         }
 
         private static void BindAnisotropyNeighborhood(
@@ -458,7 +547,11 @@ namespace Game.Rendering.Tests
             shader.SetInt("_HashTableCapacity", particles.HashTableCapacity);
             shader.SetFloat("_SmoothingRadius", SmoothingRadius);
             shader.SetFloat("_ParticleMass", ParticleMass);
-            shader.SetInt("_AnisotropyCellRadius", 2);
+            shader.SetInt("_TargetMaterialId", 0);
+            shader.SetInt("_DensityCellRadius", 2);
+            shader.SetInt("_UseStylizedCrown", 0);
+            shader.SetFloat("_CrownHeightRatio", 0f);
+            shader.SetFloat("_CrownFalloff", 1.5f);
             shader.SetInt("_GridResolutionX", grid.Resolution.x);
             shader.SetInt("_GridResolutionY", grid.Resolution.y);
             shader.SetInt("_GridResolutionZ", grid.Resolution.z);
@@ -469,6 +562,8 @@ namespace Game.Rendering.Tests
             shader.SetBuffer(kernel, "_SpatialEntries", particles.SpatialEntries);
             shader.SetBuffer(kernel, "_CellRanges", particles.CellRanges);
             shader.SetBuffer(kernel, "_SpatialCells", particles.SpatialCells);
+            shader.SetBuffer(kernel, "_LiquidMaterialParameters", particles.LiquidMaterialParameters);
+            shader.SetBuffer(kernel, "_SurfaceSupports", surface.SurfaceSupportBuffer);
             if (bindAnisotropy)
                 shader.SetBuffer(kernel, "_AnisotropyTransforms", surface.AnisotropyBuffer);
             shader.SetTexture(kernel, "_DensityTexture", surface.DensityTexture);
@@ -496,12 +591,31 @@ namespace Game.Rendering.Tests
             return request.GetData<uint>().ToArray();
         }
 
+        private static float[] ReadFloatTestOnly(GraphicsBuffer buffer)
+        {
+            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(buffer);
+            request.WaitForCompletion();
+            Assert.That(request.hasError, Is.False, "Test-only float buffer readback failed.");
+            return request.GetData<float>().ToArray();
+        }
+
         private static float[] ReadDensityTestOnly(RenderTexture texture)
         {
-            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture, 0);
-            request.WaitForCompletion();
-            Assert.That(request.hasError, Is.False, "Test-only density readback failed.");
-            return request.GetData<float>().ToArray();
+            int sliceLength = checked(texture.width * texture.height);
+            var result = new float[checked(sliceLength * texture.volumeDepth)];
+            for (int z = 0; z < texture.volumeDepth; z++)
+            {
+                AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(
+                    texture, 0, 0, texture.width, 0, texture.height, z, 1, null);
+                request.WaitForCompletion();
+                Assert.That(request.hasError, Is.False, "Test-only density slice readback failed.");
+                NativeArray<float> data = request.GetData<float>();
+                Assert.That(data.Length, Is.EqualTo(sliceLength));
+                for (int index = 0; index < sliceLength; index++)
+                    result[z * sliceLength + index] = data[index];
+            }
+
+            return result;
         }
 
         private static Vector3 TransformPoint(in FluidAnisotropyTransform value, Vector3 point)

@@ -15,7 +15,7 @@ MonoBehaviour:
   Kind: 1
   DisplayName: "\u6F6E\u6E7F"
   Icon: {fileID: 21300000, guid: 74283fd9ff114d24690f395a50187d57, type: 3}
-  NaturalDecayPerSecond: 6
+  NaturalDecayPerSecond: 0.8
   VfxPrefab: {fileID: 0}
   DealsDamage: 0
   DamageInterval: 1
@@ -23,6 +23,6 @@ MonoBehaviour:
   DamageType: 1
   TriggerHitReaction: 0
   WetCleanseable: 0
-  WetCleanseMultiplier: 1
+  WetCleanseMultiplier: 0.75
   AffectsMoveSpeed: 0
   MaxMoveSpeedSlowRatio: 0

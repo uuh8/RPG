@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 
 namespace Game.ElementField
@@ -9,10 +10,10 @@ namespace Game.ElementField
     [Serializable]
     public struct ElementCell
     {
-        public ElementMaterialKind MaterialKind;
+        public MaterialId MaterialKind;
         public byte Amount;
 
-        public ElementCell(ElementMaterialKind materialKind, byte amount)
+        public ElementCell(MaterialId materialKind, byte amount)
         {
             MaterialKind = materialKind;
             Amount = amount;
@@ -22,6 +23,6 @@ namespace Game.ElementField
         /// MaterialKind 与 Amount 共同决定空状态。保留这个容错语义，能让模拟阶段安全处理
         /// “种类已清空但数量尚未归零”或“数量归零但种类稍后统一清理”的中间数据。
         /// </summary>
-        public bool IsEmpty => MaterialKind == ElementMaterialKind.Empty || Amount == 0;
+        public bool IsEmpty => MaterialKind == MaterialId.Empty || Amount == 0;
     }
 }

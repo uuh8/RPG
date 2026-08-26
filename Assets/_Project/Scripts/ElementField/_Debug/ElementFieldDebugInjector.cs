@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Core;
 using UnityEngine;
 
@@ -26,13 +27,13 @@ namespace Game.ElementField
         [ContextMenu("Inject Water")]
         private void InjectWater()
         {
-            Inject(ElementMaterialKind.Water);
+            Inject(MaterialId.Water);
         }
 
         [ContextMenu("Inject Fire")]
         private void InjectFire()
         {
-            Inject(ElementMaterialKind.Fire);
+            Inject(MaterialId.Fire);
         }
 
         [ContextMenu("Clear Field")]
@@ -53,7 +54,7 @@ namespace Game.ElementField
             ResolveRuntime()?.RebuildSolidMaskForDebug();
         }
 
-        private void Inject(ElementMaterialKind materialKind)
+        private void Inject(MaterialId materialKind)
         {
             ElementFieldRuntime runtime = ResolveRuntime();
             if (runtime == null || !runtime.IsInitialized)

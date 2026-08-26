@@ -11,5 +11,7 @@ namespace Game.Combat
         ToxicCombustion = 1,
         // Fire + Goo：连续把 Goo 转化为 Fire；Wet 足够高时禁止启动。
         IgniteGoo = 2,
+        // Water + Goo：Sticky 催化接触处的 Water 粒子原位转化为 Sticky；数值 3 保持序列化兼容。
+        AbsorbWater = 3,
     }
 }

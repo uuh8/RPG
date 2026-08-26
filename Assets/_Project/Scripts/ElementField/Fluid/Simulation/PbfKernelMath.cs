@@ -52,8 +52,9 @@ namespace Game.ElementField
         }
 
         /// <summary>
-        /// lambda = -C / (sumGradSquared + epsilon)，其中 C=density/restDensity-1。
-        /// epsilon 保证孤立粒子或所有 gradient 为零时仍有有限结果。
+        /// lambda = -C / (sumGradSquared + epsilon)，其中 C=max(density/restDensity-1, 0)。
+        /// 这是单向 Incompressibility Constraint：只抵抗压缩，不用负压力强迫 Free Surface
+        /// 补齐不存在的外侧邻居；液体聚合由独立且有界的 Cohesion Pass 负责。
         /// </summary>
         internal static float CalculateLambda(
             float density,
@@ -66,7 +67,7 @@ namespace Game.ElementField
             RequireFiniteNonNegative(gradientSumSquared, nameof(gradientSumSquared));
             RequirePositiveFinite(lambdaEpsilon, nameof(lambdaEpsilon));
 
-            float constraint = density / restDensity - 1f;
+            float constraint = Mathf.Max(density / restDensity - 1f, 0f);
             return -constraint / (gradientSumSquared + lambdaEpsilon);
         }
 
@@ -97,6 +98,73 @@ namespace Game.ElementField
                 artificialPressure,
                 smoothingRadius);
             return (lambdaI + lambdaJ + pressure) * gradient / restDensity;
+        }
+
+        /// <summary>
+        /// 欠密度粒子的 Tensile Pair Correction。SpikyGradient 在本项目符号约定下指向邻居，
+        /// 因而正的 tensile pressure 会产生对称吸引；密度达到 RestDensity 后严格为零，
+        /// 不会改写单向 Incompressibility 的压缩结果。
+        /// </summary>
+        internal static Vector3 CalculateTensilePairPositionCorrection(
+            Vector3 offsetToNeighbor,
+            float densityI,
+            float densityJ,
+            float restDensity,
+            float tensileStrength,
+            float smoothingRadius)
+        {
+            RequireFiniteNonNegative(densityI, nameof(densityI));
+            RequireFiniteNonNegative(densityJ, nameof(densityJ));
+            RequirePositiveFinite(restDensity, nameof(restDensity));
+            RequireFiniteNonNegative(tensileStrength, nameof(tensileStrength));
+            RequirePositiveFinite(smoothingRadius, nameof(smoothingRadius));
+
+            float deficitI = Mathf.Clamp01(1f - densityI / restDensity);
+            float deficitJ = Mathf.Clamp01(1f - densityJ / restDensity);
+            float tensilePressure = tensileStrength * 0.5f * (deficitI + deficitJ);
+            return tensilePressure * SpikyGradient(offsetToNeighbor, smoothingRadius) / restDensity;
+        }
+
+        /// <summary>
+        /// 对整圈邻居累积后的 Tensile 向量做一次硬上限，而不是逐 Pair 截断；
+        /// 这样对称邻域仍能先相消，同时任何稀疏边缘都不能注入超预算位移。
+        /// </summary>
+        internal static Vector3 ClampTensilePositionCorrection(
+            Vector3 correction,
+            float maximumCorrection)
+        {
+            if (!IsFinite(correction))
+                throw new ArgumentOutOfRangeException(nameof(correction));
+            RequirePositiveFinite(maximumCorrection, nameof(maximumCorrection));
+
+            float length = correction.magnitude;
+            return length > maximumCorrection && length > 0f
+                ? correction * (maximumCorrection / length)
+                : correction;
+        }
+
+        /// <summary>
+        /// Cohesion 的平滑 Compact-support 权重。Rest Distance 内不吸引，避免和密度约束争夺静止间距；
+        /// 到 h 时严格归零，因此粒子被强冲击拉出邻域后会自然断裂，不存在全局“橡皮筋”。
+        /// </summary>
+        internal static float CohesionWeight(
+            float distance,
+            float restDistance,
+            float smoothingRadius)
+        {
+            if (!IsFinite(distance)
+                || !IsFinite(restDistance)
+                || !IsFinite(smoothingRadius)
+                || restDistance < 0f
+                || smoothingRadius <= restDistance
+                || distance <= restDistance
+                || distance >= smoothingRadius)
+            {
+                return 0f;
+            }
+
+            float q = (distance - restDistance) / (smoothingRadius - restDistance);
+            return 4f * q * (1f - q);
         }
 
         /// <summary>
@@ -144,6 +212,11 @@ namespace Game.ElementField
             return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
                 && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
                 && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
+
+        private static bool IsFinite(float value)
+        {
+            return !float.IsNaN(value) && !float.IsInfinity(value);
         }
     }
 }

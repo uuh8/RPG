@@ -15,7 +15,7 @@ MonoBehaviour:
   Kind: 3
   DisplayName: "\u7C98\u7A20"
   Icon: {fileID: 21300000, guid: 20909d8edb2034844a975058a0f5b2f4, type: 3}
-  NaturalDecayPerSecond: 8
+  NaturalDecayPerSecond: 1
   VfxPrefab: {fileID: 0}
   DealsDamage: 0
   DamageInterval: 1

@@ -12,6 +12,17 @@ namespace Game.UI
         [SerializeField] private StatusIconView _poisonedView;
         [SerializeField] private StatusIconView _stickyView;
 
+        // Tracker 只在组件创建时分配一次；StatusChangedEvent 的强度刷新热路径保持 Zero-GC。
+        private readonly StatusIconAcquisitionOrder _acquisitionOrder =
+            new StatusIconAcquisitionOrder();
+
+        private void Awake()
+        {
+            // Awake 发生在 OnEnable 订阅之前：先清理场景序列化留下的占位显示，之后收到的
+            // StatusChangedEvent 就是 Runtime Truth，不能再被较晚执行的 Start 覆盖。
+            ClearAll();
+        }
+
         private void OnEnable()
         {
             EventBus<StatusChangedEvent>.Subscribe(OnStatusChanged);
@@ -20,11 +31,6 @@ namespace Game.UI
         private void OnDisable()
         {
             EventBus<StatusChangedEvent>.Unsubscribe(OnStatusChanged);
-        }
-
-        private void Start()
-        {
-            ClearAll();
         }
 
         private void OnStatusChanged(StatusChangedEvent e)
@@ -37,13 +43,25 @@ namespace Game.UI
                 return;
 
             if (e.IsActive)
+            {
+                // 只有状态真正从 inactive 变成 active 才移动层级；同一状态的百分比刷新
+                // 不会反复 SetAsLastSibling，因此 HorizontalLayoutGroup 不会左右抖动。
+                if (_acquisitionOrder.Activate(e.Kind))
+                    view.transform.SetAsLastSibling();
+
                 view.Set(e.Icon, e.Intensity);
+            }
             else
+            {
+                _acquisitionOrder.Deactivate(e.Kind);
                 view.Clear();
+            }
         }
 
         private void ClearAll()
         {
+            _acquisitionOrder.Clear();
+
             if (_burningView != null)
                 _burningView.Clear();
             if (_wetView != null)

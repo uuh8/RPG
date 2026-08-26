@@ -12,6 +12,16 @@ namespace Game.ElementField.Tests
     /// </summary>
     public sealed class FluidGpuLayoutContractTests
     {
+        [Test]
+        public void ResidentBoundsTrackerDoesNotShrinkWhenInterestMoves()
+        {
+            var tracker = new FluidResidentBoundsTracker();
+            tracker.Include(new Bounds(Vector3.zero, new Vector3(10f, 6f, 10f)));
+            tracker.Include(new Bounds(new Vector3(20f, 0f, 0f), new Vector3(10f, 6f, 10f)));
+
+            Assert.That(tracker.Bounds.min.x, Is.EqualTo(-5f).Within(0.0001f));
+            Assert.That(tracker.Bounds.max.x, Is.EqualTo(25f).Within(0.0001f));
+        }
         private const string LifecycleShaderPath =
             "Assets/_Project/Art/Elemental/Compute/PbfParticleLifecycle.compute";
 
@@ -21,9 +31,19 @@ namespace Game.ElementField.Tests
             Assert.That(Marshal.SizeOf<Vector4>(), Is.EqualTo(16));
             Assert.That(Marshal.SizeOf<FluidGpuUInt2>(), Is.EqualTo(8));
             Assert.That(Marshal.SizeOf<FluidGpuInt4>(), Is.EqualTo(16));
-            Assert.That(Marshal.SizeOf<FluidGpuSpawnRequest>(), Is.EqualTo(48));
+            Assert.That(Marshal.SizeOf<FluidGpuSpawnRequest>(), Is.EqualTo(64));
+            Assert.That(Marshal.SizeOf<FluidGpuLiquidMaterialParameters>(), Is.EqualTo(32));
+            Assert.That(FluidGpuLayout.SpawnRequestStride, Is.EqualTo(64));
+            Assert.That(FluidGpuLayout.LiquidMaterialParameterStride, Is.EqualTo(32));
+            Assert.That(FluidGpuLayout.LayoutVersion, Is.EqualTo(8u));
+            Assert.That(
+                FluidSpawnFlags.UseLinearFalloff & FluidSpawnFlags.DensityPacked,
+                Is.Zero,
+                "Packed 与 Legacy Falloff 必须是可独立开关的两个 bit。");
             Assert.That(Marshal.SizeOf<FluidConsumeCommand>(), Is.EqualTo(48));
             Assert.That(FluidGpuLayout.ConsumeRequestStride, Is.EqualTo(48));
+            Assert.That(Marshal.SizeOf<FluidConvertCommand>(), Is.EqualTo(48));
+            Assert.That(FluidGpuLayout.ConvertRequestStride, Is.EqualTo(48));
             Assert.That(Marshal.SizeOf<FluidColliderProxy>(), Is.EqualTo(64));
             Assert.That(Marshal.SizeOf<FluidCollisionContactManifold>(), Is.EqualTo(64));
             Assert.That(FluidGpuLayout.ColliderProxyStride, Is.EqualTo(64));
@@ -55,7 +75,8 @@ namespace Game.ElementField.Tests
                 AssertBuffer(resources.CellRanges, 16, 8);
                 AssertBuffer(resources.FreeIndices, 8, 4);
                 AssertBuffer(resources.Counters, FluidGpuLayout.CounterCount, 4);
-                AssertBuffer(resources.SpawnRequests, 4, 48);
+                AssertBuffer(resources.SpawnRequests, 4, 64);
+                AssertBuffer(resources.LiquidMaterialParameters, 256, 32);
                 AssertBuffer(resources.ColliderProxies, 3, FluidGpuLayout.ColliderProxyStride);
                 AssertBuffer(
                     resources.CollisionContacts,
@@ -63,6 +84,7 @@ namespace Game.ElementField.Tests
                     FluidGpuLayout.CollisionContactManifoldStride);
                 AssertBuffer(resources.GameplaySamples, 8, FluidGameplaySampleCodec.Stride);
                 AssertBuffer(resources.ConsumeRequests, 4, FluidGpuLayout.ConsumeRequestStride);
+                AssertBuffer(resources.ConvertRequests, 4, FluidGpuLayout.ConvertRequestStride);
                 AssertBuffer(resources.StableTickCounters, 8, 4);
                 AssertBuffer(resources.WakeRequests, 8, 4);
                 AssertBuffer(resources.ActivityCounters, FluidGpuLayout.ActivityCounterCount, 4);
@@ -103,11 +125,13 @@ namespace Game.ElementField.Tests
             Assert.That(resources.CollisionContacts, Is.Null);
             Assert.That(resources.GameplaySamples, Is.Null);
             Assert.That(resources.ConsumeRequests, Is.Null);
+            Assert.That(resources.ConvertRequests, Is.Null);
             Assert.That(resources.StableTickCounters, Is.Null);
             Assert.That(resources.WakeRequests, Is.Null);
             Assert.That(resources.ActivityCounters, Is.Null);
             Assert.That(resources.SolverDispatchArgs, Is.Null);
             Assert.That(resources.HashDispatchArgs, Is.Null);
+            Assert.That(resources.LiquidMaterialParameters, Is.Null);
         }
 
         [Test]
@@ -198,6 +222,7 @@ namespace Game.ElementField.Tests
             Assert.That(shader.HasKernel("InitializePool"), Is.True);
             Assert.That(shader.HasKernel("InitializePoolAuxiliary"), Is.True);
             Assert.That(shader.HasKernel("SpawnParticles"), Is.True);
+            Assert.That(shader.HasKernel("ConvertParticles"), Is.True);
             Assert.That(shader.HasKernel("ApplyGravity"), Is.True);
             Assert.That(shader.HasKernel("PredictPositions"), Is.True);
             Assert.That(shader.HasKernel("CommitPositions"), Is.True);

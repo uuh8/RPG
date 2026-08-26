@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using UnityEngine;
 
@@ -130,7 +131,7 @@ namespace Game.ElementField
             int changed = 0;
             for (int index = 0; index < CellCount; index++)
             {
-                if (_currentCells[index].MaterialKind != ElementMaterialKind.Empty
+                if (_currentCells[index].MaterialKind != MaterialId.Empty
                     || _currentCells[index].Amount != 0)
                 {
                     _currentCells[index] = default;

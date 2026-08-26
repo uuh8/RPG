@@ -25,8 +25,6 @@ namespace Game.Character
         // 这里与纯解释器使用同一深度上限，形成第二道防线，防止错误数据或未来规则扩展造成无界递归。
         private const int MaxRuntimeTriggerDepth = CastEvaluator.MaxActionDepth;
 
-        // Header/Tooltip/SerializeField 都是 Unity 序列化与 Inspector 元数据：
-        // 它们让 private 字段可以在 Inspector 中配置，但不会改变字段的 C# 可见性。
         [Header("Run Data Source")]
         [SerializeField]
         [Tooltip("P7 单局模式的数据源；配置后优先使用它的 Runtime Wand，旧场景仍可回退到下方 Wand。")]
@@ -38,24 +36,19 @@ namespace Game.Character
         [Tooltip("可用法力值")]
         // ManaComponent 持有当前角色独立的可变法力值；SpellDefinition/WandLoadout 不保存本次运行资源。
         [SerializeField] private ManaComponent _mana;
+
         [Header("开发诊断")]
         // 诊断等级只控制 Editor/Development Build 日志，不改变求值、扣费或生成结果。
         [SerializeField] private CastTraceLevel _traceLevel = CastTraceLevel.Off;
-
-        // castId 只用于把同一次施法及其后续 Payload 的诊断日志串起来，不参与玩法计算。
-        private static int s_nextCastId;
         // ProfilerMarker 会在 Unity Profiler 中形成可独立观察的采样区间，用于定位“求值”之后的生成成本。
         private static readonly ProfilerMarker s_runtimeSpawnMarker = new ProfilerMarker("Spell.RuntimeSpawn");
-        // 复用容器，避免每次施法都 new List/HashSet；Clear 只清元素，通常会保留已扩展的容量。
-        private readonly List<EmitCommand> _emits = new List<EmitCommand>(16);
+
+        // Runtime Diagnostics 隔离条件编译与日志格式化，让本类只保留 Gameplay Adapter 主流程。
+        private readonly SpellCastRuntimeDiagnostics _diagnostics = new SpellCastRuntimeDiagnostics();
+        private readonly List<EmitCommand> _emits = new List<EmitCommand>(16);  // 复用容器
         private readonly HashSet<AudioClip> _playedSfx = new HashSet<AudioClip>();
         // RaycastNonAlloc 由调用方提供数组接收结果，避免每次落点检测创建新数组。
         private readonly RaycastHit[] _landingHits = new RaycastHit[8];
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        // Trace 仅在开发构建中存在；固定初始 Capacity 让常见施法不必为诊断步骤频繁扩容。
-        private readonly CastTraceCollector _traceCollector = new CastTraceCollector(64);
-#endif
-
         /// <summary>
         /// 返回当前真正参与求值的法杖。P7 使用 Runtime Clone，旧实验场景仍兼容 Inspector 中的模板 Wand。
         /// 这里按需解析而不在 Awake 缓存，避免依赖不同 GameObject 之间不可保证的 Awake 执行顺序。
@@ -66,17 +59,7 @@ namespace Game.Character
         /// <summary>
         /// 对外暴露当前有效的诊断等级。Release Build 直接返回 Off，调用方不能误以为详细 Trace 仍会运行。
         /// </summary>
-        public CastTraceLevel TraceLevel
-        {
-            get
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                return _traceLevel;
-#else
-                return CastTraceLevel.Off;
-#endif
-            }
-        }
+        public CastTraceLevel TraceLevel => _diagnostics.ResolveLevel(_traceLevel);
 
         private void Awake()
         {
@@ -96,9 +79,14 @@ namespace Game.Character
         /// <param name="attackerId">攻击者实例 Id，这次伤害归属于哪个 Runtime 对象，用于伤害归属和事件过滤。</param>
         /// <param name="casterCollider">施法者碰撞体；投射物出生后应该忽略施法者 Collider，防止出生即撞到自己。</param>
         /// <returns>解释器产出的 EmitCommand 数量；它不等同于最终成功 Instantiate 的对象数量。</returns>
-        public int CastWand(Vector3 spawnPos, Vector3 aimPoint, byte team, int attackerId, Collider casterCollider)
+        public int CastWand(
+            Vector3 spawnPos,           // 攻击对象从哪个世界坐标生成。
+            Vector3 aimPoint,           // 玩家点击时锁存的世界坐标目标点。
+            byte team,                  // 攻击者阵营，用于过滤自身和友军。
+            int attackerId,             // 这次伤害归属于哪个 Runtime 对象。
+            Collider casterCollider)    // 投射物出生后应该忽略哪个施法者 Collider。
         {
-            // ResolveWand 隔离“当前配置来自单局 Runtime Clone 还是 Inspector 模板”的差异，后续流程只认结果。
+            // 1. 读取法术配置
             WandLoadout activeWand = ResolveWand();
             if (activeWand == null || activeWand.Spells == null || activeWand.Spells.Length == 0)
             {
@@ -111,11 +99,127 @@ namespace Game.Character
             if (baseDir.sqrMagnitude < 1e-6f) baseDir = transform.forward;
             baseDir.Normalize();    // Normalize 只保留方向、把长度变成 1，之后再乘速度即可得到初始 velocity。
 
-            // 前置递增让 0 保留为“未分配”语义；该 Id 只串联日志，不参与 Gameplay 身份判断。
-            int castId = ++s_nextCastId;
+            int castId = _diagnostics.AllocateCastId();
             return RunCast(activeWand.Spells, activeWand.BaseDraws, CastModifierState.Default,
                            spawnPos, baseDir, team, attackerId, casterCollider, castId, 0,
                            SpellManaPolicy.SpendCasterMana);
+        }
+
+        /// <summary>
+        /// SpellCaster 的核心管线：先对一层法术 Action 做 Mana 预检和纯求值，再把输出命令翻译成 Unity 对象。
+        /// spells 是只读访问接口；baseDraws 是本层初始产出预算；incomingMods 是进入本层前已经形成的修正快照。
+        /// spawnPos 对普通 Emit 是发射点，对 SkyfallAtPoint 是目标落点；Trigger 会把命中点/定时点作为下一层 spawnPos。
+        /// team、attackerId、casterCollider 是攻击归属与碰撞过滤上下文；castId/depth 只服务诊断和递归护栏。
+        /// manaPolicy 决定是否操作玩家的 ManaComponent，但不会改变解释器的法术排列语义。
+        /// </summary>
+        private int RunCast(
+            IReadOnlyList<SpellDefinition> spells,
+            int baseDraws,
+            CastModifierState incomingMods,
+            Vector3 spawnPos,
+            Vector3 baseDir,
+            byte team,
+            int attackerId,
+            Collider casterCollider,
+            int castId,
+            int depth,
+            SpellManaPolicy manaPolicy)
+        {
+            if (depth >= MaxRuntimeTriggerDepth)
+            {
+                // 每层 Payload 都是父序列后面的一个更短 Action 切片，但运行时仍设置硬上限：
+                // 即使未来 Authoring 语义扩展，也不会让命中回调形成无界递归。
+                GameLog.Warn(
+                    $"Cast #{castId} 的 Trigger 深度达到 {MaxRuntimeTriggerDepth}，已停止继续展开 Payload。",
+                    "Skills");
+                return 0;
+            }
+
+            // 1. 计算消耗
+            // EstimateManaCost 镜像解释器的读取边界，但不 Instantiate、也不修改 ManaComponent。
+            // 当前层采用“全有或全无”的整笔支付：资源不足时不生成任何对象，避免只释放出一半组合。
+            // Trigger 捕获的 Payload 属于未来的下一层，此时不预付；真正触发时会再次进入 RunCast 并单独扣费。
+            float requiredMana = CastEvaluator.EstimateManaCost(spells, baseDraws, incomingMods);
+
+            float availableMana = _mana != null ? _mana.CurrentMana : float.PositiveInfinity;
+            if (!TrySpendMana(requiredMana, manaPolicy))
+            {
+                // 负责法力预检失败时记录原因（调试函数）
+                _diagnostics.LogManaPreflightFailure(
+                    spells,
+                    baseDraws,
+                    incomingMods,
+                    _emits,
+                    _traceLevel,
+                    castId,
+                    depth,
+                    requiredMana,
+                    availableMana);
+                _emits.Clear();
+                return 0;
+            }
+
+            // 2. 解释法术
+            // 负责运行解释器并把解释结果写进发射订单列表
+            // 返回一个轻量的求值摘要（CastSummary），里面只有“解释器认为消耗了多少法力”和“是否中途熄火”
+            // 只读法术序列 + 初始产出预算 + 修正状态快照 → 法术解释器 → 可变数量的发射订单列表
+            _diagnostics.EvaluateCommands(
+                spells,
+                baseDraws,
+                incomingMods,
+                _emits,
+                _traceLevel,
+                castId,
+                depth,
+                requiredMana);
+
+            // 音效去重的作用域是“当前求值层”。未来 Payload 触发会作为新层重新 Clear，可以播放自己的施法音效。
+            _playedSfx.Clear();
+
+            // 先保存 Count，明确本轮只消费当前 Evaluate 的结果；事件回调要到未来命中/计时帧才可能再次复用 _emits。
+            int count = _emits.Count;
+            // Auto() 返回一个可释放的采样作用域；离开 using 块时自动结束 Profiler 采样。
+            using (s_runtimeSpawnMarker.Auto())
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    EmitCommand cmd = _emits[i];
+
+                    // 如果音效为空 ➡️ 不播放。
+                    // 如果音效不为空，且是第一次遇到这个音效 ➡️ Add 返回 true，条件成立 ➡️ 播放音效。
+                    // 如果音效不为空，但已经播放过了 ➡️ Add 返回 false，条件不成立 ➡️ 不播放
+                    if (cmd.CastSfx != null && _playedSfx.Add(cmd.CastSfx))
+                        AudioSource.PlayClipAtPoint(cmd.CastSfx, spawnPos);
+
+                    if (cmd.ProjectilePrefab == null)
+                    {
+                        GameLog.Warn("[SpellCaster] EmitCommand.ProjectilePrefab 为空，跳过该法术产出", "Skills");
+                        continue;
+                    }
+
+                    switch (cmd.SpawnMode)
+                    {
+                        case SpellSpawnMode.SkyfallAtPoint:
+                            SpawnSkyfallProjectile(
+                                cmd, spawnPos, baseDir, i, count, team, attackerId,
+                                casterCollider, castId, depth, manaPolicy);
+                            break;
+
+                        case SpellSpawnMode.StaticAtPoint:
+                            SpawnStaticProjectileAtPoint(cmd, spawnPos, baseDir, team, attackerId, casterCollider);
+                            break;
+
+                        default:
+                            SpawnForwardProjectile(
+                                cmd, spawnPos, baseDir, i, count, team, attackerId,
+                                casterCollider, castId, depth, manaPolicy);
+                            break;
+                    }
+                }
+            }
+
+            // 返回的是求值命令数。若某条命令 Prefab 缺失或组件不合法，实际生成数可能更少。
+            return count;
         }
 
         /// <summary>
@@ -150,7 +254,7 @@ namespace Game.Character
                 baseDir = transform.forward;
             baseDir.Normalize();
 
-            int castId = ++s_nextCastId;
+            int castId = _diagnostics.AllocateCastId();
             return RunCast(
                 program.Spells,
                 program.BaseDraws,
@@ -165,6 +269,7 @@ namespace Game.Character
                 manaPolicy);
         }
 
+        # region 内部功能函数
         /// <summary>
         /// 解析当前权威的有序法术配置：优先使用单局 Runtime Clone，无法绑定时才回退到 Inspector 模板。
         /// 返回的是 ScriptableObject 引用，不会在这里复制数组或重新创建资产。
@@ -207,139 +312,14 @@ namespace Game.Character
                    session.RuntimeWand != null;
         }
 
-        /// <summary>
-        /// SpellCaster 的核心管线：先对一层法术 Action 做 Mana 预检和纯求值，再把输出命令翻译成 Unity 对象。
-        /// spells 是只读访问接口；baseDraws 是本层初始产出预算；incomingMods 是进入本层前已经形成的修正快照。
-        /// spawnPos 对普通 Emit 是发射点，对 SkyfallAtPoint 是目标落点；Trigger 会把命中点/定时点作为下一层 spawnPos。
-        /// team、attackerId、casterCollider 是攻击归属与碰撞过滤上下文；castId/depth 只服务诊断和递归护栏。
-        /// manaPolicy 决定是否操作玩家的 ManaComponent，但不会改变解释器的法术排列语义。
-        /// </summary>
-        private int RunCast(
-            IReadOnlyList<SpellDefinition> spells,
-            int baseDraws,
-            CastModifierState incomingMods,
-            Vector3 spawnPos,
-            Vector3 baseDir,
-            byte team,
-            int attackerId,
-            Collider casterCollider,
-            int castId,
-            int depth,
-            SpellManaPolicy manaPolicy)
-        {
-            if (depth >= MaxRuntimeTriggerDepth)
-            {
-                // 每层 Payload 都是父序列后面的一个更短 Action 切片，但运行时仍设置硬上限：
-                // 即使未来 Authoring 语义扩展，也不会让命中回调形成无界递归。
-                GameLog.Warn(
-                    $"Cast #{castId} 的 Trigger 深度达到 {MaxRuntimeTriggerDepth}，已停止继续展开 Payload。",
-                    "Skills");
-                return 0;
-            }
-
-            // EstimateManaCost 镜像解释器的读取边界，但不 Instantiate、也不修改 ManaComponent。
-            // 当前层采用“全有或全无”的整笔支付：资源不足时不生成任何对象，避免只释放出一半组合。
-            // Trigger 捕获的 Payload 属于未来的下一层，此时不预付；真正触发时会再次进入 RunCast 并单独扣费。
-            float requiredMana = CastEvaluator.EstimateManaCost(spells, baseDraws, incomingMods);
-            // availableMana 供失败 Trace 记录现场；没有 ManaComponent 时与 TrySpendMana 的“无限法力回退”语义一致。
-            float availableMana = _mana != null ? _mana.CurrentMana : float.PositiveInfinity;
-            if (!TrySpendMana(requiredMana, manaPolicy))
-            {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-                LogManaPreflightFailure(
-                    spells, baseDraws, incomingMods,
-                    castId, depth, requiredMana, availableMana);
-#endif
-                _emits.Clear();
-                return 0;
-            }
-
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            // 条件编译块只进入 Unity Editor 或 Development Build；Release 不包含详细 Trace 的调用和字符串成本。
-            CastSummary summary;
-            if (_traceLevel == CastTraceLevel.Detailed)
-            {
-                summary = CastEvaluator.EvaluateWithTrace(
-                    spells,
-                    baseDraws,
-                    float.PositiveInfinity,
-                    incomingMods,
-                    _emits, _traceCollector);
-            }
-            else
-            {
-                summary = CastEvaluator.Evaluate(
-                    spells,
-                    baseDraws,
-                    float.PositiveInfinity,
-                    incomingMods,
-                    _emits);
-            }
-            // Summary/Detailed 最终走同一 Gameplay 求值器；Detailed 只额外记录每条指令前后的状态快照。
-            LogTrace(castId, depth, requiredMana, summary);
-#else
-            // 法力已经由上面的 preflight 统一支付，因此解释器收到正无穷，这里只负责确定语义与产出。
-            CastEvaluator.Evaluate(spells, baseDraws, float.PositiveInfinity, incomingMods, _emits);
-#endif
-            // 音效去重的作用域是“当前求值层”。未来 Payload 触发会作为新层重新 Clear，可以播放自己的施法音效。
-            _playedSfx.Clear();
-
-            // 先保存 Count，明确本轮只消费当前 Evaluate 的结果；事件回调要到未来命中/计时帧才可能再次复用 _emits。
-            int count = _emits.Count;
-            // Auto() 返回一个可释放的采样作用域；离开 using 块时自动结束 Profiler 采样。
-            using (s_runtimeSpawnMarker.Auto())
-            {
-                for (int i = 0; i < count; i++)
-                {
-                    EmitCommand cmd = _emits[i];
-
-                    // HashSet.Add 只有首次加入时返回 true，避免同一次 Multicast 重复播放同一个 Cast SFX。
-                    // PlayClipAtPoint 会在指定世界坐标创建临时 AudioSource，播放结束后由 Unity 清理。
-                    if (cmd.CastSfx != null && _playedSfx.Add(cmd.CastSfx))
-                        AudioSource.PlayClipAtPoint(cmd.CastSfx, spawnPos);
-
-                    if (cmd.ProjectilePrefab == null)
-                    {
-                        GameLog.Warn("EmitCommand.ProjectilePrefab 为空，跳过该法术产出", "Skills");
-                        continue;
-                    }
-
-                    // 求值层只输出 SpawnMode；Runtime Adapter 再把不同模式翻译成具体场景行为。
-                    switch (cmd.SpawnMode)
-                    {
-                        case SpellSpawnMode.SkyfallAtPoint:
-                            SpawnSkyfallProjectile(
-                                cmd, spawnPos, baseDir, i, count, team, attackerId,
-                                casterCollider, castId, depth, manaPolicy);
-                            break;
-
-                        case SpellSpawnMode.StaticAtPoint:
-                            SpawnStaticProjectileAtPoint(cmd, spawnPos, baseDir, team, attackerId, casterCollider);
-                            break;
-
-                        default:
-                            SpawnForwardProjectile(
-                                cmd, spawnPos, baseDir, i, count, team, attackerId,
-                                casterCollider, castId, depth, manaPolicy);
-                            break;
-                    }
-                }
-            }
-
-            // 返回的是求值命令数。若某条命令 Prefab 缺失或组件不合法，实际生成数可能更少。
-            return count;
-        }
-
         private bool TrySpendMana(
             float requiredMana,
             SpellManaPolicy manaPolicy)
         {
             if (manaPolicy == SpellManaPolicy.IgnoreMana)
                 return true;
-
             if (requiredMana <= 0f)
                 return true;
-
             if (_mana == null)
             {
                 GameLog.Warn("SpellCaster 未配置 ManaComponent，本次施法按无限法力处理", "Skills");
@@ -373,23 +353,21 @@ namespace Game.Character
             int depth,
             SpellManaPolicy manaPolicy)
         {
-            // AngleAxis 创建“绕世界 Y 轴旋转 yaw 度”的 Quaternion；乘以向量后得到该发射物的扇形方向。
+            // 计算散射角和最终发射方向
             float yaw = SpellAiming.SpreadOffsetDegrees(index, count, cmd.SpreadDegrees);
-            Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;
+            Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;  // 将基准方向向量 baseDir 绕世界空间的 Y 轴（Vector3.up）旋转 yaw 度，得到一个新的方向向量 dir
 
             // Instantiate 根据 Prefab 在运行时创建一个独立 GameObject；LookRotation 让其 forward 朝向发射方向。
             GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, Quaternion.LookRotation(dir));
-            // GetComponent 只查 Prefab 根节点；投射物契约要求 ProjectileBase 必须位于根节点。
             ProjectileBase proj = go.GetComponent<ProjectileBase>();
             if (proj == null)
             {
                 GameLog.Warn($"法术预制体 {cmd.ProjectilePrefab.name} 上没有 ProjectileBase 组件", "Skills");
-                // Destroy 在本帧结束前安排销毁，避免无运行脚本的错误对象残留在场景中。
                 Object.Destroy(go);
                 return;
-            }
+            }   // 安全检查
 
-            // 顺序上先注入 Payload/运动/复合伤害配置，最后 Init：Init 会真正写入 Rigidbody 初速度并开始生命周期。
+            // 把当前投射物和它未来要触发的 Payload 绑定起来。
             WirePayload(
                 proj,
                 cmd,
@@ -399,6 +377,7 @@ namespace Game.Character
                 castId,
                 depth,
                 manaPolicy);
+
             ConfigureCompositeDamage(proj, in cmd);
             ConfigureProjectileMotion(proj, cmd, index, count);
             // ShieldProjectile 是仍沿 ProjectileBase 飞行链路工作的特殊产出，反射次数同样来自本次 EmitCommand 快照。
@@ -413,8 +392,13 @@ namespace Game.Character
         /// <summary>
         /// 在给定世界坐标创建不依靠 Rigidbody 飞行的静态攻击对象。当前 StaticAtPoint Runtime 合同由 ProjectileShield 实现。
         /// </summary>
-        private void SpawnStaticProjectileAtPoint(EmitCommand cmd, Vector3 spawnPos, Vector3 baseDir,
-                                                  byte team, int attackerId, Collider casterCollider)
+        private void SpawnStaticProjectileAtPoint(
+            EmitCommand cmd,
+            Vector3 spawnPos,
+            Vector3 baseDir,
+            byte team,
+            int attackerId,
+            Collider casterCollider)
         {
             // 先保留 Prefab 作者设置的基础旋转，再把它组合到瞄准方向旋转后，避免模型本地前轴补偿丢失。
             Quaternion rotation = cmd.ProjectilePrefab.transform.rotation;
@@ -439,6 +423,52 @@ namespace Game.Character
         }
 
         /// <summary>
+        /// 执行 SkyfallAtPoint 的“两阶段生成”：先解析真实落点并显示预警，再按配置延迟从上空生成投射物。
+        /// landingPoint 是目标位置而不是实际出生位置，真正 spawnPos 在 SpawnSkyfallProjectileNow 中计算。
+        /// </summary>
+        private void SpawnSkyfallProjectile(
+            EmitCommand cmd,
+            Vector3 landingPoint,
+            Vector3 baseDir,
+            int index,
+            int count,
+            byte team,
+            int attackerId,
+            Collider casterCollider,
+            int castId,
+            int depth,
+            SpellManaPolicy manaPolicy)
+        {
+            // 屏幕瞄准点可能位于空中，先向下做 Physics 查询，把它吸附到最近的真实碰撞表面。
+            landingPoint = ResolveSkyfallLandingPoint(landingPoint, casterCollider);
+
+            if (cmd.LandingSitePrefab != null)
+            {
+                // 预警 Prefab 使用作者保存的旋转，不强行朝向施法方向，避免地面贴花被竖起来。
+                Quaternion markerRotation = cmd.LandingSitePrefab.transform.rotation;
+                GameObject marker = Object.Instantiate(cmd.LandingSitePrefab, landingPoint, markerRotation);
+                // Destroy(Object, delay) 延迟销毁落点提示；额外 0.5 秒给结束动画留出时间。
+                Object.Destroy(marker, Mathf.Max(0.05f, cmd.LandingSiteDuration + 0.5f));
+            }
+
+            if (cmd.LandingSiteDuration > 0f)
+            {
+                // Coroutine 可跨多帧暂停并恢复该流程，不会阻塞主线程；StartCoroutine 负责交给 Unity 调度。
+                StartCoroutine(SpawnSkyfallProjectileAfterDelay(
+                    cmd, landingPoint, baseDir, index, count, team, attackerId,
+                    casterCollider, castId, depth, manaPolicy));
+            }
+            else
+            {
+                SpawnSkyfallProjectileNow(
+                    cmd, landingPoint, baseDir, index, count, team, attackerId,
+                    casterCollider, castId, depth, manaPolicy);
+            }
+        }
+
+        //————————————————————————————————————————————————————————————————————————————————————————————
+
+        /// <summary>
         /// 把 EmitCommand 中的 Payload 数据与某一个 ProjectileBase 实例的生命周期事件连接起来。
         /// 这里使用实例 C# event，而不是全局 EventBus：回调只属于这枚投射物，不需要额外用 Projectile Id 做匹配。
         /// </summary>
@@ -452,15 +482,15 @@ namespace Game.Character
             int depth,
             SpellManaPolicy manaPolicy)
         {
-            // HasPayload 同时检查引用和元素数量；空载荷不订阅事件，也不会建立无意义的闭包。
+            // 如果这枚投射物根本没有携带后续法术，那么什么都不用绑定
             if (!cmd.HasPayload)
                 return;
 
             // 把当前命令捕获的“后续一个完整 Action”与 Modifier 快照保存到闭包中。
             // 投射物未来命中或计时结束时，回调仍能用本次施法的上下文运行下一层，而不再读取已变化的序列。
             // 闭包会随 delegate 一起被投射物事件持有；该分配发生在离散施法，不位于每帧 Hot Path。
-            IReadOnlyList<SpellDefinition> payload = cmd.Payload;
-            CastModifierState payloadMods = cmd.PayloadMods;
+            IReadOnlyList<SpellDefinition> payload = cmd.Payload;   // payload 表示这枚投射物未来触发的时候，需要执行的那一小段法术程序
+            CastModifierState payloadMods = cmd.PayloadMods;        //
 
             switch (cmd.PayloadTrigger)
             {
@@ -503,159 +533,6 @@ namespace Game.Character
             }
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        /// <summary>
-        /// Mana 预检失败时补充诊断证据。Detailed 会用真实可用 Mana 再跑一次纯求值，定位具体在哪条指令 Fizzle；
-        /// 这次求值只写入诊断 List，不会扣第二次 Mana，也不会生成场景对象。
-        /// </summary>
-        private void LogManaPreflightFailure(
-            IReadOnlyList<SpellDefinition> spells,
-            int baseDraws,
-            CastModifierState incomingMods,
-            int castId,
-            int depth,
-            float requiredMana,
-            float availableMana)
-        {
-            if (_traceLevel == CastTraceLevel.Off)
-                return;
-
-            if (_traceLevel == CastTraceLevel.Detailed)
-            {
-                CastSummary summary = CastEvaluator.EvaluateWithTrace(
-                    spells, baseDraws, availableMana,
-                    incomingMods, _emits, _traceCollector);
-                LogTrace(castId, depth, requiredMana, summary);
-                // EvaluateWithTrace 会把失败前的临时 Emit 写入复用 List；清空它，保证失败施法不被后续逻辑误消费。
-                _emits.Clear();
-                return;
-            }
-
-            GameLog.Info(
-                $"Cast #{castId} Depth={depth} PRECHECK FAILED Emits=0 " +
-                $"RequiredMana={requiredMana:0.##} AvailableMana={availableMana:0.##} Fizzled=True",
-                "SpellTrace");
-        }
-
-        /// <summary>
-        /// 输出一层施法的 Summary；Detailed 模式再按 CastTraceCollector 的发生顺序展开每一步。
-        /// GameLog 调用只在 Editor/Development Build 有效，这整个方法在 Release 也不会参与编译。
-        /// </summary>
-        private void LogTrace(int castId, int depth, float requiredMana, CastSummary summary)
-        {
-            if (_traceLevel == CastTraceLevel.Off)
-                return;
-
-            GameLog.Info(
-                $"Cast #{castId} Depth={depth} Emits={_emits.Count} " +
-                $"RequiredMana={requiredMana:0.##} EvaluatedMana={summary.ManaSpent:0.##} " +
-                $"Fizzled={summary.Fizzled}",
-                "SpellTrace");
-
-            if (_traceLevel != CastTraceLevel.Detailed)
-                return;
-
-            for (int i = 0; i < _traceCollector.Count; i++)
-                LogTraceStep(castId, depth, _traceCollector[i]);
-
-            if (_traceCollector.ExpandedDuringLastCollection)
-            {
-                GameLog.Warn(
-                    $"Cast #{castId} Trace 超出预分配容量，本次诊断发生 List 扩容",
-                    "SpellTrace");
-            }
-        }
-
-        /// <summary>把不可变 CastTraceStep 快照翻译成人能阅读的日志，不反向改变解释器状态。</summary>
-        private static void LogTraceStep(int castId, int depth, CastTraceStep step)
-        {
-            string spellName = step.Spell != null
-                ? step.Spell.DisplayName
-                : "<none>";
-
-            switch (step.Kind)
-            {
-                case CastTraceStepKind.CastStarted:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} START Draw={step.DrawBudgetBefore} " +
-                        FormatModifiers(step.ModifiersBefore),
-                        "SpellTrace");
-                    break;
-                case CastTraceStepKind.ModifyApplied:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} MODIFY " +
-                        $"Before[{FormatModifiers(step.ModifiersBefore)}] " +
-                        $"After[{FormatModifiers(step.ModifiersAfter)}]",
-                        "SpellTrace");
-                    break;
-                case CastTraceStepKind.MulticastApplied:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} MULTICAST " +
-                        $"Draw {step.DrawBudgetBefore}->{step.DrawBudgetAfter}", "SpellTrace");
-                    break;
-                case CastTraceStepKind.DrawBudgetBlocked:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} BLOCKED Draw=0",
-                        "SpellTrace");
-                    break;
-                case CastTraceStepKind.EmitProduced:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} EMIT#{step.EmitIndex} " +
-                        FormatEmit(step.Emit) + " " +
-                        $"Draw {step.DrawBudgetBefore}->{step.DrawBudgetAfter}",
-                        "SpellTrace");
-                    break;
-                case CastTraceStepKind.PayloadCaptured:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} [{step.SpellIndex}] PAYLOAD " +
-                        $"Trigger={step.PayloadTrigger} Delay={step.Emit.PayloadDelaySeconds:0.##} " +
-                        $"Start={step.PayloadStartIndex} Count={step.PayloadCount}",
-                        "SpellTrace");
-                    break;
-                case CastTraceStepKind.ManaFizzle:
-                    GameLog.Info(
-                        $"Cast #{castId} D{depth} [{step.SpellIndex}] {spellName} FIZZLE " +
-                        $"ManaLeft={step.ManaLeftBefore:0.##}",
-                        "SpellTrace");
-                    break;
-                case CastTraceStepKind.NullSpellSkipped:
-                    GameLog.Info($"Cast #{castId} D{depth} [{step.SpellIndex}] NULL SKIPPED", "SpellTrace");
-                    break;
-                case CastTraceStepKind.CastCompleted:
-                    GameLog.Info($"Cast #{castId} D{depth} COMPLETE DrawLeft={step.DrawBudgetAfter}", "SpellTrace");
-                    break;
-            }
-        }
-
-        // 字符串插值会产生诊断字符串分配，所以格式化函数严格位于开发条件编译块内。
-        private static string FormatModifiers(CastModifierState modifiers)
-        {
-            return $"DamageAddFlat={modifiers.DamageAddFlat:0.##} DamageMul={modifiers.DamageMul:0.##} " +
-                   $"SpeedMul={modifiers.SpeedMul:0.##} Spread={modifiers.SpreadDegrees:0.##} " +
-                   $"Bounce={modifiers.BounceCount} UseGravity={modifiers.UseGravity} " +
-                   $"Homing(R={modifiers.HomingRadius:0.##},Duration={modifiers.HomingDuration:0.##},Turn={modifiers.HomingTurnRateDegrees:0.##}) " +
-                   $"Orbit(R={modifiers.OrbitRadius:0.##},Angular={modifiers.OrbitAngularSpeedDegrees:0.##},Phase={modifiers.OrbitPhaseOffsetDegrees:0.##},Tilt={modifiers.OrbitPlaneTiltDegrees:0.##}) " +
-                   $"Motion={modifiers.MotionMode}";
-        }
-
-        /// <summary>把一条已经烘焙完成的 EmitCommand 展开为日志，便于核对 Authoring Data 最终合成了什么。</summary>
-        private static string FormatEmit(EmitCommand emit)
-        {
-            return $"Projectile={(emit.ProjectilePrefab != null ? emit.ProjectilePrefab.name : "<none>")} " +
-                   $"LandingSite={(emit.LandingSitePrefab != null ? emit.LandingSitePrefab.name : "<none>")} " +
-                   $"CastSfx={(emit.CastSfx != null ? emit.CastSfx.name : "<none>")} " +
-                   $"Damage={emit.Damage:0.##} Speed={emit.Speed:0.##} DamageType={emit.DamageType} " +
-                   $"Spread={emit.SpreadDegrees:0.##} Bounce={emit.BounceCount} UseGravity={emit.UseGravity} " +
-                   $"Homing(R={emit.HomingRadius:0.##},Duration={emit.HomingDuration:0.##},Turn={emit.HomingTurnRateDegrees:0.##}) " +
-                   $"Orbit(R={emit.OrbitRadius:0.##},Angular={emit.OrbitAngularSpeedDegrees:0.##},Phase={emit.OrbitPhaseOffsetDegrees:0.##},Tilt={emit.OrbitPlaneTiltDegrees:0.##}) " +
-                   $"Motion={emit.MotionMode} SpawnMode={emit.SpawnMode} " +
-                   $"Skyfall(Height={emit.SkyfallHeight:0.##},Back={emit.SkyfallBackOffset:0.##},LandingDuration={emit.LandingSiteDuration:0.##}) " +
-                   $"ShieldReflect={emit.ShieldReflectCount} " +
-                   $"Payload(Has={emit.HasPayload},Count={(emit.Payload != null ? emit.Payload.Count : 0)},Trigger={emit.PayloadTrigger},Delay={emit.PayloadDelaySeconds:0.##}," +
-                   $"Mods=[{FormatModifiers(emit.PayloadMods)}])";
-        }
-#endif
-
         /// <summary>
         /// 把命令中的运动快照写入投射物。Bounce 可与主运动并存；Homing 与 Orbit 都会接管主要方向，因此互斥。
         /// 每个分支都会显式关闭另一模式，避免 Prefab 上的序列化默认值污染本次命令语义。
@@ -687,40 +564,6 @@ namespace Game.Character
             }
         }
 
-        /// <summary>
-        /// 执行 SkyfallAtPoint 的“两阶段生成”：先解析真实落点并显示预警，再按配置延迟从上空生成投射物。
-        /// landingPoint 是目标位置而不是实际出生位置，真正 spawnPos 在 SpawnSkyfallProjectileNow 中计算。
-        /// </summary>
-        private void SpawnSkyfallProjectile(EmitCommand cmd, Vector3 landingPoint, Vector3 baseDir, int index, int count,
-                                            byte team, int attackerId, Collider casterCollider, int castId, int depth,
-                                            SpellManaPolicy manaPolicy)
-        {
-            // 屏幕瞄准点可能位于空中，先向下做 Physics 查询，把它吸附到最近的真实碰撞表面。
-            landingPoint = ResolveSkyfallLandingPoint(landingPoint, casterCollider);
-
-            if (cmd.LandingSitePrefab != null)
-            {
-                // 预警 Prefab 使用作者保存的旋转，不强行朝向施法方向，避免地面贴花被竖起来。
-                Quaternion markerRotation = cmd.LandingSitePrefab.transform.rotation;
-                GameObject marker = Object.Instantiate(cmd.LandingSitePrefab, landingPoint, markerRotation);
-                // Destroy(Object, delay) 延迟销毁落点提示；额外 0.5 秒给结束动画留出时间。
-                Object.Destroy(marker, Mathf.Max(0.05f, cmd.LandingSiteDuration + 0.5f));
-            }
-
-            if (cmd.LandingSiteDuration > 0f)
-            {
-                // Coroutine 可跨多帧暂停并恢复该流程，不会阻塞主线程；StartCoroutine 负责交给 Unity 调度。
-                StartCoroutine(SpawnSkyfallProjectileAfterDelay(
-                    cmd, landingPoint, baseDir, index, count, team, attackerId,
-                    casterCollider, castId, depth, manaPolicy));
-            }
-            else
-            {
-                SpawnSkyfallProjectileNow(
-                    cmd, landingPoint, baseDir, index, count, team, attackerId,
-                    casterCollider, castId, depth, manaPolicy);
-            }
-        }
 
         /// <summary>
         /// 把解释器生成的复合伤害纯数据交给具体 Combat Runtime。
@@ -839,5 +682,7 @@ namespace Game.Character
 
             return found ? bestPoint : sourcePoint;
         }
+
+        # endregion
     }
 }

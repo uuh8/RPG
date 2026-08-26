@@ -57,7 +57,21 @@ namespace Game.Skills
         }
 
         // 恒等状态：加法项为 0、乘法项为 1、能力开关关闭，应用后不会改变基础投射物。
-        public static CastModifierState Default => new CastModifierState(0f, 1f, 1f, 0f, 0, false, 0f, 0f, 0f, 0f, 0f, 0f, 0f, ProjectileMotionMode.None);
+        public static CastModifierState Default => new CastModifierState(
+            0f,
+            1f,
+            1f,
+            0f,
+            0,
+            false,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            0f,
+            ProjectileMotionMode.None);
 
         /// <summary>
         /// 把一条 Modify 指令合并到当前快照并返回新快照。加法、乘法和 bool OR 分别表达不同叠加语义；

@@ -1,0 +1,115 @@
+#pragma kernel ClearParcels
+#pragma kernel SpawnParcels
+#pragma kernel SimulateParcels
+
+struct FireParcelSpawnGpu
+{
+    float3 position;
+    float lifetime;
+    float3 initialVelocity;
+    float heat;
+};
+
+struct FireParcelStateGpu
+{
+    float3 position;
+    float age;
+    float3 velocity;
+    float lifetime;
+    float3 sourcePosition;
+    float radius;
+    float surfaceWeight;
+    float gasWeight;
+    float heat;
+    float active;
+};
+
+StructuredBuffer<FireParcelSpawnGpu> _FireParcelSpawns;
+RWStructuredBuffer<FireParcelStateGpu> _FireParcelStates;
+int _Capacity;
+int _SpawnCount;
+int _SpawnStartSlot;
+float _DeltaTime;
+float _Buoyancy;
+float _Drag;
+float _SourceTether;
+float _NoiseStrength;
+float _NoiseScale;
+float _LiquidLikeHoldSeconds;
+float _SurfaceToGasBlendSeconds;
+float _GasLifetimeSeconds;
+float _InitialRadius;
+float _FinalRadius;
+
+float Smooth01(float edge0, float edge1, float value)
+{
+    float t = saturate((value - edge0) / max(edge1 - edge0, 0.000001));
+    return t * t * (3.0 - 2.0 * t);
+}
+
+[numthreads(64, 1, 1)]
+void ClearParcels(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Capacity) return;
+    FireParcelStateGpu state = (FireParcelStateGpu)0;
+    _FireParcelStates[id.x] = state;
+}
+
+[numthreads(64, 1, 1)]
+void SpawnParcels(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_SpawnCount) return;
+    FireParcelSpawnGpu spawn = _FireParcelSpawns[id.x];
+    uint slot = ((uint)_SpawnStartSlot + id.x) % (uint)_Capacity;
+    FireParcelStateGpu state = (FireParcelStateGpu)0;
+    state.position = spawn.position;
+    state.sourcePosition = spawn.position;
+    state.velocity = spawn.initialVelocity;
+    state.lifetime = max(spawn.lifetime, 0.0001);
+    state.radius = _InitialRadius;
+    state.surfaceWeight = 1.0;
+    state.heat = saturate(spawn.heat);
+    state.active = 1.0;
+    _FireParcelStates[slot] = state;
+}
+
+[numthreads(64, 1, 1)]
+void SimulateParcels(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_Capacity) return;
+    FireParcelStateGpu state = _FireParcelStates[id.x];
+    if (state.active < 0.5) return;
+
+    state.age += _DeltaTime;
+    if (state.age >= state.lifetime)
+    {
+        state.active = 0.0;
+        state.surfaceWeight = 0.0;
+        state.gasWeight = 0.0;
+        _FireParcelStates[id.x] = state;
+        return;
+    }
+
+    // 使用绝对秒拆开 Liquid-like 与 Gas：延长 Hold 只会把 Gas 向后平移，
+    // 不会像旧版 normalized curve 那样挤压 Gas 自己的可见尾段。
+    float gasFullStart = _LiquidLikeHoldSeconds + _SurfaceToGasBlendSeconds;
+    float totalLifetime = gasFullStart + _GasLifetimeSeconds;
+    float transition = Smooth01(_LiquidLikeHoldSeconds, gasFullStart, state.age);
+    float gasFadeStart = gasFullStart + _GasLifetimeSeconds * 0.7;
+    float gasFade = 1.0 - Smooth01(gasFadeStart, totalLifetime, state.age);
+    state.surfaceWeight = 1.0 - transition;
+    state.gasWeight = transition * gasFade;
+    float normalizedAge = saturate(state.age / max(totalLifetime, 0.0001));
+    state.radius = lerp(_InitialRadius, _FinalRadius, normalizedAge);
+
+    // 解析三角函数 Noise 无需 Texture；Source Tether 只在早期保形，进入 Gas 后自然归零。
+    float3 p = state.position * _NoiseScale + id.x * 0.173;
+    float3 noise = float3(sin(p.y + p.z), sin(p.z + p.x * 1.37), cos(p.x - p.y));
+    float3 acceleration = float3(0.0, _Buoyancy, 0.0)
+        + noise * _NoiseStrength
+        + (state.sourcePosition - state.position) * (_SourceTether * state.surfaceWeight);
+    state.velocity += acceleration * _DeltaTime;
+    state.velocity *= exp(-_Drag * _DeltaTime);
+    state.position += state.velocity * _DeltaTime;
+    _FireParcelStates[id.x] = state;
+}

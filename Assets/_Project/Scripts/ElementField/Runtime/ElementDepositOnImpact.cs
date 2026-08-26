@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Combat;
 using Game.Core;
 using UnityEngine;
@@ -16,7 +17,7 @@ namespace Game.ElementField
     {
         [Header("Deposit Request")]
         [Tooltip("命中后写入 ElementField 的元素种类。P6-A 的可玩内容只使用 Water 或 Fire。")]
-        [SerializeField] private ElementMaterialKind _materialKind = ElementMaterialKind.Water;
+        [SerializeField] private MaterialId _materialKind = MaterialId.Water;
 
         [Tooltip("本次命中向覆盖范围分配的元素总量。它是总预算，不是每个 Cell 都写入这个值。")]
         [SerializeField, Range(1, ushort.MaxValue)] private int _totalAmount = 220;
@@ -47,7 +48,7 @@ namespace Game.ElementField
                 _projectile = GetComponent<ProjectileBase>();
 
             if (_projectile != null)
-                _projectile.Impacted += OnProjectileImpacted;
+                _projectile.SurfaceImpacted += OnProjectileSurfaceImpacted;
         }
 
         private void Start()
@@ -66,7 +67,7 @@ namespace Game.ElementField
         {
             // Event Subscription 必须成对释放，否则对象禁用后仍可能收到命中回调，形成幽灵写入。
             if (_projectile != null)
-                _projectile.Impacted -= OnProjectileImpacted;
+                _projectile.SurfaceImpacted -= OnProjectileSurfaceImpacted;
         }
 
         /// <summary>
@@ -83,8 +84,22 @@ namespace Game.ElementField
             Vector3 hitDirection,
             out ElementWriteRequest request)
         {
+            return TryBuildImpactRequest(
+                worldPosition,
+                hitDirection,
+                Vector3.zero,
+                out request);
+        }
+
+        public bool TryBuildImpactRequest(
+            Vector3 worldPosition,
+            Vector3 hitDirection,
+            Vector3 surfaceNormal,
+            out ElementWriteRequest request)
+        {
             if (!FluidSpawnRequestValidator.IsFinite(worldPosition)
                 || !FluidSpawnRequestValidator.IsFinite(hitDirection)
+                || !FluidSpawnRequestValidator.IsFinite(surfaceNormal)
                 || float.IsNaN(_fluidInitialSpeed)
                 || float.IsInfinity(_fluidInitialSpeed))
             {
@@ -92,11 +107,23 @@ namespace Game.ElementField
                 return false;
             }
 
-            Vector3 initialVelocity = _materialKind == ElementMaterialKind.Water
+            // Fire 使用 Cell Backend，不继承球体飞行速度；其余非空材料由 Route 决定具体 Liquid Backend。
+            // 这里不维护 Water/Poison/Sticky 白名单，避免新增液体时再次遗漏下落初速度。
+            Vector3 initialVelocity = _materialKind != MaterialId.Empty
+                && _materialKind != MaterialId.Fire
                 && hitDirection.sqrMagnitude > 0f
                 ? hitDirection.normalized * Mathf.Max(0f, _fluidInitialSpeed)
                 : Vector3.zero;
-            return TryBuildRequest(worldPosition, initialVelocity, out request);
+            Vector3 resolvedNormal = surfaceNormal.sqrMagnitude > 1e-12f
+                ? surfaceNormal
+                : -hitDirection.normalized;
+            if (resolvedNormal.sqrMagnitude <= 1e-12f)
+            {
+                request = default;
+                return false;
+            }
+
+            return TryBuildRequest(worldPosition, initialVelocity, resolvedNormal, out request);
         }
 
         private bool TryBuildRequest(
@@ -104,10 +131,20 @@ namespace Game.ElementField
             Vector3 initialVelocity,
             out ElementWriteRequest request)
         {
+            return TryBuildRequest(worldPosition, initialVelocity, Vector3.zero, out request);
+        }
+
+        private bool TryBuildRequest(
+            Vector3 worldPosition,
+            Vector3 initialVelocity,
+            Vector3 surfaceNormal,
+            out ElementWriteRequest request)
+        {
             // 反射、旧 Prefab 或运行时代码仍可能绕过 OnValidate，因此运行时边界也必须防御。
             if (_totalAmount <= 0
                 || !FluidSpawnRequestValidator.IsFinite(worldPosition)
                 || !FluidSpawnRequestValidator.IsFinite(initialVelocity)
+                || !FluidSpawnRequestValidator.IsFinite(surfaceNormal)
                 || float.IsNaN(_radius)
                 || float.IsInfinity(_radius))
             {
@@ -123,7 +160,8 @@ namespace Game.ElementField
                 amount,
                 radius,
                 _useLinearFalloff,
-                initialVelocity);
+                initialVelocity,
+                surfaceNormal);
             return true;
         }
 
@@ -139,9 +177,13 @@ namespace Game.ElementField
             return TryDeposit(in request);
         }
 
-        private void OnProjectileImpacted(Vector3 hitPoint, Vector3 hitDirection)
+        private void OnProjectileSurfaceImpacted(ProjectileImpactContext context)
         {
-            if (!TryBuildImpactRequest(hitPoint, hitDirection, out ElementWriteRequest request))
+            if (!TryBuildImpactRequest(
+                    context.Point,
+                    context.IncomingDirection,
+                    context.SurfaceNormal,
+                    out ElementWriteRequest request))
                 return;
 
             TryDeposit(in request);

@@ -15,14 +15,14 @@ MonoBehaviour:
   Kind: 0
   DisplayName: "\u71C3\u70E7"
   Icon: {fileID: 21300000, guid: 5582ccc7c23bcf544befeb400efe7909, type: 3}
-  NaturalDecayPerSecond: 8
-  VfxPrefab: {fileID: 2494727312554208266, guid: 6fb63a9c354e0254798ccceb511261d4, type: 3}
+  NaturalDecayPerSecond: 1.5
+  VfxPrefab: {fileID: 4727709981461806953, guid: 6fb63a9c354e0254798ccceb511261d4, type: 3}
   DealsDamage: 1
-  DamageInterval: 0.2
-  BaseDamagePerTick: 0.1
+  DamageInterval: 1
+  BaseDamagePerTick: 0.5
   DamageType: 1
   TriggerHitReaction: 0
-  WetCleanseable: 0
-  WetCleanseMultiplier: 1
+  WetCleanseable: 1
+  WetCleanseMultiplier: 3
   AffectsMoveSpeed: 0
   MaxMoveSpeedSlowRatio: 0

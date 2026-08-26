@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using NUnit.Framework;
 using UnityEngine;
@@ -87,7 +88,7 @@ namespace Game.ElementField.Tests
             Assert.That(store.TryGetOrCreateChunk(key, out ElementWorldChunk chunk), Is.True);
             chunk.SetCell(
                 new Vector3Int(7, 0, 0),
-                new ElementCell(ElementMaterialKind.Water, 120));
+                new ElementCell(MaterialId.Water, 120));
 
             Assert.That(chunk.HasAnyElement, Is.True);
             Assert.That(store.TryRemoveEmptyChunk(key), Is.False);
@@ -107,11 +108,11 @@ namespace Game.ElementField.Tests
             Assert.That(store.TryGetOrCreateChunk(key, out ElementWorldChunk chunk), Is.True);
             chunk.SetCell(
                 new Vector3Int(7, 0, 0),
-                new ElementCell(ElementMaterialKind.Fire, 90));
+                new ElementCell(MaterialId.Fire, 90));
 
             ElementCell cell = store.GetCellOrEmpty(new Vector3Int(-1, 0, 0));
 
-            Assert.That(cell.MaterialKind, Is.EqualTo(ElementMaterialKind.Fire));
+            Assert.That(cell.MaterialKind, Is.EqualTo(MaterialId.Fire));
             Assert.That(cell.Amount, Is.EqualTo(90));
         }
 

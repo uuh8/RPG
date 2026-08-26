@@ -35,6 +35,9 @@ Shader "Game/Elemental/Liquid Procedural"
         _FoamDistance("Foam Distance", Range(0.01, 1)) = 0.25
         _FoamStrength("Foam Strength", Range(0, 1)) = 0.8
         _FoamAlphaBoost("Foam Alpha Boost", Range(0, 0.5)) = 0.2
+
+        [Header(Development Fragment Isolation)]
+        [Toggle] _DebugForceOpaqueFragment("Force Opaque Fragment", Float) = 0
     }
 
     SubShader
@@ -106,6 +109,7 @@ Shader "Game/Elemental/Liquid Procedural"
                 float _FoamDistance;
                 float _FoamStrength;
                 float _FoamAlphaBoost;
+                float _DebugForceOpaqueFragment;
             CBUFFER_END
 
             struct FluidSurfaceVertex
@@ -124,7 +128,6 @@ Shader "Game/Elemental/Liquid Procedural"
             };
 
             StructuredBuffer<FluidSurfaceTriangle> _FluidSurfaceTriangles;
-
             struct ProceduralAttributes
             {
                 // SV_VertexID 是当前 Draw 的逻辑顶点编号，不需要创建 Unity Mesh/Vertex Buffer。
@@ -146,10 +149,15 @@ Shader "Game/Elemental/Liquid Procedural"
             {
                 uint triangleIndex = vertexID / 3u;
                 uint cornerIndex = vertexID - triangleIndex * 3u;
-                FluidSurfaceTriangle triangle = _FluidSurfaceTriangles[triangleIndex];
+                // triangle 是 HLSL 的几何着色器输入修饰符；Unity 6 DXC 不允许把它当局部变量名。
+                FluidSurfaceTriangle surfaceTriangle = _FluidSurfaceTriangles[triangleIndex];
                 if (cornerIndex == 0u)
-                    return triangle.v0;
-                return cornerIndex == 1u ? triangle.v1 : triangle.v2;
+                    return surfaceTriangle.v0;
+                // Unity 6 DXC 不支持用 ?: 在两个自定义 Struct 之间选择返回值；
+                // 显式分支既保留相同 Corner 映射，也避免 type mismatch 使整个 Pass 编译失败。
+                if (cornerIndex == 1u)
+                    return surfaceTriangle.v1;
+                return surfaceTriangle.v2;
             }
 
             ProceduralVaryings LiquidProceduralVertex(ProceduralAttributes input)
@@ -173,6 +181,11 @@ Shader "Game/Elemental/Liquid Procedural"
             half4 LiquidProceduralFragment(ProceduralVaryings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+
+                // 受控诊断：仅旁路复杂 Fragment 光照/深度/波纹计算，Vertex、Cull、ZTest 与 Draw 保持不变。
+                // 若该颜色可见，说明 Rasterization 已成功，故障范围可收敛到下方 Fragment 计算。
+                if (_DebugForceOpaqueFragment > 0.5f)
+                    return half4(_ShallowColor.rgb, 1.0h);
 
                 float3 baseNormalWS = NormalizeNormalPerPixel(input.normalWS);
                 float3 tangentWS;
@@ -241,7 +254,6 @@ Shader "Game/Elemental/Liquid Procedural"
                 half finalAlpha = saturate((depthAlpha
                     + fresnelMask * _FresnelAlphaStrength
                     + foamMask * _FoamAlphaBoost) * _WaterAlpha);
-
                 SurfaceData surfaceData = (SurfaceData)0;
                 surfaceData.albedo = finalAlbedo;
                 surfaceData.metallic = 0.0h;

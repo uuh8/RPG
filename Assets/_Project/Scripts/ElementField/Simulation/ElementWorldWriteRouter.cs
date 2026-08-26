@@ -7,20 +7,32 @@ namespace Game.ElementField
     public static class ElementWorldWriteRouter
     {
         public static bool TryRoute(
-            WaterSimulationMode waterMode,
+            IMaterialSimulationRouteReadOnly routes,
             in ElementWriteRequest request,
             IElementWriteSink cellSink,
             IFluidDepositSink fluidSink)
         {
-            if (request.MaterialKind == ElementMaterialKind.Water
-                && waterMode == WaterSimulationMode.GpuPbf)
+            if (routes == null
+                || !routes.TryResolve(request.MaterialKind, out MaterialSimulationBackendKind backend))
             {
-                return fluidSink != null
-                    && fluidSink.IsFluidInitialized
-                    && fluidSink.TryEnqueueDeposit(in request);
+                return false;
             }
 
-            return cellSink != null && cellSink.TryEnqueueWrite(in request);
+            switch (backend)
+            {
+                case MaterialSimulationBackendKind.ElementCell:
+                    return cellSink != null && cellSink.TryEnqueueWrite(in request);
+
+                case MaterialSimulationBackendKind.GpuPbfLiquid:
+                    // Sink 失败也绝不尝试 Cell：一个请求只能有一个 Simulation Writer。
+                    return fluidSink != null
+                        && fluidSink.IsFluidInitialized
+                        && fluidSink.TryEnqueueDeposit(in request);
+
+                default:
+                    // Unsupported 与未来未知 Backend 都是明确拒绝，不能形成 Silent Failover。
+                    return false;
+            }
         }
     }
 }

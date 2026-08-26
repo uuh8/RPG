@@ -135,6 +135,7 @@ namespace Game.Rendering.Tests
                 TargetId = targetId,
                 Reaction = ElementReactionId.Extinguish,
                 Phase = phase,
+                WorldPosition = Vector3.one,
                 NormalizedStrength = strength,
                 ExpectedDuration = duration,
             });

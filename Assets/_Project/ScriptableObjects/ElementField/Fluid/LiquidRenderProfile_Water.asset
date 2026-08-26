@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ba568f7f61a5f934da91686bfb4c2fd6, type: 3}
+  m_Name: LiquidRenderProfile_Water
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.LiquidRenderProfile
+  _targetVoxelSize: 0.1
+  _maximumResolutionPerAxis: 96
+  _boundsPadding: 0.3
+  _maximumSurfaceBoundsSize: {x: 12, y: 6, z: 12}
+  _enableSurfaceClipmap: 1
+  _midTargetVoxelSize: 0.35
+  _midMaximumResolutionPerAxis: 256
+  _midSurfaceRadius: 40
+  _midSurfaceHeight: 12
+  _surfaceClipmapBlendWidth: 4
+  _nearVolumeUnderlayWeight: 0.2
+  _nearSurfaceAlphaScale: 1
+  _farSplatRadiusMultiplier: 1.6
+  _farSplatAlphaScale: 0.52
+  _farSplatEdgeStartRatio: 0.82
+  _farSplatDepthLift: 0.025
+  _isoLevel: 500
+  _maximumTriangleCount: 131072
+  _useAnisotropy: 1
+  _anisotropyUpdateIntervalFrames: 2
+  _anisotropyNeighborThreshold: 5
+  _minimumAnisotropyScale: 0.211
+  _maximumAnisotropyScale: 1.8
+  _maximumAnisotropyRatio: 2.5
+  _useStylizedCrown: 1
+  _crownHeightRatio: 0.5
+  _crownFalloff: 1.5
+  _crownEdgeNeighborCount: 4
+  _crownInteriorNeighborCount: 12

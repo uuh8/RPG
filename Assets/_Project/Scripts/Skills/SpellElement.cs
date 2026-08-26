@@ -12,5 +12,7 @@ namespace Game.Skills
         Fire = 1,   // 火元素内容标签。
         Water = 2,  // 水元素内容标签。
         Arcane = 3, // 奥术内容标签。
+        Poison = 4, // 毒元素内容标签；追加在末尾以保护已有 ScriptableObject 的序列化整数。
+        Sticky = 5, // 粘液控制内容标签；只用于内容分类，不改变 DamageType 或状态规则。
     }
 }

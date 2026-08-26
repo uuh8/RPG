@@ -1,0 +1,47 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 15828d895209a5b4ca1a12d74e0d39ce, type: 3}
+  m_Name: GpuFireParcelRenderProfile_Default
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.GpuFireParcelRenderProfile
+  _capacity: 2048
+  _maximumSeedsPerTick: 256
+  _spawnInterval: 0.08
+  _maximumVisualDeltaTime: 0.0333
+  _spawnProbabilityAtFullAmount: 0.22
+  _liquidLikeHoldSeconds: 1
+  _surfaceToGasBlendSeconds: 0.3
+  _gasLifetimeSeconds: 1
+  _initialRadius: 0.22
+  _finalRadius: 0.5
+  _parcelRadiusScale: 0.55
+  _buoyancy: 2
+  _drag: 1.8
+  _sourceTether: 15
+  _noiseStrength: 0.18
+  _noiseScale: 1.5
+  _surfaceBoundsRadius: 8
+  _surfaceVoxelSize: 0.14
+  _surfaceIsoLevel: 0.7
+  _surfaceParcelBudget: 512
+  _maximumSurfaceTriangleCount: 131072
+  _surfaceKernelScale: 1.5
+  _liquidLikeRadiusMultiplier: 1.35
+  _gasSplatRadiusMultiplier: 0.78
+  _surfaceSplatRadiusMultiplier: 0.9
+  _surfaceSplatAlphaScale: 0.48
+  _surfaceSplatBlendWidth: 1.5
+  _gasAlphaScale: 0.42
+  _gasEdgeIrregularity: 0.16
+  _gasVerticalStretch: 1.28
+  _emissionIntensityScale: 0.28
+  _coreColor: {r: 4, g: 1.25, b: 0.08, a: 1}
+  _edgeColor: {r: 1.5, g: 0.08, b: 0.01, a: 1}

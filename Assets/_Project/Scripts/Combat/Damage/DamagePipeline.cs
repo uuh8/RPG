@@ -11,7 +11,7 @@ namespace Game.Combat
         /// <summary>
         /// 把攻击快照和目标防御快照解析为最终伤害。两个参数都以 in 只读引用传递，Pipeline 无权修改输入。
         /// </summary>
-        public static DamageResult Resolve(in DamageRequest req, in DefenseProfile def)
+        public static DamageResult Resolve(in DamageRequest req)
         {
             float final;
             bool mitigated = false;
@@ -22,11 +22,9 @@ namespace Game.Combat
                     final = req.BaseAmount; // 无视防御
                     break;
                 case DamageType.Physical:
-                    // 预留公式位：例如 final = req.BaseAmount - def.Armor
                     final = req.BaseAmount;
                     break;
                 case DamageType.Magical:
-                    // 预留公式位：例如 final = req.BaseAmount * (1f - def.MagicResist)
                     final = req.BaseAmount;
                     break;
                 default:

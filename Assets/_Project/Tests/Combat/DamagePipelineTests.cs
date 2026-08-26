@@ -18,35 +18,32 @@ namespace Game.Combat.Tests
 
         // [Test] 特性：标记一个方法是测试用例
         [Test]
-        public void True_IgnoresDefense_ReturnsBaseAmount()
+        public void True_ReturnsBaseAmount()
         {
             var req = MakeRequest(50f, DamageType.True);
-            var def = new DefenseProfile { Armor = 9999f, MagicResist = 9999f };
 
-            DamageResult result = DamagePipeline.Resolve(in req, in def);
+            DamageResult result = DamagePipeline.Resolve(in req);
 
             // 这行代码的作用是判断计算出的最终伤害值是否等于预期的 50f，如果相等则测试通过，否则测试失败。
             Assert.That(result.Final, Is.EqualTo(50f));
         }
 
         [Test]
-        public void Physical_WithZeroDefense_ReturnsBaseAmount()
+        public void Physical_ReturnsBaseAmount()
         {
             var req = MakeRequest(30f, DamageType.Physical);
-            var def = new DefenseProfile { Armor = 0f, MagicResist = 0f };
 
-            DamageResult result = DamagePipeline.Resolve(in req, in def);
+            DamageResult result = DamagePipeline.Resolve(in req);
 
             Assert.That(result.Final, Is.EqualTo(30f));
         }
 
         [Test]
-        public void Magical_WithZeroDefense_ReturnsBaseAmount()
+        public void Magical_ReturnsBaseAmount()
         {
             var req = MakeRequest(40f, DamageType.Magical);
-            var def = new DefenseProfile { Armor = 0f, MagicResist = 0f };
 
-            DamageResult result = DamagePipeline.Resolve(in req, in def);
+            DamageResult result = DamagePipeline.Resolve(in req);
 
             Assert.That(result.Final, Is.EqualTo(40f));
         }
@@ -55,9 +52,8 @@ namespace Game.Combat.Tests
         public void Resolve_NegativeBase_ClampsToZero()
         {
             var req = MakeRequest(-10f, DamageType.Physical);
-            var def = new DefenseProfile();
 
-            DamageResult result = DamagePipeline.Resolve(in req, in def);
+            DamageResult result = DamagePipeline.Resolve(in req);
 
             Assert.That(result.Final, Is.EqualTo(0f));
         }
@@ -66,9 +62,8 @@ namespace Game.Combat.Tests
         public void Resolve_PreservesDamageType()
         {
             var req = MakeRequest(10f, DamageType.Magical);
-            var def = new DefenseProfile();
 
-            DamageResult result = DamagePipeline.Resolve(in req, in def);
+            DamageResult result = DamagePipeline.Resolve(in req);
 
             Assert.That(result.Type, Is.EqualTo(DamageType.Magical));
         }

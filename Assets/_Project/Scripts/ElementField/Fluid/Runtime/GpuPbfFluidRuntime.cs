@@ -1,5 +1,6 @@
 using System;
 using Game.Core;
+using Game.Materials;
 using UnityEngine;
 using Unity.Profiling;
 using UnityEngine.Rendering;
@@ -37,6 +38,8 @@ namespace Game.ElementField
         private static readonly int SpatialEntriesId = Shader.PropertyToID("_SpatialEntries");
         private static readonly int CellRangesId = Shader.PropertyToID("_CellRanges");
         private static readonly int SpatialCellsId = Shader.PropertyToID("_SpatialCells");
+        private static readonly int LiquidMaterialParametersId =
+            Shader.PropertyToID("_LiquidMaterialParameters");
         private static readonly int SmoothingRadiusId = Shader.PropertyToID("_SmoothingRadius");
         private static readonly int BitonicStageId = Shader.PropertyToID("_BitonicStage");
         private static readonly int BitonicPassId = Shader.PropertyToID("_BitonicPass");
@@ -44,6 +47,7 @@ namespace Game.ElementField
         private static readonly int CountersId = Shader.PropertyToID("_Counters");
         private static readonly int SpawnRequestsId = Shader.PropertyToID("_SpawnRequests");
         private static readonly int ConsumeRequestsId = Shader.PropertyToID("_ConsumeRequests");
+        private static readonly int ConvertRequestsId = Shader.PropertyToID("_ConvertRequests");
         private static readonly int ReactionCommandCountId = Shader.PropertyToID("_ReactionCommandCount");
         private static readonly int WorldOriginId = Shader.PropertyToID("_WorldOrigin");
         private static readonly int CellSizeId = Shader.PropertyToID("_CellSize");
@@ -65,8 +69,14 @@ namespace Game.ElementField
         private static readonly int LambdaEpsilonId = Shader.PropertyToID("_LambdaEpsilon");
         private static readonly int ArtificialPressureId = Shader.PropertyToID("_ArtificialPressure");
         private static readonly int MaximumPositionCorrectionId = Shader.PropertyToID("_MaximumPositionCorrection");
+        private static readonly int TensileStrengthId = Shader.PropertyToID("_TensileStrength");
+        private static readonly int MaximumTensilePositionCorrectionId =
+            Shader.PropertyToID("_MaximumTensilePositionCorrection");
         private static readonly int ViscosityId = Shader.PropertyToID("_Viscosity");
         private static readonly int VorticityId = Shader.PropertyToID("_Vorticity");
+        private static readonly int CohesionStrengthId = Shader.PropertyToID("_CohesionStrength");
+        private static readonly int CohesionRestDistanceId = Shader.PropertyToID("_CohesionRestDistance");
+        private static readonly int MaximumCohesionDeltaSpeedId = Shader.PropertyToID("_MaximumCohesionDeltaSpeed");
         private static readonly int ColliderCountId = Shader.PropertyToID("_ColliderCount");
         private static readonly int ParticleRadiusId = Shader.PropertyToID("_ParticleRadius");
         private static readonly int CollisionFrictionId = Shader.PropertyToID("_CollisionFriction");
@@ -118,10 +128,12 @@ namespace Game.ElementField
         private FluidSpawnRequest[] _spawnRequestUploadBuffer;
         private FluidGpuSpawnRequest[] _spawnUploadBuffer;
         private FluidConsumeCommand[] _consumeUploadBuffer;
+        private FluidConvertCommand[] _convertUploadBuffer;
         private FluidReactionCommandQueue _reactionQueue;
         private Vector3 _reactionWorldOrigin;
         private float _reactionCellSize;
         private Bounds _activeBounds;
+        private FluidResidentBoundsTracker _residentBoundsTracker;
         private Bounds _lastActivityBounds;
         private bool _hasActivityBounds;
         private int _initializePoolKernel;
@@ -129,6 +141,7 @@ namespace Game.ElementField
         private int _initializeActivityKernel;
         private int _spawnParticlesKernel;
         private int _consumeParticlesKernel;
+        private int _convertParticlesKernel;
         private int _applyGravityKernel;
         private int _predictPositionsKernel;
         private int _commitPositionsKernel;
@@ -144,7 +157,9 @@ namespace Game.ElementField
         private int _computeDensityLambdaKernel;
         private int _computeDeltaPositionKernel;
         private int _applyDeltaPositionKernel;
+        private int _applyTensileDeltaPositionKernel;
         private int _updateVelocitiesKernel;
+        private int _computeCohesionDeltaVelocitiesKernel;
         private int _computeXsphDeltaVelocitiesKernel;
         private int _applyDeltaVelocitiesKernel;
         private int _computeVorticitiesKernel;
@@ -161,6 +176,7 @@ namespace Game.ElementField
         private bool _hasReportedInitializationFailure;
         private FluidTopologyVersionTracker _topologyVersionTracker;
         private FluidDepositQueueAdapter _depositAdapter;
+        private LiquidMaterialAmountScaleSnapshot _gameplayAmountScales;
         private FluidReadbackLeaseTracker _gameplayReadbackLeaseTracker;
         private uint _gameplaySnapshotVersion;
         private AsyncGPUReadbackRequest _debugReadbackRequest;
@@ -172,6 +188,16 @@ namespace Game.ElementField
 
         public bool IsFluidInitialized => _resources != null
             && !_gameplayReadbackLeaseTracker.IsReleasePending;
+
+        /// <summary>
+        /// ElementWorld 的初始化 Policy 在发布 PBF Route 前显式确认唯一 GPU Runtime 已就绪。
+        /// 这不是热路径；失败会让 World 初始化整体失败，而不是偷偷把 Water 改写回 Cell。
+        /// </summary>
+        internal bool TryEnsureInitializedForWorld()
+        {
+            TryInitialize();
+            return IsFluidInitialized;
+        }
 
         public bool TryEnqueueDeposit(in ElementWriteRequest request)
         {
@@ -193,6 +219,7 @@ namespace Game.ElementField
             _reactionWorldOrigin = worldOrigin;
             _reactionCellSize = cellSize;
             _consumeUploadBuffer = new FluidConsumeCommand[queue.Capacity];
+            _convertUploadBuffer = new FluidConvertCommand[queue.Capacity];
             return true;
         }
 
@@ -264,7 +291,16 @@ namespace Game.ElementField
             }
 
             // Enqueue 只表示未来 Tick 的工作；GPU topology 尚未改变，不能提前发布新版本。
-            return _spawnQueue.TryEnqueue(in request);
+            if (!_spawnQueue.TryEnqueue(in request))
+                return false;
+
+            // Queue 接受后即扩张 Presentation Coverage。即使粒子随后因 Pool 满而被 GPU 拒绝，
+            // 这里只会留下少量空的 Far Voxel，不会复制或改变 Simulation Truth。
+            _residentBoundsTracker.IncludeSpawn(
+                request.WorldPosition,
+                request.Radius,
+                _settings.SmoothingRadius);
+            return true;
         }
 
         public bool TryGetGpuSnapshot(out FluidGpuSnapshot snapshot)
@@ -283,11 +319,15 @@ namespace Game.ElementField
                 _resources.SpatialEntries,
                 _resources.CellRanges,
                 _resources.SpatialCells,
+                _resources.LiquidMaterialParameters,
                 _resources.ParticleCapacity,
                 _resources.HashTableCapacity,
                 _settings.SmoothingRadius,
                 _settings.ParticleMass,
                 _activeBounds,
+                _residentBoundsTracker.HasBounds
+                    ? _residentBoundsTracker.Bounds
+                    : _activeBounds,
                 FluidGpuLayout.LayoutVersion,
                 _topologyVersionTracker.PublishedVersion);
             return true;
@@ -332,7 +372,7 @@ namespace Game.ElementField
                 worldOrigin,
                 cellSize,
                 _settings.ParticleCapacity,
-                _settings.AmountUnitsPerParticle,
+                _gameplayAmountScales,
                 FluidGpuLayout.LayoutVersion,
                 _topologyVersionTracker.PublishedVersion,
                 _gameplaySnapshotVersion);
@@ -417,6 +457,7 @@ namespace Game.ElementField
             try
             {
                 _settings = _profile.CreateSettings();
+                _gameplayAmountScales = _settings.LiquidMaterials.CreateAmountScaleSnapshot();
                 if (!FluidSpatialHash.IsPowerOfTwo(_settings.ParticleCapacity)
                     || !FluidSpatialHash.IsPowerOfTwo(_settings.HashTableCapacity))
                 {
@@ -428,15 +469,17 @@ namespace Game.ElementField
                 _spawnQueue = new FluidSpawnQueue(_settings.MaxSpawnRequests);
                 _depositAdapter = new FluidDepositQueueAdapter(
                     this,
-                    _settings.AmountUnitsPerParticle,
-                    _settings.ParticleCapacity);
+                    _settings.LiquidMaterials,
+                    _settings.ParticleCapacity,
+                    _settings.ParticleRadius);
                 _spawnRequestUploadBuffer = new FluidSpawnRequest[_settings.MaxSpawnRequests];
                 _spawnUploadBuffer = new FluidGpuSpawnRequest[_settings.MaxSpawnRequests];
                 _resources = new FluidGpuResourceSet(
                     _settings.ParticleCapacity,
                     _settings.HashTableCapacity,
                     _settings.MaxSpawnRequests,
-                    _settings.MaxFluidColliders);
+                    _settings.MaxFluidColliders,
+                    _settings.LiquidMaterials.CreateGpuRows());
                 _colliderCollector = new FluidColliderProxyCollector(
                     _fluidColliderRoot,
                     _settings.MaxFluidColliders);
@@ -535,6 +578,7 @@ namespace Game.ElementField
                 || !_particleLifecycleShader.HasKernel("InitializeActivity")
                 || !_particleLifecycleShader.HasKernel("SpawnParticles")
                 || !_particleLifecycleShader.HasKernel("ConsumeParticles")
+                || !_particleLifecycleShader.HasKernel("ConvertParticles")
                 || !_particleLifecycleShader.HasKernel("ClearActivityCounters")
                 || !_particleLifecycleShader.HasKernel("UpdateParticleActivity")
                 || !_particleLifecycleShader.HasKernel("WriteSolverDispatchArgs")
@@ -551,6 +595,7 @@ namespace Game.ElementField
             _initializeActivityKernel = _particleLifecycleShader.FindKernel("InitializeActivity");
             _spawnParticlesKernel = _particleLifecycleShader.FindKernel("SpawnParticles");
             _consumeParticlesKernel = _particleLifecycleShader.FindKernel("ConsumeParticles");
+            _convertParticlesKernel = _particleLifecycleShader.FindKernel("ConvertParticles");
             _applyGravityKernel = _particleLifecycleShader.FindKernel("ApplyGravity");
             _predictPositionsKernel = _particleLifecycleShader.FindKernel("PredictPositions");
             _commitPositionsKernel = _particleLifecycleShader.FindKernel("CommitPositions");
@@ -578,7 +623,9 @@ namespace Game.ElementField
             if (!_pbfSolverShader.HasKernel("ComputeDensityLambda")
                 || !_pbfSolverShader.HasKernel("ComputeDeltaPosition")
                 || !_pbfSolverShader.HasKernel("ApplyDeltaPosition")
+                || !_pbfSolverShader.HasKernel("ApplyTensileDeltaPosition")
                 || !_pbfSolverShader.HasKernel("UpdateVelocities")
+                || !_pbfSolverShader.HasKernel("ComputeCohesionDeltaVelocities")
                 || !_pbfSolverShader.HasKernel("ComputeXsphDeltaVelocities")
                 || !_pbfSolverShader.HasKernel("ApplyDeltaVelocities")
                 || !_pbfSolverShader.HasKernel("ComputeVorticities")
@@ -591,7 +638,10 @@ namespace Game.ElementField
             _computeDensityLambdaKernel = _pbfSolverShader.FindKernel("ComputeDensityLambda");
             _computeDeltaPositionKernel = _pbfSolverShader.FindKernel("ComputeDeltaPosition");
             _applyDeltaPositionKernel = _pbfSolverShader.FindKernel("ApplyDeltaPosition");
+            _applyTensileDeltaPositionKernel =
+                _pbfSolverShader.FindKernel("ApplyTensileDeltaPosition");
             _updateVelocitiesKernel = _pbfSolverShader.FindKernel("UpdateVelocities");
+            _computeCohesionDeltaVelocitiesKernel = _pbfSolverShader.FindKernel("ComputeCohesionDeltaVelocities");
             _computeXsphDeltaVelocitiesKernel = _pbfSolverShader.FindKernel("ComputeXsphDeltaVelocities");
             _applyDeltaVelocitiesKernel = _pbfSolverShader.FindKernel("ApplyDeltaVelocities");
             _computeVorticitiesKernel = _pbfSolverShader.FindKernel("ComputeVorticities");
@@ -618,8 +668,12 @@ namespace Game.ElementField
 
             UploadQueuedSpawns();
             int consumeCommandCount = UploadQueuedConsumes();
+            int convertCommandCount = UploadQueuedConversions();
             bool boundsChanged = !_hasActivityBounds || _activeBounds != _lastActivityBounds;
-            bool wakeAll = colliderChanged || consumeCommandCount > 0 || boundsChanged;
+            bool wakeAll = colliderChanged
+                || consumeCommandCount > 0
+                || convertCommandCount > 0
+                || boundsChanged;
             MarkNeighborWakeRequests();
             UpdateParticleActivity(wakeAll);
             _lastActivityBounds = _activeBounds;
@@ -648,12 +702,19 @@ namespace Game.ElementField
                     DispatchSolver(_pbfSolverShader, _computeDensityLambdaKernel);
                     DispatchSolver(_pbfSolverShader, _computeDeltaPositionKernel);
                     DispatchSolver(_pbfSolverShader, _applyDeltaPositionKernel);
+                    if (_settings.TensileStrength > 0f)
+                        DispatchSolver(_pbfSolverShader, _applyTensileDeltaPositionKernel);
                     // 每次 Density 修正都可能把粒子推回墙内，因此每个 Iteration 的 Apply 后都重新投影。
                     DispatchSolver(_collisionShader, _projectCollisionsKernel);
                 }
 
                 DispatchSolver(_pbfSolverShader, _updateVelocitiesKernel);
-                if (_settings.Viscosity > 0f)
+                if (_settings.LiquidMaterials.HasAnyCohesion)
+                {
+                    DispatchSolver(_pbfSolverShader, _computeCohesionDeltaVelocitiesKernel);
+                    DispatchSolver(_pbfSolverShader, _applyDeltaVelocitiesKernel);
+                }
+                if (_settings.LiquidMaterials.HasAnyViscosity)
                 {
                     DispatchSolver(_pbfSolverShader, _computeXsphDeltaVelocitiesKernel);
                     DispatchSolver(_pbfSolverShader, _applyDeltaVelocitiesKernel);
@@ -715,10 +776,6 @@ namespace Game.ElementField
             _particleLifecycleShader.SetFloat(
                 SleepVelocityThresholdId,
                 _settings.SleepThreshold);
-            _particleLifecycleShader.SetFloat(
-                SleepDensityErrorThresholdId,
-                _settings.SleepDensityErrorThreshold);
-            _particleLifecycleShader.SetFloat(RestDensityId, _settings.RestDensity);
             _particleLifecycleShader.SetVector(ActiveBoundsMinId, _activeBounds.min);
             _particleLifecycleShader.SetVector(ActiveBoundsMaxId, _activeBounds.max);
             _particleLifecycleShader.Dispatch(
@@ -783,13 +840,13 @@ namespace Game.ElementField
             _pbfSolverShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
             _pbfSolverShader.SetInt(HashTableCapacityId, _settings.HashTableCapacity);
             _pbfSolverShader.SetFloat(SmoothingRadiusId, _settings.SmoothingRadius);
-            _pbfSolverShader.SetFloat(ParticleMassId, _settings.ParticleMass);
-            _pbfSolverShader.SetFloat(RestDensityId, _settings.RestDensity);
             _pbfSolverShader.SetFloat(LambdaEpsilonId, _settings.LambdaEpsilon);
-            _pbfSolverShader.SetFloat(ArtificialPressureId, _settings.ArtificialPressure);
             _pbfSolverShader.SetFloat(MaximumPositionCorrectionId, _settings.MaximumPositionCorrection);
+            _pbfSolverShader.SetFloat(TensileStrengthId, _settings.TensileStrength);
+            _pbfSolverShader.SetFloat(
+                MaximumTensilePositionCorrectionId,
+                _settings.MaximumTensilePositionCorrection);
             _pbfSolverShader.SetFloat(DeltaTimeId, substepDeltaTime);
-            _pbfSolverShader.SetFloat(ViscosityId, _settings.Viscosity);
             _pbfSolverShader.SetFloat(VorticityId, _settings.Vorticity);
             _pbfSolverShader.SetFloat(MaxSpeedId, _settings.MaxSpeed);
         }
@@ -818,6 +875,8 @@ namespace Game.ElementField
             // SetData 的 offset/count 是 element 而不是 byte；仅上传本固定 Tick 的有效范围。
             _resources.SpawnRequests.SetData(_spawnUploadBuffer, 0, 0, requestCount);
             _particleLifecycleShader.SetInt(SpawnRequestCountId, requestCount);
+            // Phase F 只有 Water，因此整批请求共享一个由质量/静止密度推导的 RestSpacing。
+            // Phase H 若引入多液体，必须迁移为 per-request 字段，不能继续复用这个全局 uniform。
             _particleLifecycleShader.Dispatch(_spawnParticlesKernel, DivideRoundUp(requestCount), 1, 1);
             // Dispatch 调用已把 Spawn 写入同一 Graphics Queue；之后的 Renderer LateUpdate
             // 看到新版本时，其 Anisotropy Dispatch 会按 Queue 顺序消费 Spawn 后的粒子拓扑。
@@ -851,6 +910,35 @@ namespace Game.ElementField
             // numthreads(1,1,1)：一个 Group 对应一个低频反应 Command。
             _particleLifecycleShader.Dispatch(_consumeParticlesKernel, commandCount, 1, 1);
             _topologyVersionTracker.PublishAfterConsumeDispatch(commandCount);
+            return commandCount;
+        }
+
+        private int UploadQueuedConversions()
+        {
+            if (_reactionQueue == null || _convertUploadBuffer == null)
+                return 0;
+
+            int commandCount = _reactionQueue.CopyConvertCommandsAndClear(_convertUploadBuffer);
+            if (commandCount <= 0)
+                return 0;
+
+            _resources.ConvertRequests.SetData(_convertUploadBuffer, 0, 0, commandCount);
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.SetInt(ReactionCommandCountId, commandCount);
+            _particleLifecycleShader.SetVector(WorldOriginId, _reactionWorldOrigin);
+            _particleLifecycleShader.SetFloat(CellSizeId, _reactionCellSize);
+            _particleLifecycleShader.SetBuffer(
+                _convertParticlesKernel, PositionsId, _resources.Positions);
+            _particleLifecycleShader.SetBuffer(
+                _convertParticlesKernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(
+                _convertParticlesKernel, StableTickCountersId, _resources.StableTickCounters);
+            _particleLifecycleShader.SetBuffer(
+                _convertParticlesKernel, ConvertRequestsId, _resources.ConvertRequests);
+            // 一个 Group 对应一条 Command；Kernel 内用 CAS 抢占 Source Material，
+            // 即使相邻命令 AABB 重叠，同一粒子也只会成功 Retag 一次。
+            _particleLifecycleShader.Dispatch(_convertParticlesKernel, commandCount, 1, 1);
+            _topologyVersionTracker.PublishAfterConvertDispatch(commandCount);
             return commandCount;
         }
 
@@ -940,6 +1028,10 @@ namespace Game.ElementField
                 _updateParticleActivityKernel,
                 ActivityCountersId,
                 _resources.ActivityCounters);
+            _particleLifecycleShader.SetBuffer(
+                _updateParticleActivityKernel,
+                LiquidMaterialParametersId,
+                _resources.LiquidMaterialParameters);
 
             _particleLifecycleShader.SetBuffer(
                 _writeSolverDispatchArgsKernel,
@@ -1074,7 +1166,7 @@ namespace Game.ElementField
 
         private void BindPbfSolverBuffers()
         {
-            // RW UAV 计数（按 Kernel）：Density=3、Delta=4、Apply=3、Velocity=3、
+            // RW UAV 计数（按 Kernel）：Density=3、Delta=5、Apply=3、ApplyTensile=4、Velocity=3、
             // XSPH=5、ApplyVelocity=4、Vorticity=5、VorticityDelta=5、Clamp=3，均低于 D3D11 的 8。
             // 即使某 Kernel 只经 IsActive 读取 PredictedPositions.w，它在 HLSL 中仍声明为 RWStructuredBuffer，
             // 因此必须作为 UAV 绑定并计入上限，不能把“只读”误当作 StructuredBuffer SRV。
@@ -1085,6 +1177,10 @@ namespace Game.ElementField
             BindPbfNeighborReadBuffers(_computeDeltaPositionKernel);
             _pbfSolverShader.SetBuffer(_computeDeltaPositionKernel, DensityLambdaId, _resources.DensityLambda);
             _pbfSolverShader.SetBuffer(_computeDeltaPositionKernel, DeltaPositionsId, _resources.DeltaPositions);
+            _pbfSolverShader.SetBuffer(
+                _computeDeltaPositionKernel,
+                DeltaVelocitiesId,
+                _resources.DeltaVelocities);
             _pbfSolverShader.SetBuffer(_computeDeltaPositionKernel, CountersId, _resources.Counters);
 
             _pbfSolverShader.SetBuffer(_applyDeltaPositionKernel, MetadataId, _resources.Metadata);
@@ -1095,6 +1191,23 @@ namespace Game.ElementField
                 _resources.PredictedPositions);
             _pbfSolverShader.SetBuffer(_applyDeltaPositionKernel, CountersId, _resources.Counters);
 
+            _pbfSolverShader.SetBuffer(
+                _applyTensileDeltaPositionKernel,
+                MetadataId,
+                _resources.Metadata);
+            _pbfSolverShader.SetBuffer(
+                _applyTensileDeltaPositionKernel,
+                PredictedPositionsId,
+                _resources.PredictedPositions);
+            _pbfSolverShader.SetBuffer(
+                _applyTensileDeltaPositionKernel,
+                DeltaVelocitiesId,
+                _resources.DeltaVelocities);
+            _pbfSolverShader.SetBuffer(
+                _applyTensileDeltaPositionKernel,
+                CountersId,
+                _resources.Counters);
+
             _pbfSolverShader.SetBuffer(_updateVelocitiesKernel, PositionsId, _resources.Positions);
             _pbfSolverShader.SetBuffer(
                 _updateVelocitiesKernel,
@@ -1103,6 +1216,20 @@ namespace Game.ElementField
             _pbfSolverShader.SetBuffer(_updateVelocitiesKernel, MetadataId, _resources.Metadata);
             _pbfSolverShader.SetBuffer(_updateVelocitiesKernel, VelocitiesId, _resources.Velocities);
             _pbfSolverShader.SetBuffer(_updateVelocitiesKernel, CountersId, _resources.Counters);
+
+            BindPbfNeighborReadBuffers(_computeCohesionDeltaVelocitiesKernel);
+            _pbfSolverShader.SetBuffer(
+                _computeCohesionDeltaVelocitiesKernel,
+                DensityLambdaId,
+                _resources.DensityLambda);
+            _pbfSolverShader.SetBuffer(
+                _computeCohesionDeltaVelocitiesKernel,
+                DeltaVelocitiesId,
+                _resources.DeltaVelocities);
+            _pbfSolverShader.SetBuffer(
+                _computeCohesionDeltaVelocitiesKernel,
+                CountersId,
+                _resources.Counters);
 
             BindPbfNeighborReadBuffers(_computeXsphDeltaVelocitiesKernel);
             _pbfSolverShader.SetBuffer(
@@ -1171,6 +1298,10 @@ namespace Game.ElementField
             _pbfSolverShader.SetBuffer(kernel, SpatialEntriesId, _resources.SpatialEntries);
             _pbfSolverShader.SetBuffer(kernel, CellRangesId, _resources.CellRanges);
             _pbfSolverShader.SetBuffer(kernel, SpatialCellsId, _resources.SpatialCells);
+            _pbfSolverShader.SetBuffer(
+                kernel,
+                LiquidMaterialParametersId,
+                _resources.LiquidMaterialParameters);
         }
 
         private void BindCollisionBuffers()
@@ -1356,6 +1487,8 @@ namespace Game.ElementField
         private void RefreshActiveBounds()
         {
             _activeBounds = new Bounds(_simulationBoundsCenter.position, _simulationBoundsSize);
+            // 玩家移动只会扩大 Resident Coverage，不会把已经冻结在身后的液体裁掉。
+            _residentBoundsTracker.Include(_activeBounds);
         }
 
         private void DisableAfterInitializationFailure()
@@ -1405,6 +1538,7 @@ namespace Game.ElementField
             _spawnRequestUploadBuffer = null;
             _spawnUploadBuffer = null;
             _consumeUploadBuffer = null;
+            _convertUploadBuffer = null;
             _reactionQueue = null;
             _colliderCollector = null;
             _debugReadbackOutstanding = false;

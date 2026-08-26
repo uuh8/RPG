@@ -54,8 +54,8 @@ namespace Game.Rendering
     }
 
     /// <summary>
-    /// GPU Liquid Surface 的 Presentation 参数。它只决定 Density Field 怎样采样与分配资源，
-    /// 不修改 PBF 粒子位置、速度或 Gameplay Occupancy；Runtime 初始化时只读取一次 Snapshot。
+    /// GPU Liquid Surface 的 Presentation 参数。它只决定单套 Density Field 怎样采样与分配资源，
+    /// 不修改 PBF 粒子位置、速度或 Gameplay Occupancy。资源尺寸在初始化时快照化。
     /// </summary>
     [CreateAssetMenu(
         fileName = "LiquidRenderProfile",
@@ -69,7 +69,6 @@ namespace Game.Rendering
         [SerializeField, Min(2)] private int _maximumResolutionPerAxis = 128;
         [Tooltip("在 Interest Bounds 六个方向扩张的距离（米），为 Kernel 与边界表面保留采样空间。")]
         [SerializeField, Min(0f)] private float _boundsPadding = 0.3f;
-
         [Header("Surface Extraction")]
         [Tooltip("Density 等于该值的位置会在 Task 7 被提取成液体表面。")]
         [SerializeField, Min(0.000001f)] private float _isoLevel = 500f;
@@ -90,6 +89,18 @@ namespace Game.Rendering
         [Tooltip("最长轴/最短轴的硬上限，防止稀疏表面粒子被拉成针。")]
         [SerializeField, Min(1f)] private float _maximumAnisotropyRatio = 2.5f;
 
+        [Header("Stylized Crown Reconstruction")]
+        [Tooltip("只在表现层把邻居充分的内部粒子 Kernel 向世界 +Y 延展；不改变 PBF、碰撞或 Gameplay Occupancy。")]
+        [SerializeField] private bool _useStylizedCrown = true;
+        [Tooltip("最多额外延展多少个 Smoothing Radius，范围 0–1；它不是实际粒子高度。Profile 只在进入 Play Mode 时生成 Snapshot。")]
+        [SerializeField, Range(0f, 1f)] private float _crownHeightRatio = 0.8f;
+        [Tooltip("支持度到冠高权重的指数。越大越集中于水滩内部，边缘越薄；修改后需重新进入 Play Mode。")]
+        [SerializeField, Min(0.01f)] private float _crownFalloff = 1.5f;
+        [Tooltip("邻居数不超过该值时视为边缘，不增加卡通冠高。邻居统计包含粒子自身。")]
+        [SerializeField, Min(0)] private int _crownEdgeNeighborCount = 4;
+        [Tooltip("邻居数达到该值时视为内部，应用完整 Crown Height Ratio；必须大于 Edge Neighbor Count。")]
+        [SerializeField, Min(1)] private int _crownInteriorNeighborCount = 12;
+
         public LiquidRenderSettings CreateSettings()
         {
             return new LiquidRenderSettings(
@@ -103,7 +114,12 @@ namespace Game.Rendering
                 _anisotropyNeighborThreshold,
                 _minimumAnisotropyScale,
                 _maximumAnisotropyScale,
-                _maximumAnisotropyRatio);
+                _maximumAnisotropyRatio,
+                _useStylizedCrown,
+                _crownHeightRatio,
+                _crownFalloff,
+                _crownEdgeNeighborCount,
+                _crownInteriorNeighborCount);
         }
 
         private void OnValidate()
@@ -118,6 +134,12 @@ namespace Game.Rendering
             _minimumAnisotropyScale = Mathf.Clamp(_minimumAnisotropyScale, 0.01f, 1f);
             _maximumAnisotropyScale = Mathf.Clamp(_maximumAnisotropyScale, 1f, 2f);
             _maximumAnisotropyRatio = Mathf.Max(1f, _maximumAnisotropyRatio);
+            _crownHeightRatio = Mathf.Clamp(_crownHeightRatio, 0f, 1f);
+            _crownFalloff = Mathf.Max(0.01f, _crownFalloff);
+            _crownEdgeNeighborCount = Mathf.Max(0, _crownEdgeNeighborCount);
+            _crownInteriorNeighborCount = Mathf.Max(
+                _crownEdgeNeighborCount + 1,
+                _crownInteriorNeighborCount);
         }
     }
 
@@ -139,7 +161,11 @@ namespace Game.Rendering
         public readonly float MaximumAnisotropyScale;
         public readonly float MaximumAnisotropyRatio;
         public readonly int AnisotropyCellRadius;
-
+        public readonly bool UseStylizedCrown;
+        public readonly float CrownHeightRatio;
+        public readonly float CrownFalloff;
+        public readonly int CrownEdgeNeighborCount;
+        public readonly int CrownInteriorNeighborCount;
         public LiquidRenderSettings(
             float targetVoxelSize,
             int maximumResolutionPerAxis,
@@ -151,7 +177,12 @@ namespace Game.Rendering
             int anisotropyNeighborThreshold = 5,
             float minimumAnisotropyScale = 0.65f,
             float maximumAnisotropyScale = 1.8f,
-            float maximumAnisotropyRatio = 2.5f)
+            float maximumAnisotropyRatio = 2.5f,
+            bool useStylizedCrown = true,
+            float crownHeightRatio = 0.8f,
+            float crownFalloff = 1.5f,
+            int crownEdgeNeighborCount = 4,
+            int crownInteriorNeighborCount = 12)
         {
             TargetVoxelSize = RequirePositiveFinite(targetVoxelSize, nameof(targetVoxelSize));
             if (maximumResolutionPerAxis < 2)
@@ -185,6 +216,16 @@ namespace Game.Rendering
                 throw new ArgumentOutOfRangeException(nameof(maximumAnisotropyScale));
             if (MaximumAnisotropyRatio < 1f)
                 throw new ArgumentOutOfRangeException(nameof(maximumAnisotropyRatio));
+            CrownHeightRatio = RequireNonNegativeFinite(
+                crownHeightRatio,
+                nameof(crownHeightRatio));
+            if (CrownHeightRatio > 1f)
+                throw new ArgumentOutOfRangeException(nameof(crownHeightRatio));
+            CrownFalloff = RequirePositiveFinite(crownFalloff, nameof(crownFalloff));
+            if (crownEdgeNeighborCount < 0)
+                throw new ArgumentOutOfRangeException(nameof(crownEdgeNeighborCount));
+            if (crownInteriorNeighborCount <= crownEdgeNeighborCount)
+                throw new ArgumentOutOfRangeException(nameof(crownInteriorNeighborCount));
 
             UseAnisotropy = useAnisotropy;
             AnisotropyUpdateIntervalFrames = anisotropyUpdateIntervalFrames;
@@ -192,8 +233,13 @@ namespace Game.Rendering
             MinimumAnisotropyScale = minimumAnisotropyScale;
             MaximumAnisotropyScale = maximumAnisotropyScale;
             MaximumAnisotropyRatio = maximumAnisotropyRatio;
+            UseStylizedCrown = useStylizedCrown;
+            CrownEdgeNeighborCount = crownEdgeNeighborCount;
+            CrownInteriorNeighborCount = crownInteriorNeighborCount;
             // 查询 Cell 半径必须覆盖最长椭球轴；硬上限 2 把最坏候选范围限制为 5^3=125 Cell。
-            AnisotropyCellRadius = Mathf.CeilToInt(MaximumAnisotropyScale);
+            AnisotropyCellRadius = UseStylizedCrown && CrownHeightRatio > 0f
+                ? 2
+                : Mathf.CeilToInt(MaximumAnisotropyScale);
         }
 
         private static float RequirePositiveFinite(float value, string parameterName)

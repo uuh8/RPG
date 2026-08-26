@@ -14,8 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Combat::Game.Combat.ElementReactionProfile
   Extinguish:
     FormalThreshold: 10
-    LowRatePerSecond: 50
-    FormalRatePerSecond: 10
+    LowRatePerSecond: 10
+    FormalRatePerSecond: 50
+    FireRemovedPerWater: 2
   WetCleanse:
     BudgetPerSecondAtFullWet: 100
   ToxicCombustion:
@@ -36,3 +37,5 @@ MonoBehaviour:
     GooConsumePerSecond: 40
     FirePerGoo: 1.25
     CooldownSeconds: 0.5
+  AbsorbWater:
+    WaterConvertPerSecond: 60

@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Combat;
 using Game.Core;
 using Unity.Profiling;
@@ -24,10 +25,6 @@ namespace Game.ElementField
         [SerializeField, Min(0.05f)] private float _exposureInterval = 0.25f;
         [SerializeField, Min(0f)] private float _naturalDecayHoldGraceSeconds = 0.1f;
 
-        [Header("Status Apply Per Exposure")]
-        [SerializeField, Min(0f)] private float _maxWetApplyPerTick = 10f;
-        [SerializeField, Min(0f)] private float _maxBurningApplyPerTick = 10f;
-
         [Header("GPU Water Gameplay Snapshot")]
         [Tooltip("PBF 模式只从该只读 Occupancy 读取 Water；Fire 始终保留 Legacy Cell 路径。")]
         [SerializeField] private MonoBehaviour _liquidOccupancyComponent;
@@ -37,6 +34,8 @@ namespace Game.ElementField
         [SerializeField] private int _lastStatusTargetCount;
         [SerializeField] private int _lastWetApplicationCount;
         [SerializeField] private int _lastBurningApplicationCount;
+        [SerializeField] private int _lastPoisonedApplicationCount;
+        [SerializeField] private int _lastStickyApplicationCount;
         [SerializeField] private int _lastMaximumWaterAmount;
         [SerializeField] private int _lastMaximumFireAmount;
 
@@ -44,14 +43,14 @@ namespace Game.ElementField
         private readonly Collider[] _colliderBuffer = new Collider[MaxTargetsPerQuery];
         private readonly int[] _targetIds = new int[MaxTargetsPerQuery];
         private readonly StatusController[] _targets = new StatusController[MaxTargetsPerQuery];
-        private readonly byte[] _maxWater = new byte[MaxTargetsPerQuery];
-        private readonly byte[] _maxFire = new byte[MaxTargetsPerQuery];
+        private byte[] _maximumAmounts;
 
         private ElementWorldRuntime _runtime;
         private float _elapsed;
         private int _targetCount;
         private int _environmentSourceId;
         private ILiquidOccupancyReadOnly _liquidOccupancy;
+        private MaterialStatusProjectionSnapshot _statusProjection;
 
         private void Awake()
         {
@@ -60,6 +59,10 @@ namespace Game.ElementField
             if (_liquidOccupancy == null)
                 _liquidOccupancy = GetComponent<FluidGameplayOccupancyBridge>();
             _environmentSourceId = gameObject.GetInstanceID();
+            _statusProjection = _runtime != null ? _runtime.MaterialStatusProjection : null;
+            _maximumAmounts = _statusProjection != null
+                ? new byte[MaxTargetsPerQuery * _statusProjection.Count]
+                : System.Array.Empty<byte>();
         }
 
         private void OnEnable()
@@ -150,28 +153,37 @@ namespace Game.ElementField
                 if (target == null || !target.isActiveAndEnabled)
                     continue;
 
-                _lastMaximumWaterAmount = Mathf.Max(_lastMaximumWaterAmount, _maxWater[i]);
-                _lastMaximumFireAmount = Mathf.Max(_lastMaximumFireAmount, _maxFire[i]);
-                if (_maxWater[i] > 0 && _maxWetApplyPerTick > 0f)
+                for (int bindingIndex = 0; bindingIndex < _statusProjection.Count; bindingIndex++)
                 {
-                    target.ApplySustainedStatus(
-                        StatusKind.Wet,
-                        _maxWetApplyPerTick * (_maxWater[i] / (float)byte.MaxValue),
-                        _environmentSourceId,
-                        EnvironmentTeam,
-                        holdSeconds);
-                    _lastWetApplicationCount++;
-                }
+                    MaterialStatusProjection binding = _statusProjection.Get(bindingIndex);
+                    byte amount = _maximumAmounts[i * _statusProjection.Count + bindingIndex];
+                    if (amount == 0 || binding.MaximumApplyPerExposureTick <= 0f)
+                        continue;
 
-                if (_maxFire[i] > 0 && _maxBurningApplyPerTick > 0f)
-                {
                     target.ApplySustainedStatus(
-                        StatusKind.Burning,
-                        _maxBurningApplyPerTick * (_maxFire[i] / (float)byte.MaxValue),
+                        binding.Status,
+                        binding.MaximumApplyPerExposureTick * (amount / (float)byte.MaxValue),
                         _environmentSourceId,
                         EnvironmentTeam,
                         holdSeconds);
-                    _lastBurningApplicationCount++;
+                    if (binding.Status == StatusKind.Wet)
+                    {
+                        _lastWetApplicationCount++;
+                        _lastMaximumWaterAmount = Mathf.Max(_lastMaximumWaterAmount, amount);
+                    }
+                    else if (binding.Status == StatusKind.Burning)
+                    {
+                        _lastBurningApplicationCount++;
+                        _lastMaximumFireAmount = Mathf.Max(_lastMaximumFireAmount, amount);
+                    }
+                    else if (binding.Status == StatusKind.Poisoned)
+                    {
+                        _lastPoisonedApplicationCount++;
+                    }
+                    else if (binding.Status == StatusKind.Sticky)
+                    {
+                        _lastStickyApplicationCount++;
+                    }
                 }
             }
 
@@ -206,11 +218,7 @@ namespace Game.ElementField
                 int targetIndex = FindOrAddTarget(target);
                 if (targetIndex >= 0)
                 {
-                    SampleBounds(
-                        candidate.bounds,
-                        queryBounds,
-                        ref _maxWater[targetIndex],
-                        ref _maxFire[targetIndex]);
+                    SampleBounds(candidate.bounds, queryBounds, targetIndex);
                 }
             }
         }
@@ -236,8 +244,7 @@ namespace Game.ElementField
         private void SampleBounds(
             Bounds targetBounds,
             Bounds activeBounds,
-            ref byte maxWater,
-            ref byte maxFire)
+            int targetIndex)
         {
             if (!targetBounds.Intersects(activeBounds))
                 return;
@@ -264,35 +271,16 @@ namespace Game.ElementField
             for (int x = min.x; x <= max.x; x++)
             {
                 Vector3Int globalCell = new Vector3Int(x, y, z);
-                bool hasLegacyCell = _runtime.TryGetActiveCell(globalCell, out ElementCell cell)
-                    && !cell.IsEmpty;
-                byte occupancyWater = 0;
-                bool hasWaterOccupancy = ElementExposureSourcePolicy.ShouldReadOccupancy(
-                        _runtime.EffectiveWaterSimulationMode,
-                        ElementMaterialKind.Water)
-                    && _liquidOccupancy != null
-                    && _liquidOccupancy.TryGetAmount(
-                        globalCell,
-                        ElementMaterialKind.Water,
-                        out occupancyWater);
-                byte water = ElementExposureSourcePolicy.ResolveAmount(
-                    _runtime.EffectiveWaterSimulationMode,
-                    ElementMaterialKind.Water,
-                    hasLegacyCell && cell.MaterialKind == ElementMaterialKind.Water,
-                    cell.Amount,
-                    hasWaterOccupancy,
-                    occupancyWater);
-                byte fire = ElementExposureSourcePolicy.ResolveAmount(
-                    _runtime.EffectiveWaterSimulationMode,
-                    ElementMaterialKind.Fire,
-                    hasLegacyCell && cell.MaterialKind == ElementMaterialKind.Fire,
-                    cell.Amount,
-                    hasOccupancy: false,
-                    occupancyAmount: 0);
-                if (water > maxWater)
-                    maxWater = water;
-                if (fire > maxFire)
-                    maxFire = fire;
+                IMaterialAmountReadOnly query = _runtime.MaterialAmounts;
+                for (int bindingIndex = 0; bindingIndex < _statusProjection.Count; bindingIndex++)
+                {
+                    MaterialStatusProjection binding = _statusProjection.Get(bindingIndex);
+                    byte amount = 0;
+                    query?.TryGetAmount(globalCell, binding.Material, out amount);
+                    int workspaceIndex = targetIndex * _statusProjection.Count + bindingIndex;
+                    if (amount > _maximumAmounts[workspaceIndex])
+                        _maximumAmounts[workspaceIndex] = amount;
+                }
             }
         }
 
@@ -302,8 +290,8 @@ namespace Game.ElementField
             {
                 _targetIds[i] = 0;
                 _targets[i] = null;
-                _maxWater[i] = 0;
-                _maxFire[i] = 0;
+                if (_statusProjection != null)
+                    System.Array.Clear(_maximumAmounts, i * _statusProjection.Count, _statusProjection.Count);
             }
             _targetCount = 0;
         }
@@ -314,6 +302,8 @@ namespace Game.ElementField
             _lastStatusTargetCount = 0;
             _lastWetApplicationCount = 0;
             _lastBurningApplicationCount = 0;
+            _lastPoisonedApplicationCount = 0;
+            _lastStickyApplicationCount = 0;
             _lastMaximumWaterAmount = 0;
             _lastMaximumFireAmount = 0;
         }
@@ -322,8 +312,6 @@ namespace Game.ElementField
         {
             _exposureInterval = Mathf.Max(0.05f, _exposureInterval);
             _naturalDecayHoldGraceSeconds = Mathf.Max(0f, _naturalDecayHoldGraceSeconds);
-            _maxWetApplyPerTick = Mathf.Max(0f, _maxWetApplyPerTick);
-            _maxBurningApplyPerTick = Mathf.Max(0f, _maxBurningApplyPerTick);
         }
     }
 }

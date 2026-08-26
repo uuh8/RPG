@@ -3,6 +3,7 @@
 #pragma kernel InitializeActivity
 #pragma kernel SpawnParticles
 #pragma kernel ConsumeParticles
+#pragma kernel ConvertParticles
 #pragma kernel ClearActivityCounters
 #pragma kernel UpdateParticleActivity
 #pragma kernel WriteSolverDispatchArgs
@@ -33,12 +34,20 @@ struct FluidConsumeCommand
     uint4 materialSeedPadding;
 };
 StructuredBuffer<FluidConsumeCommand> _ConsumeRequests;
+struct FluidConvertCommand
+{
+    int4 minimumCellAndPadding;
+    int4 maximumCellAndParticleCount;
+    uint4 sourceTargetSeedPadding;
+};
+StructuredBuffer<FluidConvertCommand> _ConvertRequests;
 RWStructuredBuffer<float4> _GameplaySamples;
 RWStructuredBuffer<uint> _StableTickCounters;
 RWStructuredBuffer<uint> _WakeRequests;
 RWStructuredBuffer<uint> _ActivityCounters;
 RWStructuredBuffer<uint> _SolverDispatchArgs;
 RWStructuredBuffer<uint> _HashDispatchArgs;
+StructuredBuffer<FluidGpuLiquidMaterialParameters> _LiquidMaterialParameters;
 
 int _ParticleCapacity;
 int _HashTableCapacity;
@@ -46,6 +55,8 @@ int _SpawnRequestCount;
 int _ReactionCommandCount;
 float4 _WorldOrigin;
 float _CellSize;
+// 仅供旧 fixture 直接注入 48-byte-era Request；Production DensityPacked Request 总携带 per-material spacing。
+float _SpawnRestSpacing;
 float4 _ActiveBoundsMin;
 float4 _ActiveBoundsMax;
 float _SleepVelocityThreshold;
@@ -154,6 +165,29 @@ float3 SpawnOffset(FluidGpuSpawnRequest request, uint localIndex)
     return direction * (distance * request.positionRadius.w);
 }
 
+float3 PackedLatticeOffset(FluidGpuSpawnRequest request, uint localIndex)
+{
+    uint particleCount = request.materialSeedFlagsParticleCount.w;
+    uint side = (uint)ceil(pow((float)particleCount, 1.0f / 3.0f));
+    // 浮点 cubic root 在完全立方数附近可能向下舍入；整数校正保证 side^3 始终容纳全部粒子。
+    while (side * side * side < particleCount)
+        side++;
+
+    uint sideSquared = side * side;
+    uint totalSlots = sideSquared * side;
+    uint step = sideSquared + side + 1u;
+    uint slot = (localIndex * step
+        + request.materialSeedFlagsParticleCount.y % totalSlots) % totalSlots;
+    uint x = slot % side;
+    uint y = (slot / side) % side;
+    uint z = slot / sideSquared;
+    float center = 0.5f * ((float)side - 1.0f);
+    float restSpacing = request.packingParameters.x > 0.0f
+        ? request.packingParameters.x
+        : _SpawnRestSpacing;
+    return (float3((float)x, (float)y, (float)z) - center) * restSpacing;
+}
+
 [numthreads(THREADS_PER_GROUP, 1, 1)]
 void InitializePool(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -228,7 +262,13 @@ void SpawnParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
             break;
         }
 
-        float3 position = request.positionRadius.xyz + SpawnOffset(request, localIndex);
+        bool densityPacked = (request.materialSeedFlagsParticleCount.z & 2u) != 0u;
+        float3 offset;
+        if (densityPacked)
+            offset = PackedLatticeOffset(request, localIndex);
+        else
+            offset = SpawnOffset(request, localIndex);
+        float3 position = request.positionRadius.xyz + offset;
         _Positions[particleIndex] = float4(position, 1.0f);
         _PredictedPositions[particleIndex] = float4(position, 1.0f);
         _Velocities[particleIndex] = float4(request.velocity.xyz, 0.0f);
@@ -236,7 +276,10 @@ void SpawnParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
         _DeltaPositions[particleIndex] = float4(0, 0, 0, 0);
         _ParticleMetadata[particleIndex] = uint2(
             request.materialSeedFlagsParticleCount.x,
-            FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG);
+            FLUID_ALIVE_FLAG
+                | FLUID_INTEREST_ACTIVE_FLAG
+                | FLUID_REQUIRES_SIMULATION_FLAG
+                | FLUID_REMOTE_SPAWN_ACTIVE_FLAG);
         uint ignoredActive;
         InterlockedAdd(_Counters[FLUID_ACTIVE_COUNT_COUNTER], 1u, ignoredActive);
     }
@@ -300,6 +343,56 @@ void ConsumeParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
     }
 }
 
+// 原位转换只改变 Material Id，不触碰 Alive/Free Counter，也不移动粒子。
+// CAS 让重叠命令只能有一个线程从 Source 成功取得同一粒子的所有权。
+[numthreads(1, 1, 1)]
+void ConvertParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint commandIndex = dispatchThreadId.x;
+    if (commandIndex >= (uint)_ReactionCommandCount || _CellSize <= 0.0f)
+        return;
+
+    FluidConvertCommand command = _ConvertRequests[commandIndex];
+    uint maximumCount = (uint)command.maximumCellAndParticleCount.w;
+    uint converted = 0u;
+    uint start = _ParticleCapacity > 0
+        ? command.sourceTargetSeedPadding.z % (uint)_ParticleCapacity
+        : 0u;
+    for (uint offset = 0u; offset < (uint)_ParticleCapacity && converted < maximumCount; offset++)
+    {
+        uint particleIndex = (start + offset) % (uint)_ParticleCapacity;
+        uint2 metadata = _ParticleMetadata[particleIndex];
+        if (!FluidIsAlive(metadata.y)
+            || metadata.x != command.sourceTargetSeedPadding.x)
+        {
+            continue;
+        }
+
+        int3 globalCell = (int3)floor(
+            (_Positions[particleIndex].xyz - _WorldOrigin.xyz) / _CellSize);
+        if (any(globalCell < command.minimumCellAndPadding.xyz)
+            || any(globalCell > command.maximumCellAndParticleCount.xyz))
+        {
+            continue;
+        }
+
+        uint originalMaterial;
+        InterlockedCompareExchange(
+            _ParticleMetadata[particleIndex].x,
+            command.sourceTargetSeedPadding.x,
+            command.sourceTargetSeedPadding.y,
+            originalMaterial);
+        if (originalMaterial != command.sourceTargetSeedPadding.x)
+            continue;
+
+        uint flags = (metadata.y | FLUID_REQUIRES_SIMULATION_FLAG)
+            & ~FLUID_SLEEPING_FLAG;
+        _ParticleMetadata[particleIndex].y = flags;
+        _StableTickCounters[particleIndex] = 0u;
+        converted++;
+    }
+}
+
 [numthreads(1, 1, 1)]
 void ClearActivityCounters(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -329,10 +422,51 @@ void UpdateParticleActivity(uint3 dispatchThreadId : SV_DispatchThreadID)
         && all(position < _ActiveBoundsMax.xyz);
     if (!inside)
     {
-        flags = FLUID_ALIVE_FLAG;
-        _StableTickCounters[index] = 0u;
+        // Spawn 与本 Activity Pass 发生在同一个 Fixed Tick。若这里无条件降级为 Alive-only，
+        // 远处出生的粒子会在第一次 Gravity 前冻结。Remote Lease 只维持到粒子低速且不再过压。
+        if ((flags & FLUID_REMOTE_SPAWN_ACTIVE_FLAG) != 0u)
+        {
+            float speed = length(_Velocities[index].xyz);
+            FluidGpuLiquidMaterialParameters material = _LiquidMaterialParameters[metadata.x];
+            float restDensity = material.massDensityViscosityPressure.y > 0.0f
+                ? material.massDensityViscosityPressure.y
+                : _RestDensity;
+            float sleepDensityErrorThreshold = material.massDensityViscosityPressure.y > 0.0f
+                ? material.cohesionAndSleep.w
+                : _SleepDensityErrorThreshold;
+            float relativeCompression = (_DensityLambda[index].x - restDensity)
+                / max(restDensity, 1e-6f);
+            bool stable = speed <= _SleepVelocityThreshold
+                && relativeCompression <= sleepDensityErrorThreshold;
+            uint stableTicks = _StableTickCounters[index];
+            stableTicks = stable
+                ? (stableTicks == 0xffffffffu ? 0xffffffffu : stableTicks + 1u)
+                : 0u;
+            if (stable && stableTicks >= (uint)max(1, _SleepAfterStableTicks))
+            {
+                flags = FLUID_ALIVE_FLAG;
+                _Velocities[index] = 0.0f;
+            }
+            else
+            {
+                flags = FLUID_ALIVE_FLAG
+                    | FLUID_REMOTE_SPAWN_ACTIVE_FLAG
+                    | FLUID_REQUIRES_SIMULATION_FLAG;
+            }
+            _StableTickCounters[index] = stableTicks;
+        }
+        else
+        {
+            flags = FLUID_ALIVE_FLAG;
+            _StableTickCounters[index] = 0u;
+        }
         _WakeRequests[index] = 0u;
         _ParticleMetadata[index] = uint2(metadata.x, flags);
+        if (FluidRequiresSimulation(flags))
+        {
+            uint ignoredAwake;
+            InterlockedAdd(_ActivityCounters[FLUID_AWAKE_ACTIVITY_COUNTER], 1u, ignoredAwake);
+        }
         return;
     }
 
@@ -342,21 +476,37 @@ void UpdateParticleActivity(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint stableTicks = _StableTickCounters[index];
     if (wake)
     {
+        // 一旦进入玩家 Interest，普通 Activity/Sleeping 状态机接管并释放 Remote Lease。
         flags = FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG;
         stableTicks = 0u;
     }
     else if ((flags & FLUID_SLEEPING_FLAG) == 0u)
     {
         float speed = length(_Velocities[index].xyz);
-        float relativeDensityError = abs(_DensityLambda[index].x - _RestDensity)
-            / max(_RestDensity, 1e-6f);
+        // 自由表面外侧没有邻居，SPH Density 天然低于 Rest Density；把这种欠密度也当成
+        // “不稳定”会让水滩边缘永远 Awake，并把微小 Solver 运动放大成 Marching Cubes 抖动。
+        // Sleep 只阻止仍受压缩的粒子冻结：低速欠密度表面可休眠，过密内部仍继续释放压力。
+        FluidGpuLiquidMaterialParameters material = _LiquidMaterialParameters[metadata.x];
+        float restDensity = material.massDensityViscosityPressure.y > 0.0f
+            ? material.massDensityViscosityPressure.y
+            : _RestDensity;
+        float sleepDensityErrorThreshold = material.massDensityViscosityPressure.y > 0.0f
+            ? material.cohesionAndSleep.w
+            : _SleepDensityErrorThreshold;
+        float relativeCompression = (_DensityLambda[index].x - restDensity)
+            / max(restDensity, 1e-6f);
         bool stable = speed <= _SleepVelocityThreshold
-            && relativeDensityError <= _SleepDensityErrorThreshold;
+            && relativeCompression <= sleepDensityErrorThreshold;
         stableTicks = stable
             ? (stableTicks == 0xffffffffu ? 0xffffffffu : stableTicks + 1u)
             : 0u;
         if (stable && stableTicks >= (uint)max(1, _SleepAfterStableTicks))
+        {
             flags = FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_SLEEPING_FLAG;
+            // Sleeping 粒子保留位置并继续参与 Surface/Neighbor Read；清掉阈值内残余速度，
+            // 避免后续 Wake 把休眠前的微小切向速度重新带回边缘。
+            _Velocities[index] = 0.0f;
+        }
         else
             flags = FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG;
     }

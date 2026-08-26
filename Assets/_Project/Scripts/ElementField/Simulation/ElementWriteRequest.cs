@@ -1,3 +1,4 @@
+using Game.Materials;
 using UnityEngine;
 
 namespace Game.ElementField
@@ -9,15 +10,16 @@ namespace Game.ElementField
     public readonly struct ElementWriteRequest
     {
         public readonly Vector3 WorldPosition;
-        public readonly ElementMaterialKind MaterialKind;
+        public readonly MaterialId MaterialKind;
         public readonly ushort TotalAmount;
         public readonly float Radius;
         public readonly bool UseLinearFalloff;
         public readonly Vector3 InitialVelocity;
+        public readonly Vector3 SurfaceNormal;
 
         public ElementWriteRequest(
             Vector3 worldPosition,
-            ElementMaterialKind materialKind,
+            MaterialId materialKind,
             ushort totalAmount,
             float radius,
             bool useLinearFalloff)
@@ -27,17 +29,37 @@ namespace Game.ElementField
                 totalAmount,
                 radius,
                 useLinearFalloff,
+                Vector3.zero,
                 Vector3.zero)
         {
         }
 
         public ElementWriteRequest(
             Vector3 worldPosition,
-            ElementMaterialKind materialKind,
+            MaterialId materialKind,
             ushort totalAmount,
             float radius,
             bool useLinearFalloff,
             Vector3 initialVelocity)
+            : this(
+                worldPosition,
+                materialKind,
+                totalAmount,
+                radius,
+                useLinearFalloff,
+                initialVelocity,
+                Vector3.zero)
+        {
+        }
+
+        public ElementWriteRequest(
+            Vector3 worldPosition,
+            MaterialId materialKind,
+            ushort totalAmount,
+            float radius,
+            bool useLinearFalloff,
+            Vector3 initialVelocity,
+            Vector3 surfaceNormal)
         {
             WorldPosition = worldPosition;
             MaterialKind = materialKind;
@@ -45,6 +67,7 @@ namespace Game.ElementField
             Radius = radius;
             UseLinearFalloff = useLinearFalloff;
             InitialVelocity = initialVelocity;
+            SurfaceNormal = surfaceNormal;
         }
     }
 }

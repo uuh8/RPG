@@ -11,10 +11,10 @@ namespace Game.Combat
     {
         [SerializeField, Min(1f)] private float _maxMana = 100f;
         [SerializeField, Min(0f)] private float _manaRegenPerSecond = 20f;
+        [SerializeField] private float _currentMana;
         [SerializeField] private bool _startFull = true;
 
         // 不使用 ScriptableObject 保存当前法力，否则多个角色可能会意外共享同一份可变状态。
-        private float _currentMana;
 
         public float CurrentMana => _currentMana;
         public float MaxMana => _maxMana;

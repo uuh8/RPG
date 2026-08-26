@@ -386,6 +386,7 @@ namespace Game.Combat
                 TargetId = _targetId,
                 Reaction = signal.Reaction,
                 Phase = signal.Phase,
+                WorldPosition = transform.position,
                 NormalizedStrength = signal.NormalizedStrength,
                 ExpectedDuration = signal.ExpectedDuration,
             });
@@ -458,7 +459,14 @@ namespace Game.Combat
                 if (definition == null || !definition.AffectsMoveSpeed)
                     continue;
 
-                float slowRatio = definition.MaxMoveSpeedSlowRatio * (instance.Intensity / 100f);
+                // 环境持续来源使用 NaturalDecay Hold 作为低频 Exposure 的 Contact Lease。
+                // Sticky 在 Lease 有效时必须稳定保持完整 40% 控制，避免角色踩在稀薄边缘时忽快忽慢；
+                // 离场后 Lease 到期，再回到按残留强度线性恢复的普通公式。
+                bool hasSustainedStickyContact = i == (int)StatusKind.Sticky
+                    && instance.NaturalDecayHoldRemaining > 0f;
+                float slowRatio = hasSustainedStickyContact
+                    ? definition.MaxMoveSpeedSlowRatio
+                    : definition.MaxMoveSpeedSlowRatio * (instance.Intensity / 100f);
 
                 // 多个减速采用乘法叠加：final = Π(1 - slowRatio_i)。
                 // 相比直接相加，这不会轻易得到负速度，并让每个新增效果作用于当前速度。

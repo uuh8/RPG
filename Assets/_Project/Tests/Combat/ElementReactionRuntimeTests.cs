@@ -14,7 +14,7 @@ namespace Game.Combat.Tests
 
         [TestCase(1f / 30f)]
         [TestCase(1f / 120f)]
-        public void Extinguish_ConsumesEightyThirtyToFiftyZero(float step)
+        public void Extinguish_OneWaterRemovesTwoFireAcrossFrameRates(float step)
         {
             // 同一段 0.6 秒模拟分别用 30 FPS 与 120 FPS 步长执行，
             // 证明结果取决于 rate * totalTime，而不是 Tick 调用次数。
@@ -31,7 +31,7 @@ namespace Game.Combat.Tests
                 elapsed += delta;
             }
 
-            Assert.AreEqual(50f, state.Fire, 1e-3f);
+            Assert.AreEqual(20f, state.Fire, 1e-3f);
             Assert.AreEqual(0f, state.Water, 1e-3f);
         }
 
@@ -46,11 +46,11 @@ namespace Game.Combat.Tests
 
             state = Step(runtime, state, 0.01f);
             state = Step(runtime, state, 0.4f);
-            Assert.AreEqual(60f, state.Fire, 1e-4f);
+            Assert.AreEqual(40f, state.Fire, 1e-4f);
             Assert.AreEqual(10f, state.Water, 1e-4f);
 
             state = Step(runtime, state, 0.2f);
-            Assert.AreEqual(50f, state.Fire, 1e-4f);
+            Assert.AreEqual(20f, state.Fire, 1e-4f);
             Assert.AreEqual(0f, state.Water, 1e-4f);
         }
 
@@ -66,7 +66,7 @@ namespace Game.Combat.Tests
             state = Step(runtime, state, 0.5f);
 
             Assert.AreEqual(0f, state.Fire, 1e-4f);
-            Assert.AreEqual(0f, state.Water, 1e-4f);
+            Assert.AreEqual(2.5f, state.Water, 1e-4f);
         }
 
         [Test]
@@ -240,6 +240,7 @@ namespace Game.Combat.Tests
                     FormalThreshold = 10f,
                     LowRatePerSecond = 10f,
                     FormalRatePerSecond = 50f,
+                    FireRemovedPerWater = 2f,
                 },
                 new WetCleanseTuning
                 {

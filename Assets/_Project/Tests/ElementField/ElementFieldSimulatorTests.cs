@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Combat;
 using NUnit.Framework;
 using UnityEngine;
@@ -45,11 +46,11 @@ namespace Game.ElementField.Tests
             ElementGrid grid = Grid(new Vector3Int(3, 1, 1));
             grid.SetCell(new Vector3Int(1, 0, 0), Water(100));
 
-            int before = Sum(grid, ElementMaterialKind.Water);
+            int before = Sum(grid, MaterialId.Water);
             ElementFieldSimulationStats stats = new ElementFieldSimulator().Tick(
                 grid, new ElementWriteQueue(1), Vector3.zero, 0.1f, Settings(lateral: 16));
 
-            Assert.That(Sum(grid, ElementMaterialKind.Water), Is.EqualTo(before));
+            Assert.That(Sum(grid, MaterialId.Water), Is.EqualTo(before));
             Assert.That(stats.WaterTransfers, Is.GreaterThan(0));
         }
 
@@ -72,7 +73,7 @@ namespace Game.ElementField.Tests
             Assert.That(grid.GetCell(2, 0, 1).Amount, Is.EqualTo(8));
             Assert.That(grid.GetCell(1, 0, 0).Amount, Is.EqualTo(8));
             Assert.That(grid.GetCell(1, 0, 2).Amount, Is.EqualTo(8));
-            Assert.That(Sum(grid, ElementMaterialKind.Water), Is.EqualTo(64),
+            Assert.That(Sum(grid, MaterialId.Water), Is.EqualTo(64),
                 "稳定扩散只能重新分配 Amount，不能凭空增加或删除水量。");
         }
 
@@ -89,7 +90,7 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
-        public void WaterAndFireConsumeEqualAmounts()
+        public void WaterExtinguishesTwiceItsAmountOfFire()
         {
             ElementGrid grid = Grid(new Vector3Int(2, 1, 1));
             grid.SetCell(new Vector3Int(0, 0, 0), Water(100));
@@ -98,7 +99,7 @@ namespace Game.ElementField.Tests
             ElementFieldSimulationStats stats = new ElementFieldSimulator().Tick(
                 grid, new ElementWriteQueue(1), Vector3.zero, 1f, Settings());
 
-            Assert.That(grid.GetCell(0, 0, 0).IsEmpty, Is.True);
+            Assert.That(grid.GetCell(0, 0, 0).Amount, Is.EqualTo(50));
             Assert.That(grid.GetCell(1, 0, 0).IsEmpty, Is.True);
             Assert.That(stats.ReactionPairs, Is.EqualTo(1));
         }
@@ -124,7 +125,7 @@ namespace Game.ElementField.Tests
             ElementGrid grid = Grid(new Vector3Int(2, 1, 1), chunkSize: 1);
             var queue = new ElementWriteQueue(2);
             queue.TryEnqueue(new ElementWriteRequest(
-                new Vector3(0.5f, 0.5f, 0.5f), ElementMaterialKind.Water,
+                new Vector3(0.5f, 0.5f, 0.5f), MaterialId.Water,
                 50, 0f, false));
             var simulator = new ElementFieldSimulator();
 
@@ -151,7 +152,7 @@ namespace Game.ElementField.Tests
             var queue = new ElementWriteQueue(1);
             queue.TryEnqueue(new ElementWriteRequest(
                 new Vector3(0.5f, 0.5f, 0.5f),
-                ElementMaterialKind.Water,
+                MaterialId.Water,
                 10,
                 0f,
                 false));
@@ -170,7 +171,7 @@ namespace Game.ElementField.Tests
             var queue = new ElementWriteQueue(4);
             queue.TryEnqueue(new ElementWriteRequest(
                 new Vector3(2.5f, 2.5f, 2.5f),
-                ElementMaterialKind.Water,
+                MaterialId.Water,
                 300,
                 1.5f,
                 true));
@@ -213,16 +214,17 @@ namespace Game.ElementField.Tests
                     FormalThreshold = 10f,
                     LowRatePerSecond = 100f,
                     FormalRatePerSecond = 100f,
+                    FireRemovedPerWater = 2f,
                 });
         }
 
         private static ElementCell Water(byte amount) =>
-            new ElementCell(ElementMaterialKind.Water, amount);
+            new ElementCell(MaterialId.Water, amount);
 
         private static ElementCell Fire(byte amount) =>
-            new ElementCell(ElementMaterialKind.Fire, amount);
+            new ElementCell(MaterialId.Fire, amount);
 
-        private static int Sum(ElementGrid grid, ElementMaterialKind kind)
+        private static int Sum(ElementGrid grid, MaterialId kind)
         {
             int total = 0;
             for (int i = 0; i < grid.CellCount; i++)

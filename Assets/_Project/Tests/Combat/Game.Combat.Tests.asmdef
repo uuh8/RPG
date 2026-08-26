@@ -5,7 +5,8 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Game.Combat",
-        "Game.Core"
+        "Game.Core",
+        "Game.Materials"
     ],
     "includePlatforms": [
         "Editor"

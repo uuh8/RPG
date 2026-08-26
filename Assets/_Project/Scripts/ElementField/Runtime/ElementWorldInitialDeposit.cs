@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Core;
 using UnityEngine;
 
@@ -19,11 +20,13 @@ namespace Game.ElementField
     {
         private static readonly Color WaterGizmoColor = new Color(0.1f, 0.55f, 1f, 0.9f);
         private static readonly Color FireGizmoColor = new Color(1f, 0.3f, 0.05f, 0.9f);
+        private static readonly Color PoisonGizmoColor = new Color(0.35f, 0.9f, 0.1f, 0.9f);
+        private static readonly Color StickyGizmoColor = new Color(1f, 0.55f, 0.05f, 0.9f);
         private static readonly Color InvalidGizmoColor = new Color(1f, 0f, 1f, 0.9f);
 
         [Header("Initial Deposit")]
-        [Tooltip("关卡开始时预置的元素。P7 只支持 Water 和 Fire。")]
-        [SerializeField] private ElementMaterialKind _materialKind = ElementMaterialKind.Water;
+        [Tooltip("关卡开始时预置的元素。P7 支持 Water、Fire 和 Poison；液体会路由到共享 GPU PBF Pool。")]
+        [SerializeField] private MaterialId _materialKind = MaterialId.Water;
 
         [Tooltip("向覆盖范围分配的元素总量；这是整次 Deposit 的总预算，不是每个 Cell 的数量。")]
         [SerializeField, Range(1, ushort.MaxValue)] private int _totalAmount = 220;
@@ -90,7 +93,7 @@ namespace Game.ElementField
             if (!TryBuildRequest(transform.position, out ElementWriteRequest request))
             {
                 IssueDiagnosticOnce(
-                    "Initial Deposit 配置无效：只支持 Water/Fire，Amount 必须大于 0，Radius 必须是有限数值。",
+                    "Initial Deposit 配置无效：Material 必须是已定义的非 Empty 材料，Amount 必须大于 0，Radius 必须是有限数值。",
                     isError: true);
                 return false;
             }
@@ -151,11 +154,15 @@ namespace Game.ElementField
 
         private void OnDrawGizmosSelected()
         {
-            Gizmos.color = _materialKind == ElementMaterialKind.Water
+            Gizmos.color = _materialKind == MaterialId.Water
                 ? WaterGizmoColor
-                : _materialKind == ElementMaterialKind.Fire
+                : _materialKind == MaterialId.Fire
                     ? FireGizmoColor
-                    : InvalidGizmoColor;
+                    : _materialKind == MaterialId.Poison
+                        ? PoisonGizmoColor
+                        : _materialKind == MaterialId.Sticky
+                            ? StickyGizmoColor
+                            : InvalidGizmoColor;
             Gizmos.DrawWireSphere(transform.position, Mathf.Max(0f, _radius));
 
 #if UNITY_EDITOR
@@ -166,10 +173,10 @@ namespace Game.ElementField
 #endif
         }
 
-        private static bool IsSupportedMaterial(ElementMaterialKind materialKind)
+        private static bool IsSupportedMaterial(MaterialId materialKind)
         {
-            return materialKind == ElementMaterialKind.Water
-                || materialKind == ElementMaterialKind.Fire;
+            // MaterialId 使用连续稳定 byte 协议；真正的 Backend 支持性仍由 Runtime Route 判定。
+            return materialKind >= MaterialId.Water && materialKind <= MaterialId.Sticky;
         }
     }
 }

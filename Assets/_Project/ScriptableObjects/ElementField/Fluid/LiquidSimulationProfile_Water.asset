@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 10d285c24df4a494d8d22a3959fbc049, type: 3}
+  m_Name: LiquidSimulationProfile_Water
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.LiquidSimulationProfile
+  _materialCatalog: {fileID: 11400000, guid: 1e9b872f4aa07574e85e1d1b8ca3ed4d, type: 2}
+  _liquidMaterials:
+  - {fileID: 11400000, guid: fc6e709523daa6143ac95b78d3dd2ce6, type: 2}
+  - {fileID: 11400000, guid: d9d043f73c97680429f5ae22f5a1dd88, type: 2}
+  - {fileID: 11400000, guid: 9581c6b0569c3a34784612a915850f56, type: 2}
+  _particleCapacity: 8192
+  _maxSpawnRequests: 128
+  _maxFluidColliders: 128
+  _particleRadius: 0.1
+  _smoothingRadius: 0.25
+  _fixedTickRate: 60
+  _substeps: 2
+  _solverIterations: 4
+  _maximumPositionCorrection: 0.08
+  _lambdaEpsilon: 0.0001
+  _vorticity: 0.002
+  _tensileStrength: 0.0001
+  _maximumTensilePositionCorrection: 0.0001
+  _gravity: {x: 0, y: -9.81, z: 0}
+  _maxSpeed: 10
+  _collisionFriction: 0.1
+  _collisionRestitution: 0
+  _sleepThreshold: 0.01
+  _sleepAfterStableTicks: 30
+  _maxCatchUpTicks: 3

@@ -6,6 +6,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
+using Game.Materials;
 
 namespace Game.Rendering.Tests
 {
@@ -19,8 +20,8 @@ namespace Game.Rendering.Tests
             "Assets/_Project/Art/Elemental/Compute/FluidDensity.compute";
         private const string SpatialHashShaderPath =
             "Assets/_Project/Art/Elemental/Compute/PbfSpatialHash.compute";
-        private const int ParticleCapacity = 4;
-        private const int HashCapacity = 16;
+        private const int ParticleCapacity = 32;
+        private const int HashCapacity = 64;
         private const float SmoothingRadius = 1f;
         private const float ParticleMass = 0.25f;
 
@@ -42,8 +43,12 @@ namespace Game.Rendering.Tests
                 Assert.That(resources.OverflowCounter.stride, Is.EqualTo(sizeof(uint)));
                 Assert.That(resources.IndirectArguments.stride,
                     Is.EqualTo(GraphicsBuffer.IndirectDrawArgs.size));
-                Assert.That(resources.IndirectArguments.target,
-                    Is.EqualTo(GraphicsBuffer.Target.IndirectArguments));
+                GraphicsBuffer.Target requiredDrawArgsTargets =
+                    GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Raw;
+                Assert.That(
+                    resources.IndirectArguments.target & requiredDrawArgsTargets,
+                    Is.EqualTo(requiredDrawArgsTargets),
+                    "RWByteAddressBuffer 写入 Indirect Args 时必须同时声明 Raw 与 IndirectArguments。");
                 Assert.That(resources.AnisotropyBuffer.stride, Is.EqualTo(64));
                 Assert.That(resources.AnisotropyBuffer.count, Is.EqualTo(ParticleCapacity));
 
@@ -132,6 +137,76 @@ namespace Game.Rendering.Tests
             }
         }
 
+        [Test]
+        public void StylizedCrownRaisesSupportedCenterAboveOnlyAndZeroHeightMatchesLegacy()
+        {
+            FluidSurfaceGridSettings grid = CreateGrid(new Vector3(-2f, -2f, -2f));
+            IgnoreWithoutSurfaceSupport(in grid);
+            ComputeShader density = LoadShader(DensityShaderPath);
+            ComputeShader spatialHash = LoadShader(SpatialHashShaderPath);
+
+            using (var particles = new FluidGpuResourceSet(ParticleCapacity, HashCapacity, 1))
+            using (var surface = new FluidSurfaceGpuResources(in grid, ParticleCapacity))
+            {
+                UploadParticles(particles, CreatePlanarPatch());
+                BuildSpatialHash(spatialHash, particles);
+                var supports = new float[ParticleCapacity];
+                supports[12] = 1f;
+                surface.SurfaceSupportBuffer.SetData(supports);
+
+                DispatchDensity(density, particles, surface, in grid, false, 0.8f, 1.5f);
+                float[] legacy = ReadDensityTestOnly(surface.DensityTexture);
+                DispatchDensity(density, particles, surface, in grid, true, 0f, 1.5f);
+                float[] zeroHeight = ReadDensityTestOnly(surface.DensityTexture);
+                Assert.That(zeroHeight, Is.EqualTo(legacy).Within(1e-6f));
+
+                DispatchDensity(density, particles, surface, in grid, true, 0.8f, 1.5f);
+                float[] crowned = ReadDensityTestOnly(surface.DensityTexture);
+
+                float legacyCenterAbove = Read(legacy, grid.Resolution, 4, 5, 4);
+                float crownedCenterAbove = Read(crowned, grid.Resolution, 4, 5, 4);
+                float legacyEdgeAbove = Read(legacy, grid.Resolution, 2, 5, 2);
+                float crownedEdgeAbove = Read(crowned, grid.Resolution, 2, 5, 2);
+                float legacyCenterBelow = Read(legacy, grid.Resolution, 4, 3, 4);
+                float crownedCenterBelow = Read(crowned, grid.Resolution, 4, 3, 4);
+
+                Assert.That(crownedCenterAbove, Is.GreaterThan(legacyCenterAbove * 1.1f));
+                Assert.That(crownedEdgeAbove, Is.EqualTo(legacyEdgeAbove).Within(1e-5f));
+                Assert.That(crownedCenterBelow, Is.EqualTo(legacyCenterBelow).Within(1e-5f));
+                AssertAllFinite(crowned);
+            }
+        }
+
+        [Test]
+        public void TargetMaterialFilterSeparatesWaterAndPoisonInOneParticlePool()
+        {
+            FluidSurfaceGridSettings grid = CreateGrid(new Vector3(-2f, -2f, -2f));
+            IgnoreWithoutSurfaceSupport(in grid);
+            var rows = new FluidGpuLiquidMaterialParameters[256];
+            LiquidMaterialSettings water = CreateLiquid(MaterialId.Water, 0.25f);
+            LiquidMaterialSettings poison = CreateLiquid(MaterialId.Poison, 0.5f);
+            rows[(byte)MaterialId.Water] = new FluidGpuLiquidMaterialParameters(in water);
+            rows[(byte)MaterialId.Poison] = new FluidGpuLiquidMaterialParameters(in poison);
+            using (var particles = new FluidGpuResourceSet(ParticleCapacity, HashCapacity, 1,
+                       liquidMaterialParameters: rows))
+            using (var surface = new FluidSurfaceGpuResources(in grid, ParticleCapacity))
+            {
+                UploadParticles(particles,
+                    new[] { Vector3.zero, new Vector3(1.5f, 0f, 0f) },
+                    new[] { MaterialId.Water, MaterialId.Poison });
+                BuildSpatialHash(LoadShader(SpatialHashShaderPath), particles);
+                ComputeShader shader = LoadShader(DensityShaderPath);
+                DispatchDensity(shader, particles, surface, in grid, targetMaterial: MaterialId.Water);
+                float[] waterDensity = ReadDensityTestOnly(surface.DensityTexture);
+                DispatchDensity(shader, particles, surface, in grid, targetMaterial: MaterialId.Poison);
+                float[] poisonDensity = ReadDensityTestOnly(surface.DensityTexture);
+                Assert.That(Read(waterDensity, grid.Resolution, 4, 4, 4), Is.GreaterThan(0f));
+                Assert.That(Read(waterDensity, grid.Resolution, 7, 4, 4), Is.Zero.Within(1e-6f));
+                Assert.That(Read(poisonDensity, grid.Resolution, 4, 4, 4), Is.Zero.Within(1e-6f));
+                Assert.That(Read(poisonDensity, grid.Resolution, 7, 4, 4), Is.GreaterThan(0f));
+            }
+        }
+
         private static FluidSurfaceGridSettings CreateGrid(Vector3 origin)
         {
             return new FluidSurfaceGridSettings(
@@ -141,7 +216,10 @@ namespace Game.Rendering.Tests
                 maximumTriangleCount: 32);
         }
 
-        private static void UploadParticles(FluidGpuResourceSet particles, Vector3[] activePositions)
+        private static void UploadParticles(
+            FluidGpuResourceSet particles,
+            Vector3[] activePositions,
+            MaterialId[] materials = null)
         {
             var positions = new Vector4[ParticleCapacity];
             var metadata = new FluidGpuUInt2[ParticleCapacity];
@@ -152,11 +230,23 @@ namespace Game.Rendering.Tests
                     activePositions[i].y,
                     activePositions[i].z,
                     1f);
-                metadata[i] = new FluidGpuUInt2(0u, FluidGpuLayout.ActiveFlag);
+                metadata[i] = new FluidGpuUInt2(
+                    materials == null ? 0u : (uint)materials[i],
+                    FluidGpuLayout.ActiveFlag);
             }
 
             particles.PredictedPositions.SetData(positions);
             particles.Metadata.SetData(metadata);
+        }
+
+        private static Vector3[] CreatePlanarPatch()
+        {
+            var positions = new Vector3[25];
+            int index = 0;
+            for (int z = -2; z <= 2; z++)
+            for (int x = -2; x <= 2; x++)
+                positions[index++] = new Vector3(x * 0.5f, 0f, z * 0.5f);
+            return positions;
         }
 
         private static void BuildSpatialHash(ComputeShader shader, FluidGpuResourceSet resources)
@@ -199,13 +289,22 @@ namespace Game.Rendering.Tests
             ComputeShader shader,
             FluidGpuResourceSet particles,
             FluidSurfaceGpuResources surface,
-            in FluidSurfaceGridSettings grid)
+            in FluidSurfaceGridSettings grid,
+            bool useStylizedCrown = false,
+            float crownHeightRatio = 0f,
+            float crownFalloff = 1.5f,
+            MaterialId targetMaterial = MaterialId.Empty)
         {
             int kernel = shader.FindKernel("GatherIsotropicDensity");
             shader.SetInt("_ParticleCapacity", particles.ParticleCapacity);
             shader.SetInt("_HashTableCapacity", particles.HashTableCapacity);
             shader.SetFloat("_SmoothingRadius", SmoothingRadius);
             shader.SetFloat("_ParticleMass", ParticleMass);
+            shader.SetInt("_TargetMaterialId", (byte)targetMaterial);
+            shader.SetInt("_DensityCellRadius", useStylizedCrown ? 2 : 1);
+            shader.SetInt("_UseStylizedCrown", useStylizedCrown ? 1 : 0);
+            shader.SetFloat("_CrownHeightRatio", crownHeightRatio);
+            shader.SetFloat("_CrownFalloff", crownFalloff);
             shader.SetInt("_GridResolutionX", grid.Resolution.x);
             shader.SetInt("_GridResolutionY", grid.Resolution.y);
             shader.SetInt("_GridResolutionZ", grid.Resolution.z);
@@ -216,6 +315,8 @@ namespace Game.Rendering.Tests
             shader.SetBuffer(kernel, "_SpatialEntries", particles.SpatialEntries);
             shader.SetBuffer(kernel, "_CellRanges", particles.CellRanges);
             shader.SetBuffer(kernel, "_SpatialCells", particles.SpatialCells);
+            shader.SetBuffer(kernel, "_LiquidMaterialParameters", particles.LiquidMaterialParameters);
+            shader.SetBuffer(kernel, "_SurfaceSupports", surface.SurfaceSupportBuffer);
             shader.SetTexture(kernel, "_DensityTexture", surface.DensityTexture);
             shader.Dispatch(
                 kernel,
@@ -224,13 +325,31 @@ namespace Game.Rendering.Tests
                 DivideRoundUp(grid.Resolution.z, 4));
         }
 
+        private static LiquidMaterialSettings CreateLiquid(MaterialId material, float mass)
+        {
+            return new LiquidMaterialSettings(material, 8u, mass, 1000f, 0.1f, 0.001f,
+                12f, 1f, 0.2f, 0.02f);
+        }
+
         private static float[] ReadDensityTestOnly(RenderTexture texture)
         {
-            AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(texture, 0);
-            request.WaitForCompletion();
-            Assert.That(request.hasError, Is.False, "Test-only 3D density readback failed.");
-            NativeArray<float> data = request.GetData<float>();
-            return data.ToArray();
+            // Unity 6.3 DX12 的 Texture3D Readback 即使请求 depth>1 也只返回一个 z slice。
+            // 测试边界逐 slice 同步读取并按 Unity 的线性布局拼回完整 Volume；Runtime 不走此同步路径。
+            int sliceLength = checked(texture.width * texture.height);
+            var result = new float[checked(sliceLength * texture.volumeDepth)];
+            for (int z = 0; z < texture.volumeDepth; z++)
+            {
+                AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(
+                    texture, 0, 0, texture.width, 0, texture.height, z, 1, null);
+                request.WaitForCompletion();
+                Assert.That(request.hasError, Is.False, "Test-only 3D density slice readback failed.");
+                NativeArray<float> data = request.GetData<float>();
+                Assert.That(data.Length, Is.EqualTo(sliceLength));
+                for (int index = 0; index < sliceLength; index++)
+                    result[z * sliceLength + index] = data[index];
+            }
+
+            return result;
         }
 
         private static float Read(float[] values, Vector3Int resolution, int x, int y, int z)

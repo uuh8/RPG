@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using Game.Combat;
 using Unity.Profiling;
@@ -41,17 +42,20 @@ namespace Game.ElementField
 
         private readonly ElementWorldChunk[] _simulationChunks;
         private readonly ElementBoundaryNeighborPlanner _neighborPlanner;
+        private readonly MaterialReactionCatalogSnapshot _reactionCatalog;
         private readonly int _settleAfterUnchangedTicks;
         private int _simulationChunkCount;
 
         public ElementWorldSimulator(
             int maximumResidentChunks,
+            MaterialReactionCatalogSnapshot reactionCatalog,
             int settleAfterUnchangedTicks = 2)
         {
             if (maximumResidentChunks <= 0)
                 throw new ArgumentOutOfRangeException(nameof(maximumResidentChunks));
             if (settleAfterUnchangedTicks <= 0)
                 throw new ArgumentOutOfRangeException(nameof(settleAfterUnchangedTicks));
+            _reactionCatalog = reactionCatalog ?? throw new ArgumentNullException(nameof(reactionCatalog));
 
             // Runtime 初始化时一次性分配；固定 Tick 中只覆盖引用，不创建 List/Array。
             _simulationChunks = new ElementWorldChunk[maximumResidentChunks];
@@ -225,11 +229,8 @@ namespace Game.ElementField
                         sourceLocal,
                         sourceChunk.Grid.Dimensions);
                     ElementCell sourceCell = sourceChunk.CurrentCells[sourceIndex];
-                    if (sourceCell.MaterialKind != ElementMaterialKind.Water
-                        && sourceCell.MaterialKind != ElementMaterialKind.Fire)
-                    {
+                    if (sourceCell.MaterialKind == MaterialId.Empty)
                         continue;
-                    }
 
                     for (int directionIndex = 0;
                          directionIndex < PositiveReactionDirections.Length;
@@ -262,7 +263,7 @@ namespace Game.ElementField
             CommitPreparedStage();
         }
 
-        private static void ReactPair(
+        private void ReactPair(
             ElementWorldChunk firstChunk,
             int firstIndex,
             ElementWorldChunk secondChunk,
@@ -273,11 +274,10 @@ namespace Game.ElementField
         {
             ElementCell first = firstChunk.CurrentCells[firstIndex];
             ElementCell second = secondChunk.CurrentCells[secondIndex];
-            bool opposed = first.MaterialKind == ElementMaterialKind.Water
-                && second.MaterialKind == ElementMaterialKind.Fire
-                || first.MaterialKind == ElementMaterialKind.Fire
-                && second.MaterialKind == ElementMaterialKind.Water;
-            if (!opposed)
+            if (!_reactionCatalog.TryResolve(
+                    first.MaterialKind,
+                    second.MaterialKind,
+                    out ElementReactionId reaction))
                 return;
 
             int firstAvailable = first.Amount + firstChunk.AmountDelta[firstIndex];
@@ -285,30 +285,25 @@ namespace Game.ElementField
             if (firstAvailable <= 0 || secondAvailable <= 0)
                 return;
 
-            int fireAmount = first.MaterialKind == ElementMaterialKind.Fire
-                ? firstAvailable
-                : secondAvailable;
-            int waterAmount = first.MaterialKind == ElementMaterialKind.Water
-                ? firstAvailable
-                : secondAvailable;
-            float fireIntensity = fireAmount * 100f / byte.MaxValue;
-            float waterIntensity = waterAmount * 100f / byte.MaxValue;
-            float threshold = Mathf.Max(0f, tuning.FormalThreshold);
-            bool formal = fireIntensity >= threshold && waterIntensity >= threshold;
-
-            float consumedIntensity = ElementReactionEvaluator.CalculateExtinguishConsumption(
-                fireIntensity,
-                waterIntensity,
+            var contact = new MaterialContactSnapshot(
+                first.MaterialKind,
+                firstAvailable,
+                second.MaterialKind,
+                secondAvailable);
+            if (!ElementReactionEvaluator.TryEvaluateMaterialContact(
+                in contact,
                 deltaTime,
-                formal,
-                in tuning);
-            int consumedAmount = Mathf.RoundToInt(consumedIntensity * byte.MaxValue / 100f);
-            consumedAmount = Mathf.Min(consumedAmount, Mathf.Min(firstAvailable, secondAvailable));
-            if (consumedAmount <= 0)
+                reaction,
+                in tuning,
+                out MaterialReactionResult result)
+                || result.FirstConsumedGmu <= 0
+                && result.SecondConsumedGmu <= 0)
+            {
                 return;
+            }
 
-            firstChunk.AmountDelta[firstIndex] -= consumedAmount;
-            secondChunk.AmountDelta[secondIndex] -= consumedAmount;
+            firstChunk.AmountDelta[firstIndex] -= result.FirstConsumedGmu;
+            secondChunk.AmountDelta[secondIndex] -= result.SecondConsumedGmu;
             stats.ReactionPairs++;
         }
 
@@ -355,7 +350,7 @@ namespace Game.ElementField
                     int sourceIndex = ElementFieldCoordinates.ToIndex(
                         sourceLocal,
                         sourceChunk.Grid.Dimensions);
-                    if (sourceChunk.CurrentCells[sourceIndex].MaterialKind != ElementMaterialKind.Water
+                    if (sourceChunk.CurrentCells[sourceIndex].MaterialKind != MaterialId.Water
                         || !TryResolveNeighbor(
                             sourceChunk,
                             sourceLocal,
@@ -415,7 +410,7 @@ namespace Game.ElementField
                     int sourceIndex = ElementFieldCoordinates.ToIndex(
                         sourceLocal,
                         sourceChunk.Grid.Dimensions);
-                    if (sourceChunk.CurrentCells[sourceIndex].MaterialKind != ElementMaterialKind.Water)
+                    if (sourceChunk.CurrentCells[sourceIndex].MaterialKind != MaterialId.Water)
                         continue;
 
                     for (int order = 0; order < HorizontalDirections.Length; order++)
@@ -470,7 +465,7 @@ namespace Game.ElementField
             ElementCell source = sourceChunk.CurrentCells[sourceIndex];
             ElementCell target = targetChunk.CurrentCells[targetIndex];
             int sourceAvailable = source.Amount + sourceChunk.AmountDelta[sourceIndex];
-            int targetOriginal = target.MaterialKind == ElementMaterialKind.Water ? target.Amount : 0;
+            int targetOriginal = target.MaterialKind == MaterialId.Water ? target.Amount : 0;
             int targetProjected = targetOriginal + targetChunk.AmountDelta[targetIndex];
             int targetCapacity = byte.MaxValue - targetProjected;
             if (sourceAvailable <= 0 || targetCapacity <= 0)
@@ -504,12 +499,12 @@ namespace Game.ElementField
                         continue;
 
                     ElementCell current = chunk.CurrentCells[index];
-                    int original = current.MaterialKind == ElementMaterialKind.Water
+                    int original = current.MaterialKind == MaterialId.Water
                         ? current.Amount
                         : 0;
                     int amount = Mathf.Clamp(original + delta, 0, byte.MaxValue);
                     chunk.NextCells[index] = amount > 0
-                        ? new ElementCell(ElementMaterialKind.Water, (byte)amount)
+                        ? new ElementCell(MaterialId.Water, (byte)amount)
                         : default;
                 }
             }
@@ -528,12 +523,12 @@ namespace Game.ElementField
                     for (int index = 0; index < chunk.CellCount; index++)
                     {
                         ElementCell current = chunk.CurrentCells[index];
-                        if (current.MaterialKind != ElementMaterialKind.Fire || current.Amount == 0)
+                        if (current.MaterialKind != MaterialId.Fire || current.Amount == 0)
                             continue;
 
                         int amount = Mathf.Max(0, current.Amount - decay);
                         chunk.NextCells[index] = amount > 0
-                            ? new ElementCell(ElementMaterialKind.Fire, (byte)amount)
+                            ? new ElementCell(MaterialId.Fire, (byte)amount)
                             : default;
                         stats.FireCellsDecayed++;
                     }
@@ -643,7 +638,7 @@ namespace Game.ElementField
 
         private static bool CanReceiveWater(ElementCell cell)
         {
-            return cell.IsEmpty || cell.MaterialKind == ElementMaterialKind.Water;
+            return cell.IsEmpty || cell.MaterialKind == MaterialId.Water;
         }
     }
 }

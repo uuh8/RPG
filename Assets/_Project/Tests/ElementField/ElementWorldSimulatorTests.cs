@@ -1,5 +1,7 @@
+using Game.Materials;
 using Game.Combat;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Game.ElementField.Tests
@@ -26,7 +28,7 @@ namespace Game.ElementField.Tests
                 new ElementChunkKey(1, 0, 0), out ElementWorldChunk target), Is.True,
                 "边界 Water 必须在枚举模拟前预创建可能接收流量的相邻 Chunk。");
             Assert.That(target.GetCell(new Vector3Int(0, 1, 0)).Amount, Is.EqualTo(8));
-            Assert.That(Sum(store, ElementMaterialKind.Water), Is.EqualTo(64));
+            Assert.That(Sum(store, MaterialId.Water), Is.EqualTo(64));
             Assert.That(stats.WaterTransfers, Is.GreaterThan(0));
         }
 
@@ -43,7 +45,7 @@ namespace Game.ElementField.Tests
                 new ElementChunkKey(0, 0, 0), out ElementWorldChunk target), Is.True);
             Assert.That(source.GetCell(new Vector3Int(0, 0, 0)).Amount, Is.EqualTo(36));
             Assert.That(target.GetCell(new Vector3Int(0, 1, 0)).Amount, Is.EqualTo(64));
-            Assert.That(Sum(store, ElementMaterialKind.Water), Is.EqualTo(100));
+            Assert.That(Sum(store, MaterialId.Water), Is.EqualTo(100));
         }
 
         [Test]
@@ -156,7 +158,7 @@ namespace Game.ElementField.Tests
 
             var write = new ElementWriteRequest(
                 worldPosition: new Vector3(1.5f, 1.5f, 0.5f),
-                materialKind: ElementMaterialKind.Water,
+                materialKind: MaterialId.Water,
                 totalAmount: 1,
                 radius: 0f,
                 useLinearFalloff: false);
@@ -184,7 +186,7 @@ namespace Game.ElementField.Tests
             ElementWorldChunk source = ActiveChunk(store, new ElementChunkKey(0, 0, 0));
             source.SetCell(new Vector3Int(1, 1, 0), Water(64));
             source.SetCell(new Vector3Int(0, 1, 0), Fire(20));
-            var simulator = new ElementWorldSimulator(maximumResidentChunks: 16);
+            var simulator = new ElementWorldSimulator(16, ReactionCatalog());
             ElementFieldSimulationSettings settings = Settings(
                 down: 64,
                 lateral: 16,
@@ -218,7 +220,7 @@ namespace Game.ElementField.Tests
             first.SetCell(new Vector3Int(1, 1, 1), Water(80));
             second.SetCell(new Vector3Int(0, 1, 0), Fire(60));
 
-            var simulator = new ElementWorldSimulator(maximumResidentChunks: 16);
+            var simulator = new ElementWorldSimulator(16, ReactionCatalog());
             ElementWorldChunk[] active = { second, first };
             ElementFieldSimulationSettings settings = Settings(64, 16, 1);
             for (long tick = 1; tick <= 4; tick++)
@@ -248,7 +250,7 @@ namespace Game.ElementField.Tests
             byte decay = 0,
             float deltaTime = 0.1f)
         {
-            var simulator = new ElementWorldSimulator(maximumResidentChunks: 16);
+            var simulator = new ElementWorldSimulator(16, ReactionCatalog());
             ElementFieldSimulationSettings settings = Settings(down, lateral, decay);
             return simulator.SimulateActiveChunks(
                 store,
@@ -261,6 +263,18 @@ namespace Game.ElementField.Tests
 
         private static ElementWorldStore Store() =>
             new ElementWorldStore(chunkSize: 2, maximumResidentChunks: 16);
+
+        private static MaterialReactionCatalogSnapshot ReactionCatalog()
+        {
+            MaterialCatalog materials = AssetDatabase.LoadAssetAtPath<MaterialCatalog>(
+                "Assets/_Project/ScriptableObjects/Materials/MaterialCatalog_Default.asset");
+            MaterialReactionBindingProfile bindings =
+                AssetDatabase.LoadAssetAtPath<MaterialReactionBindingProfile>(
+                    "Assets/_Project/ScriptableObjects/Combat/Reactions/MaterialReactionBindings_Default.asset");
+            Assert.That(materials, Is.Not.Null);
+            Assert.That(bindings, Is.Not.Null);
+            return bindings.CreateSnapshot(materials.CreateSnapshot());
+        }
 
         private static ElementWorldChunk ActiveChunk(
             ElementWorldStore store,
@@ -301,12 +315,12 @@ namespace Game.ElementField.Tests
         }
 
         private static ElementCell Water(byte amount) =>
-            new ElementCell(ElementMaterialKind.Water, amount);
+            new ElementCell(MaterialId.Water, amount);
 
         private static ElementCell Fire(byte amount) =>
-            new ElementCell(ElementMaterialKind.Fire, amount);
+            new ElementCell(MaterialId.Fire, amount);
 
-        private static int Sum(ElementWorldStore store, ElementMaterialKind materialKind)
+        private static int Sum(ElementWorldStore store, MaterialId materialKind)
         {
             int total = 0;
             foreach (ElementWorldChunk chunk in store.Chunks.Values)

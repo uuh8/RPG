@@ -15,11 +15,11 @@ MonoBehaviour:
   Kind: 2
   DisplayName: "\u4E2D\u6BD2"
   Icon: {fileID: 21300000, guid: 8ad01089ff0d3864ea0e794ec59d79a0, type: 3}
-  NaturalDecayPerSecond: 8
-  VfxPrefab: {fileID: 0}
+  NaturalDecayPerSecond: 1
+  VfxPrefab: {fileID: 8541509194258179635, guid: 631c7547c4cab784b9011ca3ef34448b, type: 3}
   DealsDamage: 1
-  DamageInterval: 1
-  BaseDamagePerTick: 3
+  DamageInterval: 0.1
+  BaseDamagePerTick: 0.3
   DamageType: 1
   TriggerHitReaction: 0
   WetCleanseable: 1

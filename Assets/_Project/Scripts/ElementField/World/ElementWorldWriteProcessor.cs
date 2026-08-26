@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using UnityEngine;
 
@@ -147,7 +148,7 @@ namespace Game.ElementField
         private static bool TryApplyToGlobalCell(
             ElementWorldStore store,
             Vector3Int globalCell,
-            ElementMaterialKind incomingKind,
+            MaterialId incomingKind,
             int incomingAmount,
             long worldTick,
             out int changedCells)
@@ -178,7 +179,7 @@ namespace Game.ElementField
         private static bool TryGetWritableCell(
             ElementWorldStore store,
             Vector3Int globalCell,
-            ElementMaterialKind incomingKind,
+            MaterialId incomingKind,
             bool createIfMissing,
             out ElementWorldChunk chunk,
             out Vector3Int localCell,
@@ -214,7 +215,7 @@ namespace Game.ElementField
             ElementWorldChunk chunk,
             Vector3Int localCell,
             ElementCell before,
-            ElementMaterialKind incomingKind,
+            MaterialId incomingKind,
             int incomingAmount)
         {
             ElementCell after;
@@ -246,7 +247,7 @@ namespace Game.ElementField
 
         private static int GetIncomingCapacity(
             ElementCell current,
-            ElementMaterialKind incomingKind)
+            MaterialId incomingKind)
         {
             if (current.IsEmpty)
                 return byte.MaxValue;
@@ -279,22 +280,22 @@ namespace Game.ElementField
             return Mathf.Clamp01(1f - distance / request.Radius);
         }
 
-        private static bool CanAccept(ElementCell current, ElementMaterialKind incomingKind)
+        private static bool CanAccept(ElementCell current, MaterialId incomingKind)
         {
             return current.IsEmpty
                 || current.MaterialKind == incomingKind
                 || IsOpposedWaterFire(current.MaterialKind, incomingKind);
         }
 
-        private static bool IsOpposedWaterFire(ElementMaterialKind a, ElementMaterialKind b)
+        private static bool IsOpposedWaterFire(MaterialId a, MaterialId b)
         {
-            return a == ElementMaterialKind.Water && b == ElementMaterialKind.Fire
-                || a == ElementMaterialKind.Fire && b == ElementMaterialKind.Water;
+            return a == MaterialId.Water && b == MaterialId.Fire
+                || a == MaterialId.Fire && b == MaterialId.Water;
         }
 
-        private static bool IsSupported(ElementMaterialKind kind)
+        private static bool IsSupported(MaterialId kind)
         {
-            return kind == ElementMaterialKind.Water || kind == ElementMaterialKind.Fire;
+            return kind == MaterialId.Water || kind == MaterialId.Fire;
         }
     }
 }

@@ -1,3 +1,4 @@
+using Game.Materials;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
@@ -35,23 +36,50 @@ namespace Game.ElementField.Tests
         [Test]
         public void WaterConfigurationBuildsRequestAtProvidedWorldPosition()
         {
-            Configure(ElementMaterialKind.Water, 320, 1.5f, true);
+            Configure(MaterialId.Water, 320, 1.5f, true);
             var position = new Vector3(2f, 0.5f, -4f);
 
             bool built = _deposit.TryBuildRequest(position, out ElementWriteRequest request);
 
             Assert.That(built, Is.True);
             Assert.That(request.WorldPosition, Is.EqualTo(position));
-            Assert.That(request.MaterialKind, Is.EqualTo(ElementMaterialKind.Water));
+            Assert.That(request.MaterialKind, Is.EqualTo(MaterialId.Water));
             Assert.That(request.TotalAmount, Is.EqualTo(320));
             Assert.That(request.Radius, Is.EqualTo(1.5f).Within(0.0001f));
             Assert.That(request.UseLinearFalloff, Is.True);
         }
 
-        [TestCase(ElementMaterialKind.Empty)]
-        [TestCase(ElementMaterialKind.Poison)]
-        [TestCase(ElementMaterialKind.Sticky)]
-        public void UnsupportedMaterialDoesNotBuildRequest(ElementMaterialKind materialKind)
+        [Test]
+        public void PoisonConfigurationBuildsRequestAndPreservesPoisonMaterial()
+        {
+            Configure(MaterialId.Poison, 8000, 1.2f, true);
+            var position = new Vector3(3.34f, 0f, 2.96f);
+
+            bool built = _deposit.TryBuildRequest(position, out ElementWriteRequest request);
+
+            Assert.That(built, Is.True,
+                "Poison 是已有 GPU Liquid Material，关卡 Initial Deposit 不应在进入 Runtime 前拒绝它。");
+            Assert.That(request.WorldPosition, Is.EqualTo(position));
+            Assert.That(request.MaterialKind, Is.EqualTo(MaterialId.Poison));
+            Assert.That(request.TotalAmount, Is.EqualTo(8000));
+            Assert.That(request.Radius, Is.EqualTo(1.2f).Within(0.0001f));
+            Assert.That(request.UseLinearFalloff, Is.True);
+        }
+
+        [Test]
+        public void StickyConfigurationBuildsRequestAndPreservesStickyMaterial()
+        {
+            Configure(MaterialId.Sticky, 1600, 0.75f, true);
+
+            bool built = _deposit.TryBuildRequest(Vector3.one, out ElementWriteRequest request);
+
+            Assert.That(built, Is.True);
+            Assert.That(request.MaterialKind, Is.EqualTo(MaterialId.Sticky));
+            Assert.That(request.TotalAmount, Is.EqualTo(1600));
+        }
+
+        [TestCase(MaterialId.Empty)]
+        public void UnsupportedMaterialDoesNotBuildRequest(MaterialId materialKind)
         {
             Configure(materialKind, 220, 0.75f, true);
 
@@ -62,7 +90,7 @@ namespace Game.ElementField.Tests
         [TestCase(-1)]
         public void NonPositiveAmountDoesNotBuildRequest(int amount)
         {
-            Configure(ElementMaterialKind.Fire, amount, 0.5f, false);
+            Configure(MaterialId.Fire, amount, 0.5f, false);
 
             Assert.That(_deposit.TryBuildRequest(Vector3.zero, out _), Is.False);
         }
@@ -70,7 +98,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void SuccessfulDepositUsesTransformPositionAndSubmitsOnlyOnce()
         {
-            Configure(ElementMaterialKind.Fire, 180, 0.5f, false);
+            Configure(MaterialId.Fire, 180, 0.5f, false);
             _gameObject.transform.position = new Vector3(3f, 1f, 7f);
             Assert.That(ElementRuntimeRegistry.TryRegister(_sink), Is.True);
 
@@ -80,13 +108,13 @@ namespace Game.ElementField.Tests
             Assert.That(_deposit.HasSubmitted, Is.True);
             Assert.That(_sink.WriteCount, Is.EqualTo(1));
             Assert.That(_sink.LastRequest.WorldPosition, Is.EqualTo(_gameObject.transform.position));
-            Assert.That(_sink.LastRequest.MaterialKind, Is.EqualTo(ElementMaterialKind.Fire));
+            Assert.That(_sink.LastRequest.MaterialKind, Is.EqualTo(MaterialId.Fire));
         }
 
         [Test]
         public void MissingSinkDoesNotConsumeOneShotAndCanRetry()
         {
-            Configure(ElementMaterialKind.Water, 220, 0.75f, true);
+            Configure(MaterialId.Water, 220, 0.75f, true);
             LogAssert.Expect(
                 LogType.Warning,
                 "[ElementField] Initial Deposit 未提交：场景中没有可用的 Element Write Sink。请检查 ElementWorldRuntime 是否启用并完成初始化。");
@@ -102,7 +130,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void RejectedQueueDoesNotConsumeOneShot()
         {
-            Configure(ElementMaterialKind.Fire, 180, 0.5f, true);
+            Configure(MaterialId.Fire, 180, 0.5f, true);
             _sink.AcceptWrites = false;
             Assert.That(ElementRuntimeRegistry.TryRegister(_sink), Is.True);
             LogAssert.Expect(
@@ -116,7 +144,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ExplicitResetQueuesExactlyOneAdditionalRequest()
         {
-            Configure(ElementMaterialKind.Water, 220, 0.75f, true);
+            Configure(MaterialId.Water, 220, 0.75f, true);
             Assert.That(ElementRuntimeRegistry.TryRegister(_sink), Is.True);
             Assert.That(_deposit.TryQueueDeposit(), Is.True);
 
@@ -128,7 +156,7 @@ namespace Game.ElementField.Tests
         }
 
         private void Configure(
-            ElementMaterialKind materialKind,
+            MaterialId materialKind,
             int amount,
             float radius,
             bool useLinearFalloff)

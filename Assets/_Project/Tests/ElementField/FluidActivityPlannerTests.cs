@@ -66,6 +66,53 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
+        public void RemoteSpawnOutsideInterestKeepsSolverLeaseUntilStable()
+        {
+            uint remoteSpawn = FluidActivityFlags.Alive
+                | FluidActivityFlags.RemoteSpawnActive
+                | FluidActivityFlags.RequiresSimulation;
+
+            FluidActivityTransition moving = FluidActivityPlanner.Evaluate(
+                remoteSpawn, 0u, insideInterest: false, isStable: false,
+                wakeRequested: false, requiredStableTicks: 2u);
+
+            Assert.That(FluidActivityFlags.RequiresSolver(moving.Flags), Is.True,
+                "远处新生粒子在落稳前必须继续接受 Gravity/PBF/Collision。"
+            );
+            Assert.That(FluidActivityFlags.ContributesToSurface(moving.Flags), Is.True,
+                "Remote Lease 期间仍属于可渲染的 Alive 数据。"
+            );
+
+            FluidActivityTransition stableOnce = FluidActivityPlanner.Evaluate(
+                moving.Flags, moving.StableTicks, false, true, false, 2u);
+            Assert.That(FluidActivityFlags.RequiresSolver(stableOnce.Flags), Is.True);
+
+            FluidActivityTransition settled = FluidActivityPlanner.Evaluate(
+                stableOnce.Flags, stableOnce.StableTicks, false, true, false, 2u);
+            Assert.That(settled.Flags, Is.EqualTo(FluidActivityFlags.Alive),
+                "远处粒子落稳后应释放临时 Lease，而不是永久占用 Solver。"
+            );
+            Assert.That(FluidActivityFlags.RequiresSolver(settled.Flags), Is.False);
+        }
+
+        [Test]
+        public void OrdinaryRemoteResidentNeverReentersSolverWithoutLease()
+        {
+            FluidActivityTransition result = FluidActivityPlanner.Evaluate(
+                FluidActivityFlags.Alive,
+                0u,
+                insideInterest: false,
+                isStable: false,
+                wakeRequested: false,
+                requiredStableTicks: 3u);
+
+            Assert.That(result.Flags, Is.EqualTo(FluidActivityFlags.Alive));
+            Assert.That(FluidActivityFlags.RequiresSolver(result.Flags), Is.False,
+                "修复不能把全部历史 Resident 粒子重新唤醒。"
+            );
+        }
+
+        [Test]
         public void FreeSlotBelongsToNoActivityAndCannotBeWoken()
         {
             FluidActivityTransition result = FluidActivityPlanner.Evaluate(

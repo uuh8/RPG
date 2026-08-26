@@ -1,3 +1,4 @@
+using Game.Materials;
 using Game.Combat;
 using Game.Core;
 using Unity.Profiling;
@@ -285,9 +286,9 @@ namespace Game.ElementField
                 if (cell.IsEmpty)
                     continue;
 
-                if (cell.MaterialKind == ElementMaterialKind.Water && cell.Amount > maxWater)
+                if (cell.MaterialKind == MaterialId.Water && cell.Amount > maxWater)
                     maxWater = cell.Amount;
-                else if (cell.MaterialKind == ElementMaterialKind.Fire && cell.Amount > maxFire)
+                else if (cell.MaterialKind == MaterialId.Fire && cell.Amount > maxFire)
                     maxFire = cell.Amount;
             }
         }

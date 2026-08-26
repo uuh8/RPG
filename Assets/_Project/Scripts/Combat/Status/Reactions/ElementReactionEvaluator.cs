@@ -1,3 +1,6 @@
+using Game.Materials;
+using UnityEngine;
+
 namespace Game.Combat
 {
     /// <summary>
@@ -8,6 +11,156 @@ namespace Game.Combat
     {
         // P2 统一把状态强度解释为百分比 [0,100]。集中定义上限，避免公式散落魔法数字。
         private const float MaximumIntensity = 100f;
+
+        public static bool TryEvaluateMaterialContact(
+            in MaterialContactSnapshot contact,
+            float deltaTime,
+            ElementReactionId reaction,
+            in ElementReactionTuningSnapshot tuning,
+            out MaterialReactionResult result)
+        {
+            if (reaction == ElementReactionId.Extinguish)
+                return TryEvaluateMaterialContact(in contact, deltaTime, reaction, in tuning.Extinguish, out result);
+            if (reaction == ElementReactionId.AbsorbWater)
+                return TryEvaluateAbsorbWater(in contact, deltaTime, in tuning.AbsorbWater, out result);
+            if (reaction == ElementReactionId.IgniteGoo)
+                return TryEvaluateIgniteGoo(in contact, deltaTime, in tuning.IgniteGoo, out result);
+            result = default;
+            if (reaction != ElementReactionId.ToxicCombustion)
+                return false;
+            bool poisonFirst = contact.FirstMaterial == MaterialId.Poison && contact.SecondMaterial == MaterialId.Fire;
+            bool fireFirst = contact.FirstMaterial == MaterialId.Fire && contact.SecondMaterial == MaterialId.Poison;
+            if (!poisonFirst && !fireFirst) return false;
+            int poison = poisonFirst ? contact.FirstAmountGmu : contact.SecondAmountGmu;
+            int fire = fireFirst ? contact.FirstAmountGmu : contact.SecondAmountGmu;
+            var state = new ElementStateSnapshot(fire * MaximumIntensity / byte.MaxValue, 0f,
+                poison * MaximumIntensity / byte.MaxValue, 0f, default, default, default, default);
+            if (!CanStartToxicCombustion(in state, in tuning.ToxicCombustion)) return false;
+            int consume = Mathf.Min(poison, Mathf.CeilToInt(Mathf.Max(0f, tuning.ToxicCombustion.MaxPoisonConsume)));
+            result = poisonFirst
+                ? new MaterialReactionResult(reaction, consume, 0)
+                : new MaterialReactionResult(reaction, 0, consume);
+            return consume > 0;
+        }
+
+        private static bool TryEvaluateAbsorbWater(
+            in MaterialContactSnapshot contact,
+            float deltaTime,
+            in AbsorbWaterTuning tuning,
+            out MaterialReactionResult result)
+        {
+            result = default;
+            bool waterFirst = contact.FirstMaterial == MaterialId.Water
+                && contact.SecondMaterial == MaterialId.Sticky;
+            bool stickyFirst = contact.FirstMaterial == MaterialId.Sticky
+                && contact.SecondMaterial == MaterialId.Water;
+            if ((!waterFirst && !stickyFirst) || deltaTime <= 0f)
+                return false;
+
+            int water = waterFirst ? contact.FirstAmountGmu : contact.SecondAmountGmu;
+            int converted = Mathf.Clamp(
+                Mathf.CeilToInt(MaxZero(tuning.WaterConvertPerSecond) * deltaTime
+                    * byte.MaxValue / MaximumIntensity), 0, water);
+            if (converted <= 0)
+                return false;
+
+            // Result 仍按输入 First/Second 对齐：Water 一侧被消费，Sticky 一侧得到等价计划量。
+            // ElementField 会把它量化为 1:1 粒子原位 Retag；这里不直接接触 GPU 粒子单位。
+            result = waterFirst
+                ? new MaterialReactionResult(ElementReactionId.AbsorbWater, converted, 0,
+                    secondProducedGmu: converted)
+                : new MaterialReactionResult(ElementReactionId.AbsorbWater, 0, converted,
+                    firstProducedGmu: converted);
+            return true;
+        }
+
+        private static bool TryEvaluateIgniteGoo(
+            in MaterialContactSnapshot contact,
+            float deltaTime,
+            in IgniteGooTuning tuning,
+            out MaterialReactionResult result)
+        {
+            result = default;
+            bool fireFirst = contact.FirstMaterial == MaterialId.Fire
+                && contact.SecondMaterial == MaterialId.Sticky;
+            bool stickyFirst = contact.FirstMaterial == MaterialId.Sticky
+                && contact.SecondMaterial == MaterialId.Fire;
+            if ((!fireFirst && !stickyFirst) || deltaTime <= 0f)
+                return false;
+
+            int fire = fireFirst ? contact.FirstAmountGmu : contact.SecondAmountGmu;
+            int sticky = fireFirst ? contact.SecondAmountGmu : contact.FirstAmountGmu;
+            var state = new ElementStateSnapshot(
+                fire * MaximumIntensity / byte.MaxValue, 0f, 0f,
+                sticky * MaximumIntensity / byte.MaxValue,
+                default, default, default, default);
+            if (!CanStartIgniteGoo(in state, in tuning))
+                return false;
+
+            int consumed = Mathf.Clamp(
+                Mathf.CeilToInt(MaxZero(tuning.GooConsumePerSecond) * deltaTime
+                    * byte.MaxValue / MaximumIntensity), 0, sticky);
+            int remainingFireCapacity = byte.MaxValue - fire;
+            int produced = Mathf.Clamp(
+                Mathf.RoundToInt(consumed * MaxZero(tuning.FirePerGoo)), 0, remainingFireCapacity);
+            if (consumed <= 0 || produced <= 0)
+                return false;
+            result = fireFirst
+                ? new MaterialReactionResult(ElementReactionId.IgniteGoo, 0, consumed,
+                    firstProducedGmu: produced)
+                : new MaterialReactionResult(ElementReactionId.IgniteGoo, consumed, 0,
+                    secondProducedGmu: produced);
+            return true;
+        }
+
+        /// <summary>
+        /// 从统一 GMU 接触快照求值。Binding Catalog 只决定“执行哪种反应”，这里仍负责验证
+        /// Material Pair 与公式匹配，避免错误资产把 Poison + Fire 误送进 Extinguish 公式。
+        /// </summary>
+        public static bool TryEvaluateMaterialContact(
+            in MaterialContactSnapshot contact,
+            float deltaTime,
+            ElementReactionId reaction,
+            in ExtinguishTuning extinguish,
+            out MaterialReactionResult result)
+        {
+            result = default;
+            if (reaction != ElementReactionId.Extinguish)
+                return false;
+
+            bool waterFirst = contact.FirstMaterial == MaterialId.Water
+                && contact.SecondMaterial == MaterialId.Fire;
+            bool fireFirst = contact.FirstMaterial == MaterialId.Fire
+                && contact.SecondMaterial == MaterialId.Water;
+            if (!waterFirst && !fireFirst)
+                return false;
+
+            int waterGmu = waterFirst ? contact.FirstAmountGmu : contact.SecondAmountGmu;
+            int fireGmu = fireFirst ? contact.FirstAmountGmu : contact.SecondAmountGmu;
+            float waterIntensity = waterGmu * MaximumIntensity / byte.MaxValue;
+            float fireIntensity = fireGmu * MaximumIntensity / byte.MaxValue;
+            float threshold = MaxZero(extinguish.FormalThreshold);
+            bool formal = waterIntensity >= threshold && fireIntensity >= threshold;
+            ExtinguishResult consumption = CalculateExtinguish(
+                fireIntensity,
+                waterIntensity,
+                deltaTime,
+                formal,
+                in extinguish);
+            int fireConsumedGmu = Mathf.Clamp(
+                Mathf.RoundToInt(consumption.FireRemoved * byte.MaxValue / MaximumIntensity),
+                0,
+                fireGmu);
+            int waterConsumedGmu = Mathf.Clamp(
+                Mathf.RoundToInt(consumption.WaterConsumed * byte.MaxValue / MaximumIntensity),
+                0,
+                waterGmu);
+
+            result = waterFirst
+                ? new MaterialReactionResult(reaction, waterConsumedGmu, fireConsumedGmu)
+                : new MaterialReactionResult(reaction, fireConsumedGmu, waterConsumedGmu);
+            return true;
+        }
 
         /// <summary>
         /// 判断 Fire 与 Water 是否同时达到正式灭火阈值。
@@ -26,16 +179,16 @@ namespace Game.Combat
         }
 
         /// <summary>
-        /// 计算一个模拟步内 Fire 与 Water 应当等量消耗多少，但不修改任何运行时状态。
-        /// 角色反应和空间 Cell 反应共享这条守恒公式，各自保留自己的生命周期与数据容器。
+        /// 计算一个模拟步内 Fire 移除量与 Water 消耗量，但不修改任何运行时状态。
+        /// 角色反应和空间 Cell 反应共享同一个换算规则，各自保留自己的生命周期与数据容器。
         /// </summary>
         /// <param name="fire">当前可参与反应的 Fire 存量。</param>
         /// <param name="water">当前可参与反应的 Water 存量。</param>
         /// <param name="deltaTime">模拟步长，单位为秒；非正数表示本步不推进。</param>
         /// <param name="useFormalRate">true 使用正式高速率，false 使用低速接触速率。</param>
         /// <param name="tuning">灭火的低速与正式速率调参。</param>
-        /// <returns>本步两边应各自扣除的非负数值。</returns>
-        public static float CalculateExtinguishConsumption(
+        /// <returns>本步 Fire 与 Water 各自应扣除的非负数值。</returns>
+        public static ExtinguishResult CalculateExtinguish(
             float fire,
             float water,
             float deltaTime,
@@ -44,16 +197,36 @@ namespace Game.Combat
         {
             // Early Return 清楚表达三种“不能反应”的情况，也防止负输入进入后续乘法。
             if (fire <= 0f || water <= 0f || deltaTime <= 0f)
-                return 0f;
+                return default;
 
             float rate = useFormalRate
                 ? MaxZero(tuning.FormalRatePerSecond)
                 : MaxZero(tuning.LowRatePerSecond);
 
-            // Consumed = min(Fire, Water, Rate * deltaTime)。
-            // Fire/Water 两个存量上限保证不会扣成负数；时间预算让结果随时间连续推进，
-            // 同一个 consumed 交给双方使用，则保证 Fire 与 Water 始终等量中和。
-            return Min(Min(MaxZero(fire), MaxZero(water)), rate * MaxZero(deltaTime));
+            // Rate 表示每秒最多投入多少 Water；Ratio 决定这份 Water 能移除多少 Fire。
+            // 旧 ScriptableObject 没有新字段时反序列化为 0，这里回退到 1:1，避免旧场景突然停止灭火。
+            float ratio = tuning.FireRemovedPerWater > 0f
+                ? tuning.FireRemovedPerWater
+                : 1f;
+            float waterConsumed = Min(
+                Min(MaxZero(water), MaxZero(fire) / ratio),
+                rate * MaxZero(deltaTime));
+            float fireRemoved = Min(MaxZero(fire), waterConsumed * ratio);
+            return new ExtinguishResult(fireRemoved, waterConsumed);
+        }
+
+        /// <summary>
+        /// 兼容旧调用方：返回本步 Water 消耗量。新代码需要两侧结果时应使用 CalculateExtinguish。
+        /// </summary>
+        public static float CalculateExtinguishConsumption(
+            float fire,
+            float water,
+            float deltaTime,
+            bool useFormalRate,
+            in ExtinguishTuning tuning)
+        {
+            return CalculateExtinguish(
+                fire, water, deltaTime, useFormalRate, in tuning).WaterConsumed;
         }
 
         /// <summary>

@@ -10,15 +10,22 @@ namespace Game.Combat
     /// </summary>
     public class HealthComponent : MonoBehaviour, IDamageable
     {
+        // ──────────────────────────────────────────────
+        // 配置数据 (Inspector 赋值，运行时不应该被外部直接修改)
+        // ──────────────────────────────────────────────
         [SerializeField] private float _maxHp = 100f;
         [SerializeField] private byte _teamId = 0;
-        [SerializeField] private DefenseProfile _defenseProfile;
 
-        // Inspector 字段提供初始配置；当前生命值、实例 Id 和无敌开关是场景实例各自拥有的 Runtime State。
-        private float _currentHp;
-        private int _id;
-        private bool _isInvulnerable;
+        // ──────────────────────────────────────────────
+        // 运行时状态 (Runtime State，每个场景实例独立拥有)
+        // ──────────────────────────────────────────────
+        [SerializeField] private float _currentHp;
+        private int _id;                                 // 实例唯一 Id，供事件系统精准寻址
+        private bool _isInvulnerable;                    // 无敌状态开关
 
+        // ──────────────────────────────────────────────
+        // 公开只读属性 (IDamageable 接口实现及状态暴露)
+        // ──────────────────────────────────────────────
         public byte TeamId => _teamId;
         public bool IsAlive => _currentHp > 0f;
         public float CurrentHp => _currentHp;
@@ -28,39 +35,45 @@ namespace Game.Combat
 
         private void Awake()
         {
-            // Awake 对每个组件实例调用一次，因此每个角色都会获得独立的初始 HP。
             _currentHp = _maxHp;
-            // GetInstanceID 返回本次 Unity 运行期间对象的实例标识，供事件消费者筛选目标；它不是跨存档的永久 Id。
+            // GetInstanceID 获取 Unity 引擎分配的实例 ID。，供事件消费者筛选目标；它不是跨存档的永久 Id。
             _id = gameObject.GetInstanceID();
         }
 
-        /// <summary>统一伤害入口：入口过滤 → 纯计算 → 扣血 → 同步发布表现/死亡所需的事实事件。</summary>
+        /// <summary>
+        /// 统一伤害入口：入口过滤 → 纯计算 → 扣血 → 同步发布表现/死亡所需的事实事件。
+        /// </summary>
         public void ReceiveHit(in DamageRequest req)
         {
-            // Invulnerability 是 Damage Funnel 的入口 Gate：既不扣血，也不发布“0 伤害”事件。
-            // 这样 HUD、受击闪白和死亡逻辑不会把 Phase Transition 期间的命中误认成有效伤害。
+            // ── 1. 入口拦截 ──
             if (!IsAlive || _isInvulnerable) return;
 
-            // DamagePipeline 只算结果，不直接碰 MonoBehaviour 状态；HealthComponent 才拥有并修改 _currentHp。
-            DamageResult result = DamagePipeline.Resolve(in req, in _defenseProfile);
+            // ── 2. 纯计算 ──
+            // DamagePipeline 是无副作用的静态工具：只根据 req 和 defenseProfile 算出最终伤害结果，不直接碰 MonoBehaviour 状态。
+            // HealthComponent 才是 _currentHp 的唯一拥有者和修改者（单一职责原则）。
+            DamageResult result = DamagePipeline.Resolve(in req);
+
+            // ── 3. 状态修改 ──
             _currentHp -= result.Final;
             if (_currentHp < 0f) _currentHp = 0f;   // 扣血钳制到 ≥0
 
-            // EventBus.Publish 是同步调用：当前 ReceiveHit 返回前，已订阅的 HUD、受击表现等消费者就会收到事件。
-            // 事件只携带值数据，不把 HealthComponent 或攻击者对象直接暴露给表现模块。
+            // ── 4. 受击事件发布 ──
+            // EventBus.Publish 是同步调用：当前 ReceiveHit 返回前，已订阅的 HUD、受击表现等消费者就会收到事件并执行逻辑。
+            // 事件只携带值数据，不把 HealthComponent 或攻击者对象直接暴露给表现模块，解耦了逻辑层和表现层。
             EventBus<DamageReceivedEvent>.Publish(new DamageReceivedEvent
             {
                 TargetId     = _id,
                 AttackerId   = req.AttackerId,
-                Amount       = result.Final,
-                Type         = result.Type,
-                HitPoint     = req.HitPoint,
-                HitDirection = req.HitDirection,
-                RemainingHp  = _currentHp,
-                TriggerHitReaction = req.TriggerHitReaction,
+                Amount       = result.Final,     // 最终扣血量
+                Type         = result.Type,       // 伤害类型（物理/法术等）
+                HitPoint     = req.HitPoint,      // 世界空间命中点，供特效生成
+                HitDirection = req.HitDirection,  // 命中方向，供受击力/击退表现
+                RemainingHp  = _currentHp,        // 扣血后的剩余血量，供血条直接刷新
+                TriggerHitReaction = req.TriggerHitReaction, // 是否触发受击硬直/动画
             });
 
-            // 受击事件总是先于死亡事件，消费者可以先显示本次伤害和 0 HP，再进入死亡表现。
+            // ── 5. 死亡事件发布 ──
+            // 受击事件总是先于死亡事件发布，保证消费者可以先显示本次伤害数字和 0 HP 血条，再进入死亡表现。
             if (_currentHp <= 0f)
             {
                 EventBus<DeathEvent>.Publish(new DeathEvent

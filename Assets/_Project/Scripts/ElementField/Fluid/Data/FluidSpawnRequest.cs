@@ -15,6 +15,7 @@ namespace Game.ElementField
         public readonly uint MaterialId;
         public readonly uint Seed;
         public readonly uint Flags;
+        public readonly float RestSpacing;
 
         public FluidSpawnRequest(
             Vector3 worldPosition,
@@ -23,7 +24,8 @@ namespace Game.ElementField
             uint particleCount,
             uint materialId,
             uint seed,
-            uint flags)
+            uint flags,
+            float restSpacing = 0f)
         {
             WorldPosition = worldPosition;
             InitialVelocity = initialVelocity;
@@ -32,6 +34,7 @@ namespace Game.ElementField
             MaterialId = materialId;
             Seed = seed;
             Flags = flags;
+            RestSpacing = restSpacing;
         }
     }
 }

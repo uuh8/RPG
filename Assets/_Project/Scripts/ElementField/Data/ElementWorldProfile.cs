@@ -1,5 +1,6 @@
 using System;
 using Game.Combat;
+using Game.Materials;
 using UnityEngine;
 
 namespace Game.ElementField
@@ -35,8 +36,18 @@ namespace Game.ElementField
         [Tooltip("Legacy Cell 为序列化默认值 0；Gpu PBF 只在退出并重新进入 Play Mode 后生效。")]
         [SerializeField] private WaterSimulationMode _waterSimulationMode = WaterSimulationMode.LegacyCell;
 
+        [Header("Material Semantic And Routing")]
+        [Tooltip("Canonical Material 定义目录；Runtime 初始化时复制为不可变 Snapshot。")]
+        [SerializeField] private MaterialCatalog _materialCatalog;
+        [Tooltip("只保存 Fire/Poison 等非 Water 的 Backend；Water 由 Compatibility Policy 决定。")]
+        [SerializeField] private MaterialSimulationRoutingProfile _materialSimulationRouting;
+        [Tooltip("Material Occupancy 到角色 Status 的表现投影；不属于 Material 基础定义。")]
+        [SerializeField] private MaterialStatusProjectionProfile _materialStatusProjection;
+
         [Header("Shared P2 Reaction Rules")]
         [SerializeField] private ElementReactionProfile _reactionProfile;
+        [Tooltip("Material Pair 到 Reaction Id 的语义绑定；具体数值公式仍由 Reaction Profile 提供。")]
+        [SerializeField] private MaterialReactionBindingProfile _materialReactionBindings;
 
         public float CellSize => _cellSize;
         public int ChunkSize => _chunkSize;
@@ -52,7 +63,14 @@ namespace Game.ElementField
         public byte MaxLateralFlowPerTick => (byte)_maxLateralFlowPerTick;
         public byte FireDecayPerTick => (byte)_fireDecayPerTick;
         public WaterSimulationMode WaterSimulationMode => _waterSimulationMode;
+        public MaterialCatalog MaterialCatalog => _materialCatalog;
+        public MaterialSimulationRoutingProfile MaterialSimulationRouting => _materialSimulationRouting;
+        public MaterialStatusProjectionProfile MaterialStatusProjection => _materialStatusProjection;
         public ElementReactionProfile ReactionProfile => _reactionProfile;
+        public MaterialReactionBindingProfile MaterialReactionBindings => _materialReactionBindings;
+        public ToxicCombustionTuning ToxicCombustion => _reactionProfile.ToxicCombustion;
+        public IgniteGooTuning IgniteGoo => _reactionProfile.IgniteGoo;
+        public AbsorbWaterTuning AbsorbWater => _reactionProfile.AbsorbWater;
 
         public long SleepGraceTicks
         {

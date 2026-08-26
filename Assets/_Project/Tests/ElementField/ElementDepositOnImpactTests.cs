@@ -1,7 +1,9 @@
+using Game.Materials;
 using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.TestTools.Utils;
 
 namespace Game.ElementField.Tests
 {
@@ -30,14 +32,14 @@ namespace Game.ElementField.Tests
         [Test]
         public void WaterConfigBuildsWaterRequest()
         {
-            Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
+            Configure(MaterialId.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
             var worldPosition = new Vector3(1.25f, 2.5f, -3.75f);
 
             bool built = _deposit.TryBuildRequest(worldPosition, out ElementWriteRequest request);
 
             Assert.That(built, Is.True);
             Assert.That(request.WorldPosition, Is.EqualTo(worldPosition));
-            Assert.That(request.MaterialKind, Is.EqualTo(ElementMaterialKind.Water));
+            Assert.That(request.MaterialKind, Is.EqualTo(MaterialId.Water));
             Assert.That(request.TotalAmount, Is.EqualTo(220));
             Assert.That(request.Radius, Is.EqualTo(0.75f).Within(0.0001f));
             Assert.That(request.UseLinearFalloff, Is.True);
@@ -48,7 +50,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ImpactDirectionBuildsNormalizedVelocityAtConfiguredSpeed()
         {
-            Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
+            Configure(MaterialId.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
             SetPrivateField("_fluidInitialSpeed", 6f);
 
             bool built = _deposit.TryBuildImpactRequest(
@@ -63,22 +65,64 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
-        public void ZeroImpactDirectionBuildsZeroVelocity()
+        public void StickyImpactInheritsConfiguredProjectileVelocity()
         {
-            Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
+            Configure(MaterialId.Sticky, totalAmount: 1600, radius: 0.75f, linearFalloff: true);
+            SetPrivateField("_fluidInitialSpeed", 4f);
+
+            Assert.That(_deposit.TryBuildImpactRequest(
+                Vector3.zero,
+                Vector3.forward,
+                Vector3.up,
+                out ElementWriteRequest request), Is.True);
+            Assert.That(request.MaterialKind, Is.EqualTo(MaterialId.Sticky));
+            Assert.That(request.InitialVelocity, Is.EqualTo(Vector3.forward * 4f));
+        }
+
+        [Test]
+        public void ExplicitSurfaceNormalIsPreservedAlongsideImpactVelocity()
+        {
+            Configure(MaterialId.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
             SetPrivateField("_fluidInitialSpeed", 6f);
 
             Assert.That(_deposit.TryBuildImpactRequest(
                 Vector3.zero,
-                Vector3.zero,
+                Vector3.right,
+                Vector3.up * 2f,
                 out ElementWriteRequest request), Is.True);
-            Assert.That(request.InitialVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(request.InitialVelocity, Is.EqualTo(Vector3.right * 6f));
+            Assert.That(request.SurfaceNormal, Is.EqualTo(Vector3.up * 2f));
+        }
+
+        [Test]
+        public void LegacyImpactOverloadUsesOppositeIncomingDirectionAsSurfaceNormal()
+        {
+            Configure(MaterialId.Water, 220, 0.75f, true);
+
+            Assert.That(_deposit.TryBuildImpactRequest(
+                Vector3.zero,
+                new Vector3(0f, -3f, 4f),
+                out ElementWriteRequest request), Is.True);
+            Assert.That(request.SurfaceNormal, Is.EqualTo(new Vector3(0f, 0.6f, -0.8f)).Using(Vector3ComparerWithEqualsOperator.Instance));
+        }
+
+        [Test]
+        public void MissingSurfaceNormalAndIncomingDirectionRejectsImpactRequest()
+        {
+            Configure(MaterialId.Water, 220, 0.75f, true);
+
+            Assert.That(_deposit.TryBuildImpactRequest(
+                Vector3.zero,
+                Vector3.zero,
+                Vector3.zero,
+                out ElementWriteRequest request), Is.False);
+            Assert.That(request, Is.EqualTo(default(ElementWriteRequest)));
         }
 
         [Test]
         public void FireImpactKeepsZeroVelocityEvenWhenFluidSpeedIsConfigured()
         {
-            Configure(ElementMaterialKind.Fire, totalAmount: 180, radius: 0.5f, linearFalloff: false);
+            Configure(MaterialId.Fire, totalAmount: 180, radius: 0.5f, linearFalloff: false);
             SetPrivateField("_fluidInitialSpeed", 6f);
 
             Assert.That(_deposit.TryBuildImpactRequest(
@@ -92,7 +136,7 @@ namespace Game.ElementField.Tests
         [TestCase(float.NegativeInfinity)]
         public void NonFiniteImpactDirectionDoesNotBuildOrEnqueue(float invalidDirection)
         {
-            Configure(ElementMaterialKind.Water, 220, 0.75f, true);
+            Configure(MaterialId.Water, 220, 0.75f, true);
             SetPrivateField("_fluidInitialSpeed", 6f);
             var sink = new RecordingWriteSink();
             Assert.That(ElementRuntimeRegistry.TryRegister(sink), Is.True);
@@ -113,7 +157,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void NonFiniteSpeedOrPositionDoesNotBuildOrEnqueue()
         {
-            Configure(ElementMaterialKind.Water, 220, 0.75f, true);
+            Configure(MaterialId.Water, 220, 0.75f, true);
             SetPrivateField("_fluidInitialSpeed", float.PositiveInfinity);
             Assert.That(_deposit.TryBuildImpactRequest(Vector3.zero, Vector3.right, out _), Is.False);
 
@@ -126,7 +170,7 @@ namespace Game.ElementField.Tests
         [TestCase(-5)]
         public void NonPositiveAmountDoesNotBuildRequest(int invalidAmount)
         {
-            Configure(ElementMaterialKind.Fire, invalidAmount, radius: 0.5f, linearFalloff: false);
+            Configure(MaterialId.Fire, invalidAmount, radius: 0.5f, linearFalloff: false);
 
             bool built = _deposit.TryBuildRequest(Vector3.one, out ElementWriteRequest request);
 
@@ -137,7 +181,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void NegativeRadiusIsClampedToZero()
         {
-            Configure(ElementMaterialKind.Fire, totalAmount: 180, radius: -2f, linearFalloff: true);
+            Configure(MaterialId.Fire, totalAmount: 180, radius: -2f, linearFalloff: true);
 
             bool built = _deposit.TryBuildRequest(Vector3.zero, out ElementWriteRequest request);
 
@@ -148,7 +192,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void DepositWithoutActiveFieldFailsSafely()
         {
-            Configure(ElementMaterialKind.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
+            Configure(MaterialId.Water, totalAmount: 220, radius: 0.75f, linearFalloff: true);
 
             Assert.That(ElementRuntimeRegistry.ActiveSink, Is.Null);
             LogAssert.Expect(
@@ -160,7 +204,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void DepositUsesRegisteredWriteSinkWithoutKnowingRuntimeType()
         {
-            Configure(ElementMaterialKind.Fire, totalAmount: 180, radius: 0.5f, linearFalloff: false);
+            Configure(MaterialId.Fire, totalAmount: 180, radius: 0.5f, linearFalloff: false);
             var sink = new RecordingWriteSink();
             Assert.That(ElementRuntimeRegistry.TryRegister(sink), Is.True);
 
@@ -168,7 +212,7 @@ namespace Game.ElementField.Tests
             {
                 Assert.That(_deposit.TryDepositAt(Vector3.one), Is.True);
                 Assert.That(sink.WriteCount, Is.EqualTo(1));
-                Assert.That(sink.LastRequest.MaterialKind, Is.EqualTo(ElementMaterialKind.Fire));
+                Assert.That(sink.LastRequest.MaterialKind, Is.EqualTo(MaterialId.Fire));
                 Assert.That(sink.LastRequest.WorldPosition, Is.EqualTo(Vector3.one));
             }
             finally
@@ -178,7 +222,7 @@ namespace Game.ElementField.Tests
         }
 
         private void Configure(
-            ElementMaterialKind materialKind,
+            MaterialId materialKind,
             int totalAmount,
             float radius,
             bool linearFalloff)

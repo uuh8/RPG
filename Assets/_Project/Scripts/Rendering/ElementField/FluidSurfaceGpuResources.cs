@@ -50,6 +50,7 @@ namespace Game.Rendering
         public GraphicsBuffer IndirectArguments { get; private set; }
         public GraphicsBuffer AnisotropyBuffer { get; private set; }
         public GraphicsBuffer AnisotropyCounters { get; private set; }
+        public GraphicsBuffer SurfaceSupportBuffer { get; private set; }
 
         public FluidSurfaceGpuResources(
             in FluidSurfaceGridSettings gridSettings,
@@ -73,7 +74,9 @@ namespace Game.Rendering
                 TriangleCounter = CreateUIntBuffer();
                 OverflowCounter = CreateUIntBuffer();
                 IndirectArguments = new GraphicsBuffer(
-                    GraphicsBuffer.Target.IndirectArguments,
+                    // Compute 通过 RWByteAddressBuffer.Store 写入 16-byte Draw Args，
+                    // 因此必须同时声明 Raw；IndirectArguments 只声明“可用于 Draw”，不提供 Byte Address UAV。
+                    GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Raw,
                     1,
                     GraphicsBuffer.IndirectDrawArgs.size);
                 AnisotropyBuffer = new GraphicsBuffer(
@@ -84,6 +87,12 @@ namespace Game.Rendering
                     GraphicsBuffer.Target.Structured,
                     4,
                     sizeof(uint));
+                // 一个 float/particle（8192 粒子约 32 KiB）。它只描述 Surface 邻域支持度，
+                // 不复制 Density、速度或 Gameplay Amount，也不会产生 CPU Readback。
+                SurfaceSupportBuffer = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured,
+                    particleCapacity,
+                    sizeof(float));
             }
             catch
             {
@@ -93,7 +102,8 @@ namespace Game.Rendering
         }
 
         /// <summary>
-        /// Interest Bounds 纯平移时只更新 Origin/World Bounds 参数；若形状或容量变化，调用方必须重建资源。
+        /// Resolution/Buffer 容量不变时允许更新 Origin 与 Voxel Size。Resident Far 层扩大时
+        /// Texture 形状不变，只降低远景采样密度，因此不会在热路径重分配 VRAM。
         /// </summary>
         public bool TryUpdateGrid(in FluidSurfaceGridSettings gridSettings)
         {
@@ -144,6 +154,7 @@ namespace Game.Rendering
             IndirectArguments = DisposeBuffer(IndirectArguments);
             AnisotropyBuffer = DisposeBuffer(AnisotropyBuffer);
             AnisotropyCounters = DisposeBuffer(AnisotropyCounters);
+            SurfaceSupportBuffer = DisposeBuffer(SurfaceSupportBuffer);
         }
 
         private static RenderTexture CreateDensityTexture(

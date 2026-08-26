@@ -1,3 +1,4 @@
+using Game.Materials;
 using UnityEngine;
 
 namespace Game.ElementField
@@ -9,19 +10,17 @@ namespace Game.ElementField
     [CreateAssetMenu(menuName = "Game/Element Field/Liquid Simulation Profile", fileName = "LiquidSimulationProfile")]
     public sealed class LiquidSimulationProfile : ScriptableObject
     {
+        [Header("Canonical Liquid Materials")]
+        [SerializeField] private MaterialCatalog _materialCatalog;
+        [SerializeField] private LiquidMaterialProfile[] _liquidMaterials = System.Array.Empty<LiquidMaterialProfile>();
         [Header("Capacity And Spawn")]
         [SerializeField, Min(1)] private int _particleCapacity = 8192;
         [SerializeField, Min(1)] private int _maxSpawnRequests = 128;
         [Tooltip("显式 FluidColliderAuthoring 的 GPU Proxy 上限；超出时按层级顺序确定性截断。")]
         [SerializeField, Min(1)] private int _maxFluidColliders = 64;
-        [Tooltip("一个粒子代表多少 Legacy Element Amount 单位；它是量化比例，不是物理质量。")]
-        [SerializeField, Min(1)] private int _amountUnitsPerParticle = 8;
-
         [Header("Particle And Density")]
         [SerializeField, Min(0.001f)] private float _particleRadius = 0.1f;
-        [SerializeField, Min(0.001f)] private float _particleMass = 1f;
         [SerializeField, Min(0.001f)] private float _smoothingRadius = 0.25f;
-        [SerializeField, Min(0.001f)] private float _restDensity = 1000f;
 
         [Header("Fixed Simulation")]
         [SerializeField, Min(0.1f)] private float _fixedTickRate = 60f;
@@ -30,9 +29,12 @@ namespace Game.ElementField
         [Tooltip("每次 PBF Apply 最多移动的距离；必须小于 Smoothing Radius，避免一次修正跨过整个邻域。")]
         [SerializeField, Min(0.0001f)] private float _maximumPositionCorrection = 0.08f;
         [SerializeField, Min(0.000001f)] private float _lambdaEpsilon = 0.0001f;
-        [SerializeField, Min(0f)] private float _artificialPressure = 0.001f;
-        [SerializeField, Range(0f, 1f)] private float _viscosity = 0.01f;
         [SerializeField, Min(0f)] private float _vorticity = 0.01f;
+        [Header("Bounded Tensile Constraint")]
+        [Tooltip("欠密度自由表面的弱位置级吸引强度；0 会保留当前稳定的单向不可压缩路径。它不是直接的高度值。")]
+        [SerializeField, Min(0f)] private float _tensileStrength = 0.00005f;
+        [Tooltip("每次 Solver Iteration 允许 Tensile 额外移动粒子的最大距离，单位 m。硬上限用于阻止旧式负压力爆炸。")]
+        [SerializeField, Min(0.000001f)] private float _maximumTensilePositionCorrection = 0.0001f;
         [SerializeField] private Vector3 _gravity = new Vector3(0f, -9.81f, 0f);
         [SerializeField, Min(0.001f)] private float _maxSpeed = 25f;
 
@@ -40,8 +42,6 @@ namespace Game.ElementField
         [SerializeField, Range(0f, 1f)] private float _collisionFriction = 0.1f;
         [SerializeField, Range(0f, 1f)] private float _collisionRestitution;
         [SerializeField, Min(0f)] private float _sleepThreshold = 0.01f;
-        [Tooltip("相对 Rest Density 的允许误差；0.02 表示 2%。")]
-        [SerializeField, Range(0f, 0.99f)] private float _sleepDensityErrorThreshold = 0.02f;
         [SerializeField, Min(1)] private int _sleepAfterStableTicks = 30;
         [SerializeField, Range(1, FluidSimulationClock.MaxSupportedCatchUpTicks)]
         private int _maxCatchUpTicks = 3;
@@ -52,22 +52,18 @@ namespace Game.ElementField
         /// </summary>
         public LiquidSimulationSettings CreateSettings()
         {
+            LiquidMaterialSettingsTable materialSettings = CreateMaterialSettingsTable();
             return new LiquidSimulationSettings(
                 _particleCapacity,
                 _maxSpawnRequests,
                 _maxFluidColliders,
-                _amountUnitsPerParticle,
                 _particleRadius,
-                _particleMass,
                 _smoothingRadius,
-                _restDensity,
                 _fixedTickRate,
                 _substeps,
                 _solverIterations,
                 _maximumPositionCorrection,
                 _lambdaEpsilon,
-                _artificialPressure,
-                _viscosity,
                 _vorticity,
                 _gravity,
                 _maxSpeed,
@@ -75,8 +71,36 @@ namespace Game.ElementField
                 _collisionRestitution,
                 _sleepThreshold,
                 _maxCatchUpTicks,
-                _sleepDensityErrorThreshold,
-                _sleepAfterStableTicks);
+                _sleepAfterStableTicks,
+                _tensileStrength,
+                _maximumTensilePositionCorrection,
+                materialSettings);
+        }
+
+        public LiquidMaterialSettingsTable CreateMaterialSettingsTable()
+        {
+            if (_materialCatalog == null)
+                throw new System.InvalidOperationException("LiquidSimulationProfile requires a MaterialCatalog.");
+            LiquidMaterialSettingsTable table = new LiquidMaterialSettingsTable(
+                _materialCatalog.CreateSnapshot(),
+                _liquidMaterials);
+            // Kernel 边界属于所有配置过的液体，不应硬编码 Water/Poison 名单。
+            // Profile 数组只在初始化期遍历，不进入 Simulation 热路径。
+            for (int i = 0; i < _liquidMaterials.Length; i++)
+            {
+                LiquidMaterialProfile profile = _liquidMaterials[i];
+                if (profile == null)
+                    continue;
+                ValidateKernelSupport(table, profile.CreateSettings().Material);
+            }
+            return table;
+        }
+
+        private void ValidateKernelSupport(LiquidMaterialSettingsTable table, MaterialId material)
+        {
+            if (!table.TryGet(material, out LiquidMaterialSettings settings)) return;
+            if (settings.RestSpacing * settings.CohesionRestDistanceRatio >= _smoothingRadius)
+                throw new System.ArgumentOutOfRangeException($"{material} cohesionRestDistanceRatio");
         }
 
         private void OnValidate()
@@ -86,11 +110,8 @@ namespace Game.ElementField
             _particleCapacity = Mathf.Max(1, _particleCapacity);
             _maxSpawnRequests = Mathf.Max(1, _maxSpawnRequests);
             _maxFluidColliders = Mathf.Max(1, _maxFluidColliders);
-            _amountUnitsPerParticle = Mathf.Max(1, _amountUnitsPerParticle);
             _particleRadius = Mathf.Max(0.001f, _particleRadius);
-            _particleMass = Mathf.Max(0.001f, _particleMass);
             _smoothingRadius = Mathf.Max(0.001f, _smoothingRadius);
-            _restDensity = Mathf.Max(0.001f, _restDensity);
             _fixedTickRate = Mathf.Max(0.1f, _fixedTickRate);
             _substeps = Mathf.Max(1, _substeps);
             _solverIterations = Mathf.Max(1, _solverIterations);
@@ -102,9 +123,13 @@ namespace Game.ElementField
                     _smoothingRadius * 0.5f,
                     _particleRadius * FluidCollisionSweep.MaxSamples / (_solverIterations + 1f)));
             _lambdaEpsilon = Mathf.Max(0.000001f, _lambdaEpsilon);
-            _artificialPressure = Mathf.Max(0f, _artificialPressure);
-            _viscosity = Mathf.Clamp01(_viscosity);
             _vorticity = Mathf.Max(0f, _vorticity);
+            _tensileStrength = Mathf.Max(0f, _tensileStrength);
+            // Tensile 必须比主 Density Correction 小几个数量级；它只补回毛细压力，不能重新成为无界负压力。
+            _maximumTensilePositionCorrection = Mathf.Clamp(
+                _maximumTensilePositionCorrection,
+                0.000001f,
+                _maximumPositionCorrection);
             float sweepCoverageAfterWorstCorrections = _particleRadius
                 * FluidCollisionSweep.MaxSamples
                 - _solverIterations * _maximumPositionCorrection;
@@ -115,7 +140,6 @@ namespace Game.ElementField
             _collisionFriction = Mathf.Clamp01(_collisionFriction);
             _collisionRestitution = Mathf.Clamp01(_collisionRestitution);
             _sleepThreshold = Mathf.Max(0f, _sleepThreshold);
-            _sleepDensityErrorThreshold = Mathf.Clamp(_sleepDensityErrorThreshold, 0f, 0.99f);
             _sleepAfterStableTicks = Mathf.Max(1, _sleepAfterStableTicks);
             _maxCatchUpTicks = Mathf.Clamp(
                 _maxCatchUpTicks,

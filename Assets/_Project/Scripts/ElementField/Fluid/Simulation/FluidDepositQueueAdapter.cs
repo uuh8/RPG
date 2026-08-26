@@ -1,4 +1,6 @@
+using Game.Materials;
 using System;
+using UnityEngine;
 
 namespace Game.ElementField
 {
@@ -8,53 +10,75 @@ namespace Game.ElementField
     /// </summary>
     public sealed class FluidDepositQueueAdapter : IFluidDepositSink
     {
-        private const uint WaterMaterialId = (uint)ElementMaterialKind.Water;
-
         private readonly IFluidSpawnSink _spawnSink;
-        private readonly uint _amountUnitsPerParticle;
+        private readonly LiquidMaterialSettingsTable _materials;
         private readonly uint _particleCapacity;
+        private readonly float _particleRadius;
         private uint _nextSeed;
 
         public FluidDepositQueueAdapter(
             IFluidSpawnSink spawnSink,
-            uint amountUnitsPerParticle,
-            int particleCapacity)
+            LiquidMaterialSettingsTable materials,
+            int particleCapacity,
+            float particleRadius)
         {
             _spawnSink = spawnSink ?? throw new ArgumentNullException(nameof(spawnSink));
-            if (amountUnitsPerParticle == 0u)
-                throw new ArgumentOutOfRangeException(nameof(amountUnitsPerParticle));
+            _materials = materials ?? throw new ArgumentNullException(nameof(materials));
             if (particleCapacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(particleCapacity));
+            if (!IsNonNegativeFinite(particleRadius))
+                throw new ArgumentOutOfRangeException(nameof(particleRadius));
 
-            _amountUnitsPerParticle = amountUnitsPerParticle;
             _particleCapacity = (uint)particleCapacity;
+            _particleRadius = particleRadius;
         }
 
         public bool IsFluidInitialized => true;
 
         public bool TryEnqueueDeposit(in ElementWriteRequest request)
         {
-            if (!IsFluidInitialized || request.MaterialKind != ElementMaterialKind.Water)
+            if (!IsFluidInitialized
+                || !_materials.TryGet(request.MaterialKind, out LiquidMaterialSettings material))
                 return false;
 
             uint totalAmount = request.TotalAmount;
-            uint particleCount = totalAmount / _amountUnitsPerParticle;
-            if (totalAmount % _amountUnitsPerParticle != 0u)
+            uint particleCount = totalAmount / material.AmountUnitsPerParticle;
+            if (totalAmount % material.AmountUnitsPerParticle != 0u)
                 particleCount++;
             if (particleCount == 0u || particleCount > _particleCapacity)
                 return false;
 
+            // Projectile Impact 在进入 Request 前必须给出真实法线；旧 Initial Deposit/Debug Source
+            // 没有表面概念时保持向上的兼容落点，避免 Task 14 让既有 Sandbox 静默失去全部水源。
+            Vector3 packingNormal = request.SurfaceNormal.sqrMagnitude > 1e-12f
+                ? request.SurfaceNormal
+                : Vector3.up;
+            if (!FluidSpawnPackingPlanner.TryCreate(
+                    particleCount,
+                    material.ParticleMass,
+                    material.RestDensity,
+                    _particleRadius,
+                    request.Radius,
+                    request.WorldPosition,
+                    packingNormal,
+                    out FluidSpawnPacking packing))
+            {
+                return false;
+            }
+
             uint flags = request.UseLinearFalloff
                 ? FluidSpawnFlags.UseLinearFalloff
                 : 0u;
+            flags |= FluidSpawnFlags.DensityPacked;
             var spawn = new FluidSpawnRequest(
-                request.WorldPosition,
+                packing.Center,
                 request.InitialVelocity,
-                request.Radius,
+                packing.RequiredRadius,
                 particleCount,
-                WaterMaterialId,
+                (uint)request.MaterialKind,
                 _nextSeed,
-                flags);
+                flags,
+                material.RestSpacing);
             if (!_spawnSink.TryEnqueueSpawn(in spawn))
                 return false;
 
@@ -64,5 +88,16 @@ namespace Game.ElementField
             }
             return true;
         }
+
+        private static bool IsPositiveFinite(float value)
+        {
+            return value > 0f && !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
+        private static bool IsNonNegativeFinite(float value)
+        {
+            return value >= 0f && !float.IsNaN(value) && !float.IsInfinity(value);
+        }
+
     }
 }

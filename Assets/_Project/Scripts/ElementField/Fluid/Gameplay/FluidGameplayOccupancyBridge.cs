@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using Game.Core;
 using Unity.Collections;
@@ -41,9 +42,6 @@ namespace Game.ElementField
             : default;
         public uint SnapshotVersion => HasValidSnapshot
             ? _publishedSnapshot.SnapshotVersion
-            : 0u;
-        public uint AmountUnitsPerParticle => HasValidSnapshot
-            ? _publishedSnapshot.AmountUnitsPerParticle
             : 0u;
         public float SnapshotIntervalSeconds => _readbackInterval;
 
@@ -118,7 +116,7 @@ namespace Game.ElementField
 
         public bool TryGetAmount(
             Vector3Int globalCell,
-            ElementMaterialKind materialKind,
+            MaterialId materialKind,
             out byte amount)
         {
             if (_publishedSnapshot == null)
@@ -128,6 +126,24 @@ namespace Game.ElementField
             }
 
             return _publishedSnapshot.TryGetAmount(globalCell, materialKind, out amount);
+        }
+
+        public bool TryGetAmountUnitsPerParticle(MaterialId material, out uint amountUnits)
+        {
+            if (_publishedSnapshot == null)
+            {
+                amountUnits = 0u;
+                return false;
+            }
+
+            return _publishedSnapshot.TryGetAmountUnitsPerParticle(material, out amountUnits);
+        }
+
+        public int CopyOccupiedCells(MaterialId material, LiquidMaterialCellSample[] destination)
+        {
+            return _publishedSnapshot != null
+                ? _publishedSnapshot.CopyOccupiedCells(material, destination)
+                : 0;
         }
 
         private void TryStartReadback()

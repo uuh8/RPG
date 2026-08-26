@@ -14,6 +14,7 @@ namespace Game.ElementField
         private readonly FluidColliderProxy[] _proxies;
         private readonly Matrix4x4[] _lastLocalToWorld;
         private readonly uint[] _lastDirtyVersions;
+        private readonly bool[] _lastEligibility;
 
         public int ProxyCount { get; }
         public int OverflowCount { get; }
@@ -31,6 +32,7 @@ namespace Game.ElementField
             _proxies = new FluidColliderProxy[capacity];
             _lastLocalToWorld = new Matrix4x4[capacity];
             _lastDirtyVersions = new uint[capacity];
+            _lastEligibility = new bool[capacity];
 
             // 这次返回数组的分配只发生在初始化边界；结果被压入固定容量数组，热路径不再扫描层级。
             FluidColliderAuthoring[] discovered =
@@ -54,12 +56,14 @@ namespace Game.ElementField
 
                 _authorings[proxyCount] = authoring;
                 _colliders[proxyCount] = collider;
-                _proxies[proxyCount] = IsEligible(authoring, collider)
+                bool eligible = IsEligible(authoring, collider);
+                _proxies[proxyCount] = eligible
                     && FluidColliderProxy.TryCreate(collider, out FluidColliderProxy proxy)
                         ? proxy
                         : FluidColliderProxy.Disabled;
                 _lastLocalToWorld[proxyCount] = collider.transform.localToWorldMatrix;
                 _lastDirtyVersions[proxyCount] = authoring.DirtyVersion;
+                _lastEligibility[proxyCount] = eligible;
                 proxyCount++;
             }
 
@@ -79,13 +83,15 @@ namespace Game.ElementField
                 FluidColliderAuthoring authoring = _authorings[index];
                 Collider collider = _colliders[index];
                 Matrix4x4 currentMatrix = collider.transform.localToWorldMatrix;
+                bool eligible = IsEligible(authoring, collider);
                 bool explicitlyDirty = authoring.DirtyVersion != _lastDirtyVersions[index];
                 bool transformChanged = authoring.IsDynamic
                     && currentMatrix != _lastLocalToWorld[index];
-                if (!explicitlyDirty && !transformChanged)
+                bool eligibilityChanged = eligible != _lastEligibility[index];
+                if (!explicitlyDirty && !transformChanged && !eligibilityChanged)
                     continue;
 
-                if (IsEligible(authoring, collider)
+                if (eligible
                     && FluidColliderProxy.TryCreate(collider, out FluidColliderProxy proxy))
                 {
                     _proxies[index] = proxy;
@@ -98,6 +104,7 @@ namespace Game.ElementField
 
                 _lastLocalToWorld[index] = currentMatrix;
                 _lastDirtyVersions[index] = authoring.DirtyVersion;
+                _lastEligibility[index] = eligible;
                 changed = true;
             }
 

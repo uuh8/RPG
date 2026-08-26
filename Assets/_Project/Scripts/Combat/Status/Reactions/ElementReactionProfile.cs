@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Game.Combat
 {
@@ -13,6 +14,8 @@ namespace Game.Combat
         public WetCleanseTuning WetCleanse;
         public ToxicCombustionTuning ToxicCombustion;
         public IgniteGooTuning IgniteGoo;
+        [FormerlySerializedAs("DiluteGoo")]
+        public AbsorbWaterTuning AbsorbWater;
 
         public ElementReactionTuningSnapshot CreateSnapshot(
             float poisonWetCleanseMultiplier,
@@ -25,6 +28,7 @@ namespace Game.Combat
                 WetCleanse,
                 ToxicCombustion,
                 IgniteGoo,
+                AbsorbWater,
                 poisonWetCleanseMultiplier,
                 gooWetCleanseMultiplier);
         }

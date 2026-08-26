@@ -100,6 +100,41 @@ namespace Game.ElementField.Tests
             }
         }
 
+        [Test]
+        public void BuildSpatialEntriesKeepsAliveParticleOutsideInterestForRendering()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(SpatialHashShaderPath);
+            Assert.That(shader, Is.Not.Null);
+
+            var resources = new FluidGpuResourceSet(2, 2, maxSpawnRequests: 1);
+            try
+            {
+                resources.PredictedPositions.SetData(new[]
+                {
+                    new Vector4(2f, 0f, 0f, 1f),
+                    Vector4.zero
+                });
+                resources.Metadata.SetData(new[]
+                {
+                    new FluidGpuUInt2(1u, FluidGpuLayout.AliveFlag),
+                    new FluidGpuUInt2(0u, 0u)
+                });
+
+                DispatchSpatialHash(shader, resources, 1f);
+                var cells = new FluidGpuInt4[2];
+                resources.SpatialCells.GetData(cells);
+
+                Assert.That(cells[0], Is.EqualTo(new FluidGpuInt4(2, 0, 0, 1)),
+                    "Alive 但离开 Interest 的粒子必须保留在 Rendering 可读 Hash 中。");
+                Assert.That(cells[1].W, Is.Zero);
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
         private static void DispatchSpatialHash(
             ComputeShader shader,
             FluidGpuResourceSet resources,

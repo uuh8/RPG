@@ -22,10 +22,7 @@ namespace Game.Combat
 
         // Toxic Combustion 是“预热期间逐步消耗 Poison，结束时再结算伤害”的有时长 Process。
         // planned 与 consumed 分开保存，因为 Wet Cleanse 可能抢先洗掉 Poison，实际消耗会低于计划值。
-        private bool _toxicActive;
-        private float _toxicElapsed;
-        private float _toxicPlannedConsume;
-        private float _toxicConsumed;
+        private ToxicCombustionProcess _toxicProcess;
         private float _toxicCooldown;
         private StatusSource _toxicSource;
 
@@ -36,7 +33,7 @@ namespace Game.Combat
         private StatusSource _igniteSource;
 
         public bool IsExtinguishActive => _extinguishActive;
-        public bool IsToxicActive => _toxicActive;
+        public bool IsToxicActive => _toxicProcess.IsActive;
         public bool IsIgniteActive => _igniteActive;
 
         public ElementReactionRuntime(in ElementReactionTuningSnapshot tuning)
@@ -106,7 +103,7 @@ namespace Game.Combat
             frame.PoisonDelta -= cleanse.PoisonRemoved;
             frame.GooDelta -= cleanse.GooRemoved;
 
-            if (_toxicActive && !startedToxic)
+            if (_toxicProcess.IsActive && !startedToxic)
                 TickToxic(ref poison, deltaTime, ref frame);
 
             if (_igniteActive && !startedIgnite)
@@ -122,7 +119,7 @@ namespace Game.Combat
             var frame = new ElementReactionFrame();
             if (_extinguishActive && _extinguishFormalSignalled)
                 AddSignal(ref frame, ElementReactionId.Extinguish, ElementReactionPhase.Cancelled, 0f, 0f);
-            if (_toxicActive)
+            if (_toxicProcess.IsActive)
                 AddSignal(ref frame, ElementReactionId.ToxicCombustion, ElementReactionPhase.Cancelled, 0f, 0f);
             if (_igniteActive)
                 AddSignal(ref frame, ElementReactionId.IgniteGoo, ElementReactionPhase.Cancelled, 0f, 0f);
@@ -130,10 +127,7 @@ namespace Game.Combat
             _dirty = false;
             _extinguishActive = false;
             _extinguishFormalSignalled = false;
-            _toxicActive = false;
-            _toxicElapsed = 0f;
-            _toxicPlannedConsume = 0f;
-            _toxicConsumed = 0f;
+            _toxicProcess.Cancel();
             _igniteActive = false;
             _ignitePaused = false;
             return frame;
@@ -165,16 +159,15 @@ namespace Game.Combat
 
         private bool TryStartToxic(in ElementStateSnapshot snapshot, ref ElementReactionFrame frame)
         {
-            if (_toxicActive || _toxicCooldown > 0f
+            if (_toxicProcess.IsActive || _toxicCooldown > 0f
                 || !ElementReactionEvaluator.CanStartToxicCombustion(in snapshot, in _tuning.ToxicCombustion))
                 return false;
 
-            _toxicActive = true;
-            _toxicElapsed = 0f;
-            _toxicConsumed = 0f;
-            _toxicPlannedConsume = Min(
-                ClampIntensity(snapshot.Poison),
-                MaxZero(_tuning.ToxicCombustion.MaxPoisonConsume));
+            if (!_toxicProcess.TryStartFromIntensity(
+                    snapshot.Fire,
+                    snapshot.Poison,
+                    in _tuning.ToxicCombustion))
+                return false;
 
             // 爆炸伤害归因于最后触发本轮门槛检查的输入来源，而不是每帧重新查询施加者。
             _toxicSource = _triggerSource;
@@ -182,7 +175,7 @@ namespace Game.Combat
                 ref frame,
                 ElementReactionId.ToxicCombustion,
                 ElementReactionPhase.Started,
-                _toxicPlannedConsume / MaxPositive(_tuning.ToxicCombustion.MaxPoisonConsume),
+                _toxicProcess.PlannedPoison / MaxPositive(_tuning.ToxicCombustion.MaxPoisonConsume),
                 MaxPositive(_tuning.ToxicCombustion.WindUpSeconds));
             return true;
         }
@@ -221,18 +214,18 @@ namespace Game.Combat
 
             // 一旦达到正式阈值并发布 Started，就把 true 传给共享公式，锁定高速中和直到一方归零。
             // 角色 Runtime 负责这个跨帧 Latch；纯公式本身不记忆状态，因此也能被 P6 Cell 复用。
-            float consumed = ElementReactionEvaluator.CalculateExtinguishConsumption(
+            ExtinguishResult consumption = ElementReactionEvaluator.CalculateExtinguish(
                 fire,
                 water,
                 deltaTime,
                 _extinguishFormalSignalled,
                 in _tuning.Extinguish);
 
-            fire -= consumed;
-            water -= consumed;
-            frame.FireDelta -= consumed;
-            frame.WaterDelta -= consumed;
-            if (consumed > 0f)
+            fire -= consumption.FireRemoved;
+            water -= consumption.WaterConsumed;
+            frame.FireDelta -= consumption.FireRemoved;
+            frame.WaterDelta -= consumption.WaterConsumed;
+            if (consumption.FireRemoved > 0f)
                 frame.SuppressNaturalDecay |= StatusMask.Fire | StatusMask.Water;
 
             if (fire <= Epsilon || water <= Epsilon)
@@ -250,45 +243,37 @@ namespace Game.Combat
 
         private void TickToxic(ref float poison, float deltaTime, ref ElementReactionFrame frame)
         {
-            float duration = MaxPositive(_tuning.ToxicCombustion.WindUpSeconds);
-            float remainingPlanned = MaxZero(_toxicPlannedConsume - _toxicConsumed);
-
-            // 匀速消耗公式：rate = plannedConsume / windUpSeconds，
-            // 本步消耗 = min(当前 Poison, 剩余计划量, rate * deltaTime)。
-            // deltaTime 积分让 30 FPS 与 120 FPS 在相同总时间后得到相同结果。
-            float rate = _toxicPlannedConsume / duration;
-            float consumed = Min(Min(poison, remainingPlanned), rate * deltaTime);
-
+            bool completed = _toxicProcess.TickProgressive(
+                deltaTime,
+                poison,
+                in _tuning.ToxicCombustion,
+                out float consumed,
+                out bool effective,
+                out float damage,
+                out float radius);
             poison -= consumed;
-            _toxicConsumed += consumed;
-            _toxicElapsed += deltaTime;
             frame.PoisonDelta -= consumed;
             if (consumed > 0f)
                 frame.SuppressNaturalDecay |= StatusMask.Poison;
 
-            if (_toxicElapsed + Epsilon < duration)
+            if (!completed)
                 return;
 
-            bool effective = _toxicConsumed >= MaxZero(_tuning.ToxicCombustion.MinEffectiveConsume);
             if (effective)
             {
                 frame.HasAreaDamage = true;
                 frame.AreaDamage = new ReactionDamageCommand(
                     _toxicSource,
-                    // Damage = BaseDamage + ActualConsumedPoison * DamagePerPoison。
-                    // 使用实际消耗量，使 Wet Cleanse 确实能够降低爆炸威力。
-                    MaxZero(_tuning.ToxicCombustion.BaseDamage)
-                        + _toxicConsumed * MaxZero(_tuning.ToxicCombustion.DamagePerPoison),
-                    MaxZero(_tuning.ToxicCombustion.Radius));
+                    damage,
+                    radius);
                 AddSignal(ref frame, ElementReactionId.ToxicCombustion, ElementReactionPhase.Resolved,
-                    _toxicConsumed / MaxPositive(_tuning.ToxicCombustion.MaxPoisonConsume), 0f);
+                    _toxicProcess.ConsumedPoison / MaxPositive(_tuning.ToxicCombustion.MaxPoisonConsume), 0f);
             }
             else
             {
                 AddSignal(ref frame, ElementReactionId.ToxicCombustion, ElementReactionPhase.Cancelled, 0f, 0f);
             }
 
-            _toxicActive = false;
             _toxicCooldown = MaxZero(_tuning.ToxicCombustion.CooldownSeconds);
             _dirty = true;
         }

@@ -5,9 +5,103 @@ using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
+using Game.Materials;
 
 namespace Game.Rendering
 {
+    /// <summary>开发期只读诊断：指出 Fluid GPU Surface 从哪一个边界开始没有产出。</summary>
+    public enum LiquidSurfaceDiagnosticStage : byte
+    {
+        WaitingForSnapshot,
+        WaitingForResources,
+        NoSurfaceTriangles,
+        IndirectArgsMissing,
+        DrawReady
+    }
+
+    /// <summary>
+    /// 把 GPU Counter 快照转换成稳定、可测试的诊断结论；Renderer 只负责异步取得数据。
+    /// </summary>
+    internal static class LiquidSurfaceDiagnosticClassifier
+    {
+        internal static LiquidSurfaceDiagnosticStage Classify(
+            bool hasSnapshot,
+            bool resourcesReady,
+            uint triangleCount,
+            uint indirectVertexCount)
+        {
+            if (!hasSnapshot)
+                return LiquidSurfaceDiagnosticStage.WaitingForSnapshot;
+            if (!resourcesReady)
+                return LiquidSurfaceDiagnosticStage.WaitingForResources;
+            if (triangleCount == 0u)
+                return LiquidSurfaceDiagnosticStage.NoSurfaceTriangles;
+            if (indirectVertexCount == 0u)
+                return LiquidSurfaceDiagnosticStage.IndirectArgsMissing;
+            return LiquidSurfaceDiagnosticStage.DrawReady;
+        }
+    }
+
+    /// <summary>第一组三角形的只读诊断，用来区分非法顶点、Bounds Culling 与 Winding 问题。</summary>
+    public enum LiquidSurfaceGeometryDiagnosticStage : byte
+    {
+        WaitingForTriangleSample,
+        InvalidTriangle,
+        OutsideDrawBounds,
+        WindingOpposesNormals,
+        GeometryReady
+    }
+
+    internal static class LiquidSurfaceGeometryDiagnosticClassifier
+    {
+        internal static LiquidSurfaceGeometryDiagnosticStage Classify(
+            bool hasTriangleSample,
+            in Bounds drawBounds,
+            Vector3 position0,
+            Vector3 position1,
+            Vector3 position2,
+            Vector3 normal0,
+            Vector3 normal1,
+            Vector3 normal2)
+        {
+            if (!hasTriangleSample)
+                return LiquidSurfaceGeometryDiagnosticStage.WaitingForTriangleSample;
+            if (!IsFinite(position0) || !IsFinite(position1) || !IsFinite(position2)
+                || !IsFinite(normal0) || !IsFinite(normal1) || !IsFinite(normal2))
+            {
+                return LiquidSurfaceGeometryDiagnosticStage.InvalidTriangle;
+            }
+
+            Bounds expandedBounds = drawBounds;
+            expandedBounds.Expand(0.02f);
+            if (!expandedBounds.Contains(position0)
+                || !expandedBounds.Contains(position1)
+                || !expandedBounds.Contains(position2))
+            {
+                return LiquidSurfaceGeometryDiagnosticStage.OutsideDrawBounds;
+            }
+
+            Vector3 geometricNormal = Vector3.Cross(position1 - position0, position2 - position0);
+            Vector3 vertexNormalSum = normal0 + normal1 + normal2;
+            if (geometricNormal.sqrMagnitude <= 1e-12f)
+                return LiquidSurfaceGeometryDiagnosticStage.InvalidTriangle;
+            if (vertexNormalSum.sqrMagnitude > 1e-8f
+                && Vector3.Dot(geometricNormal, vertexNormalSum) < 0f)
+            {
+                return LiquidSurfaceGeometryDiagnosticStage.WindingOpposesNormals;
+            }
+
+            return LiquidSurfaceGeometryDiagnosticStage.GeometryReady;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
+        }
+    }
+
     /// <summary>把可抛异常的 Profile snapshot 边界转成显式失败，供 Renderer 与 focused test 共用。</summary>
     internal static class LiquidRenderSettingsFactory
     {
@@ -61,6 +155,8 @@ namespace Game.Rendering
         private static readonly int SpatialCellsId = Shader.PropertyToID("_SpatialCells");
         private static readonly int DensityTextureId = Shader.PropertyToID("_DensityTexture");
         private static readonly int SurfaceTrianglesId = Shader.PropertyToID("_FluidSurfaceTriangles");
+        private static readonly int DebugForceOpaqueFragmentId =
+            Shader.PropertyToID("_DebugForceOpaqueFragment");
         private static readonly int TriangleCounterId = Shader.PropertyToID("_TriangleCounter");
         private static readonly int OverflowCounterId = Shader.PropertyToID("_OverflowCounter");
         private static readonly int IndirectArgumentsId = Shader.PropertyToID("_IndirectArguments");
@@ -68,6 +164,8 @@ namespace Game.Rendering
         private static readonly int HashTableCapacityId = Shader.PropertyToID("_HashTableCapacity");
         private static readonly int SmoothingRadiusId = Shader.PropertyToID("_SmoothingRadius");
         private static readonly int ParticleMassId = Shader.PropertyToID("_ParticleMass");
+        private static readonly int TargetMaterialId = Shader.PropertyToID("_TargetMaterialId");
+        private static readonly int LiquidMaterialParametersId = Shader.PropertyToID("_LiquidMaterialParameters");
         private static readonly int GridResolutionXId = Shader.PropertyToID("_GridResolutionX");
         private static readonly int GridResolutionYId = Shader.PropertyToID("_GridResolutionY");
         private static readonly int GridResolutionZId = Shader.PropertyToID("_GridResolutionZ");
@@ -77,11 +175,19 @@ namespace Game.Rendering
         private static readonly int MaximumTriangleCountId = Shader.PropertyToID("_MaximumTriangleCount");
         private static readonly int AnisotropyTransformsId = Shader.PropertyToID("_AnisotropyTransforms");
         private static readonly int AnisotropyCountersId = Shader.PropertyToID("_AnisotropyCounters");
+        private static readonly int SurfaceSupportsId = Shader.PropertyToID("_SurfaceSupports");
         private static readonly int NeighborThresholdId = Shader.PropertyToID("_NeighborThreshold");
+        private static readonly int CrownEdgeNeighborCountId =
+            Shader.PropertyToID("_CrownEdgeNeighborCount");
+        private static readonly int CrownInteriorNeighborCountId =
+            Shader.PropertyToID("_CrownInteriorNeighborCount");
         private static readonly int MinimumAnisotropyScaleId = Shader.PropertyToID("_MinimumAnisotropyScale");
         private static readonly int MaximumAnisotropyScaleId = Shader.PropertyToID("_MaximumAnisotropyScale");
         private static readonly int MaximumAnisotropyRatioId = Shader.PropertyToID("_MaximumAnisotropyRatio");
-        private static readonly int AnisotropyCellRadiusId = Shader.PropertyToID("_AnisotropyCellRadius");
+        private static readonly int DensityCellRadiusId = Shader.PropertyToID("_DensityCellRadius");
+        private static readonly int UseStylizedCrownId = Shader.PropertyToID("_UseStylizedCrown");
+        private static readonly int CrownHeightRatioId = Shader.PropertyToID("_CrownHeightRatio");
+        private static readonly int CrownFalloffId = Shader.PropertyToID("_CrownFalloff");
 
         [Tooltip("应引用实现 IFluidGpuSource 的 Runtime；Rendering 只能读取其 GPU Snapshot。")]
         [SerializeField] private MonoBehaviour _fluidSourceComponent;
@@ -92,9 +198,42 @@ namespace Game.Rendering
         [SerializeField] private ComputeShader _anisotropyCompute;
         [SerializeField] private ComputeShader _marchingCubesCompute;
         [SerializeField] private Material _material;
+        [Tooltip("这个 Presentation Component 只重建一种 Material；多个组件可读取同一个 GPU Pool。")]
+        [SerializeField] private MaterialId _targetMaterial = MaterialId.Water;
+
+        [Header("Development Fragment Isolation")]
+        [Tooltip("临时跳过复杂 Fragment 光照、深度和波纹，只输出材质浅色且完全不透明；用于定位不可见发生在 Rasterization 前还是 Fragment 内。")]
+        [SerializeField] private bool _debugForceOpaqueFragment = false;
 
         [Header("Development Counters (Async <= 2Hz)")]
+        [Tooltip("GPU Surface 当前通过到哪一层；计数器轮询一圈最多约需 1.5 秒。")]
+        [SerializeField] private LiquidSurfaceDiagnosticStage _debugStage;
+        [SerializeField] private bool _debugHasSnapshot;
+        [SerializeField] private bool _debugResourcesReady;
+        [Tooltip("当前单层 Surface 使用的实际 Density Grid 分辨率。")]
+        [SerializeField] private Vector3Int _debugGridResolution;
+        [Tooltip("Active Bounds 被实际 Grid 分辨率整除后的世界空间 Voxel 尺寸。")]
+        [SerializeField] private Vector3 _debugVoxelSize;
+        [Tooltip("Marching Cubes 本帧实际写出的三角形数。")]
+        [SerializeField] private uint _debugTriangleCount;
+        [Tooltip("Indirect Draw Args 中的顶点数；正常应等于 Triangle Count * 3。")]
+        [SerializeField] private uint _debugIndirectVertexCount;
+        [Tooltip("Indirect Draw Args 中的实例数；当前单 Surface Draw 必须为 1。")]
+        [SerializeField] private uint _debugIndirectInstanceCount;
+        [SerializeField] private uint _debugIndirectStartVertex;
+        [SerializeField] private uint _debugIndirectStartInstance;
+        [Tooltip("超过 Triangle Buffer 容量而被丢弃的三角形数；正常应为 0。")]
         [SerializeField] private uint _debugTriangleOverflow;
+        [Header("Development Geometry Sample (Async <= 0.5Hz)")]
+        [SerializeField] private LiquidSurfaceGeometryDiagnosticStage _debugGeometryStage;
+        [SerializeField] private Vector3 _debugDrawBoundsCenter;
+        [SerializeField] private Vector3 _debugDrawBoundsSize;
+        [SerializeField] private Vector3 _debugTrianglePosition0;
+        [SerializeField] private Vector3 _debugTrianglePosition1;
+        [SerializeField] private Vector3 _debugTrianglePosition2;
+        [SerializeField] private Vector3 _debugTriangleNormal0;
+        [SerializeField] private Vector3 _debugTriangleNormal1;
+        [SerializeField] private Vector3 _debugTriangleNormal2;
 
         private IFluidGpuSource _fluidSource;
         private LiquidRenderSettings _settings;
@@ -105,6 +244,7 @@ namespace Game.Rendering
         private int _clearAnisotropyCountersKernel;
         private int _gatherAnisotropyMeanKernel;
         private int _buildAnisotropyTransformKernel;
+        private int _gatherSurfaceSupportKernel;
         private int _clearSurfaceCountersKernel;
         private int _extractSurfaceKernel;
         private int _buildIndirectArgsKernel;
@@ -116,6 +256,17 @@ namespace Game.Rendering
         private float _debugCounterElapsed;
         private bool _debugCounterOutstanding;
         private bool _resourceReleasePending;
+        private bool _debugHasTriangleSample;
+        private DebugCounterReadbackKind _debugNextReadbackKind;
+        private DebugCounterReadbackKind _debugOutstandingReadbackKind;
+
+        private enum DebugCounterReadbackKind : byte
+        {
+            TriangleCount,
+            IndirectVertexCount,
+            TriangleSample,
+            TriangleOverflow
+        }
 
         private void Awake()
         {
@@ -127,8 +278,14 @@ namespace Game.Rendering
                 DisableWithFailure("GpuLiquidSurfaceRenderer 缺少 ElementWorldRuntime mode source。");
                 return;
             }
-            if (!WaterRendererModePolicy.ShouldRenderGpuPbf(
-                    _worldRuntime.EffectiveWaterSimulationMode))
+            if (_targetMaterial == MaterialId.Empty)
+            {
+                DisableWithFailure("GpuLiquidSurfaceRenderer Target Material 不能是 Empty。");
+                return;
+            }
+            if (!LiquidBackendAvailabilityPolicy.ShouldRender(
+                    _targetMaterial,
+                    _worldRuntime.MaterialRoutes))
             {
                 // effective Legacy（包括 unsupported Graphics fallback）由 ElementWorldRuntime 统一诊断；
                 // 这里在任何 GPU 资源分配前静默退出，避免同一 fallback 原因重复 Warn。
@@ -159,9 +316,11 @@ namespace Game.Rendering
                 DisableWithFailure($"GpuLiquidSurfaceRenderer Profile 无效：{settingsError}");
                 return;
             }
-            if (_settings.UseAnisotropy && _anisotropyCompute == null)
+            bool requiresSurfaceNeighborhood =
+                _settings.UseAnisotropy || _settings.UseStylizedCrown;
+            if (requiresSurfaceNeighborhood && _anisotropyCompute == null)
             {
-                DisableWithFailure("GpuLiquidSurfaceRenderer 启用 Anisotropy 时缺少对应 ComputeShader。");
+                DisableWithFailure("GpuLiquidSurfaceRenderer 启用 Anisotropy/Crown 时缺少邻域 ComputeShader。");
                 return;
             }
             if (!_densityCompute.HasKernel("GatherIsotropicDensity")
@@ -170,6 +329,8 @@ namespace Game.Rendering
                     && (!_anisotropyCompute.HasKernel("ClearAnisotropyCounters")
                         || !_anisotropyCompute.HasKernel("GatherAnisotropyMean")
                         || !_anisotropyCompute.HasKernel("BuildAnisotropyTransform")))
+                || (_settings.UseStylizedCrown
+                    && !_anisotropyCompute.HasKernel("GatherSurfaceSupport"))
                 || !_marchingCubesCompute.HasKernel("ClearSurfaceCounters")
                 || !_marchingCubesCompute.HasKernel("ExtractSurface")
                 || !_marchingCubesCompute.HasKernel("BuildIndirectArgs"))
@@ -188,11 +349,13 @@ namespace Game.Rendering
                 _gatherAnisotropyMeanKernel = _anisotropyCompute.FindKernel("GatherAnisotropyMean");
                 _buildAnisotropyTransformKernel = _anisotropyCompute.FindKernel("BuildAnisotropyTransform");
             }
+            if (_settings.UseStylizedCrown)
+                _gatherSurfaceSupportKernel = _anisotropyCompute.FindKernel("GatherSurfaceSupport");
             _clearSurfaceCountersKernel = _marchingCubesCompute.FindKernel("ClearSurfaceCounters");
             _extractSurfaceKernel = _marchingCubesCompute.FindKernel("ExtractSurface");
             _buildIndirectArgsKernel = _marchingCubesCompute.FindKernel("BuildIndirectArgs");
 
-            // 这两个 Native/managed wrapper 都是初始化时的一次性长期对象；LateUpdate 只修改其内容。
+            // MaterialPropertyBlock 是初始化时创建并长期复用的 wrapper；LateUpdate 只修改其内容。
             _materialPropertyBlock = new MaterialPropertyBlock();
             _renderParams = new RenderParams(_material)
             {
@@ -223,20 +386,42 @@ namespace Game.Rendering
                 || !_fluidSource.TryGetGpuSnapshot(out FluidGpuSnapshot snapshot)
                 || snapshot.LayoutVersion != RequiredFluidLayoutVersion)
             {
+                _debugHasSnapshot = false;
+                RefreshDebugStage();
                 return;
             }
+            _debugHasSnapshot = true;
 
             if (_resources == null)
+            {
+                _debugResourcesReady = false;
+                RefreshDebugStage();
                 return;
+            }
+            _debugResourcesReady = true;
 
             FluidSurfaceGridSettings grid;
             try
             {
+                // LOD 前的单 Surface 语义：调用者给出的完整 Active Bounds 直接进入 Density Grid，
+                // 不再围绕角色裁剪 Near Box，也没有 Mid/Far 表示切换。
                 grid = FluidSurfaceGridPlanner.Plan(snapshot.ActiveBounds, in _settings);
-                if (_resources.ParticleCapacity != snapshot.ParticleCapacity
-                    || !_resources.TryUpdateGrid(in grid))
+                _debugGridResolution = grid.Resolution;
+                _debugVoxelSize = grid.VoxelSize;
+                _debugDrawBoundsCenter = grid.WorldBounds.center;
+                _debugDrawBoundsSize = grid.WorldBounds.size;
+                if (_resources.ParticleCapacity != snapshot.ParticleCapacity)
                 {
-                    DisableWithFailure("Fluid Surface Grid/Capacity 在运行中改变；为避免热路径重分配已禁用 Renderer。");
+                    DisableWithFailure(
+                        $"Fluid Particle Capacity 在运行中由 {_resources.ParticleCapacity} "
+                        + $"变为 {snapshot.ParticleCapacity}；为避免热路径重分配已禁用 Renderer。");
+                    return;
+                }
+                if (!_resources.TryUpdateGrid(in grid))
+                {
+                    DisableWithFailure(
+                        $"Fluid Surface Resolution 在运行中由 {_resources.GridSettings.Resolution} "
+                        + $"变为 {grid.Resolution}；为避免热路径重分配已禁用 Renderer。");
                     return;
                 }
             }
@@ -247,14 +432,14 @@ namespace Game.Rendering
                 return;
             }
 
-            if (_settings.UseAnisotropy
+            if ((_settings.UseAnisotropy || _settings.UseStylizedCrown)
                 && _anisotropySchedule.ShouldUpdateAndAdvance(snapshot.TopologyVersion))
             {
-                DispatchAnisotropy(in snapshot);
+                DispatchSurfaceNeighborhood(in snapshot);
             }
-            DispatchDensity(in snapshot, in grid);
-            DispatchMarchingCubes(in grid);
-            DrawSurface(in grid);
+            DispatchDensity(in snapshot, in grid, _resources);
+            DispatchMarchingCubes(in grid, _resources);
+            DrawSurface(in grid, _resources);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             ScheduleDebugCounterReadback(Time.unscaledDeltaTime);
 #endif
@@ -273,9 +458,19 @@ namespace Game.Rendering
 
             try
             {
-                FluidSurfaceGridSettings grid =
-                    FluidSurfaceGridPlanner.Plan(snapshot.ActiveBounds, in _settings);
+                FluidSurfaceGridSettings grid = FluidSurfaceGridPlanner.Plan(
+                    snapshot.ActiveBounds,
+                    in _settings);
                 _resources = new FluidSurfaceGpuResources(in grid, snapshot.ParticleCapacity);
+                _debugHasSnapshot = true;
+                _debugResourcesReady = true;
+                _debugGridResolution = grid.Resolution;
+                _debugVoxelSize = grid.VoxelSize;
+                _debugDrawBoundsCenter = grid.WorldBounds.center;
+                _debugDrawBoundsSize = grid.WorldBounds.size;
+                _debugHasTriangleSample = false;
+                RefreshDebugGeometryStage();
+                RefreshDebugStage();
                 _anisotropySchedule.Reset();
             }
             catch (Exception exception)
@@ -313,10 +508,45 @@ namespace Game.Rendering
             _debugCounterElapsed = 0f;
             try
             {
+                GraphicsBuffer sourceBuffer;
+                int readbackSize = 0;
+                switch (_debugNextReadbackKind)
+                {
+                    case DebugCounterReadbackKind.TriangleCount:
+                        sourceBuffer = _resources.TriangleCounter;
+                        break;
+                    case DebugCounterReadbackKind.IndirectVertexCount:
+                        sourceBuffer = _resources.IndirectArguments;
+                        break;
+                    case DebugCounterReadbackKind.TriangleSample:
+                        sourceBuffer = _resources.TriangleBuffer;
+                        // 只取第一个 96-byte Triangle，避免开发诊断回读整个大容量 Buffer。
+                        readbackSize = SurfaceTriangleStride;
+                        break;
+                    default:
+                        sourceBuffer = _resources.OverflowCounter;
+                        break;
+                }
+
+                _debugOutstandingReadbackKind = _debugNextReadbackKind;
                 _debugCounterOutstanding = true;
-                _debugCounterRequest = AsyncGPUReadback.Request(
-                    _resources.OverflowCounter,
-                    _debugCounterCallback);
+                _debugCounterRequest = readbackSize > 0
+                    ? AsyncGPUReadback.Request(
+                        sourceBuffer,
+                        readbackSize,
+                        0,
+                        _debugCounterCallback)
+                    : AsyncGPUReadback.Request(sourceBuffer, _debugCounterCallback);
+                _debugNextReadbackKind = _debugNextReadbackKind switch
+                {
+                    DebugCounterReadbackKind.TriangleCount =>
+                        DebugCounterReadbackKind.IndirectVertexCount,
+                    DebugCounterReadbackKind.IndirectVertexCount =>
+                        DebugCounterReadbackKind.TriangleSample,
+                    DebugCounterReadbackKind.TriangleSample =>
+                        DebugCounterReadbackKind.TriangleOverflow,
+                    _ => DebugCounterReadbackKind.TriangleCount
+                };
             }
             catch (Exception)
             {
@@ -331,9 +561,47 @@ namespace Game.Rendering
             _debugCounterOutstanding = false;
             if (!request.hasError)
             {
-                var values = request.GetData<uint>();
-                if (values.Length > 0)
-                    _debugTriangleOverflow = values[0];
+                if (_debugOutstandingReadbackKind == DebugCounterReadbackKind.TriangleSample)
+                {
+                    var packedTriangle = request.GetData<Vector4>();
+                    if (packedTriangle.Length >= 6)
+                    {
+                        _debugTrianglePosition0 = packedTriangle[0];
+                        _debugTriangleNormal0 = packedTriangle[1];
+                        _debugTrianglePosition1 = packedTriangle[2];
+                        _debugTriangleNormal1 = packedTriangle[3];
+                        _debugTrianglePosition2 = packedTriangle[4];
+                        _debugTriangleNormal2 = packedTriangle[5];
+                        _debugHasTriangleSample = true;
+                        RefreshDebugGeometryStage();
+                    }
+                }
+                else
+                {
+                    var values = request.GetData<uint>();
+                    if (values.Length > 0)
+                    {
+                        switch (_debugOutstandingReadbackKind)
+                        {
+                            case DebugCounterReadbackKind.TriangleCount:
+                                _debugTriangleCount = values[0];
+                                break;
+                            case DebugCounterReadbackKind.IndirectVertexCount:
+                                _debugIndirectVertexCount = values[0];
+                                if (values.Length >= 4)
+                                {
+                                    _debugIndirectInstanceCount = values[1];
+                                    _debugIndirectStartVertex = values[2];
+                                    _debugIndirectStartInstance = values[3];
+                                }
+                                break;
+                            default:
+                                _debugTriangleOverflow = values[0];
+                                break;
+                        }
+                        RefreshDebugStage();
+                    }
+                }
             }
             if (_resourceReleasePending)
                 DisposeResources();
@@ -341,7 +609,8 @@ namespace Game.Rendering
 
         private void DispatchDensity(
             in FluidGpuSnapshot snapshot,
-            in FluidSurfaceGridSettings grid)
+            in FluidSurfaceGridSettings grid,
+            FluidSurfaceGpuResources targetResources)
         {
             using (DensityMarker.Auto())
             {
@@ -349,13 +618,27 @@ namespace Game.Rendering
                 _densityCompute.SetInt(HashTableCapacityId, snapshot.HashTableCapacity);
                 _densityCompute.SetFloat(SmoothingRadiusId, snapshot.SmoothingRadius);
                 _densityCompute.SetFloat(ParticleMassId, snapshot.ParticleMass);
-                _densityCompute.SetInt(AnisotropyCellRadiusId, _settings.AnisotropyCellRadius);
+                _densityCompute.SetInt(TargetMaterialId, (byte)_targetMaterial);
+                _densityCompute.SetInt(DensityCellRadiusId, _settings.AnisotropyCellRadius);
+                _densityCompute.SetInt(
+                    UseStylizedCrownId,
+                    _settings.UseStylizedCrown ? 1 : 0);
+                _densityCompute.SetFloat(CrownHeightRatioId, _settings.CrownHeightRatio);
+                _densityCompute.SetFloat(CrownFalloffId, _settings.CrownFalloff);
                 SetGridParameters(_densityCompute, in grid);
                 _densityCompute.SetBuffer(_densityKernel, PredictedPositionsId, snapshot.PredictedPositions);
                 _densityCompute.SetBuffer(_densityKernel, ParticleMetadataId, snapshot.Metadata);
                 _densityCompute.SetBuffer(_densityKernel, SpatialEntriesId, snapshot.SpatialEntries);
                 _densityCompute.SetBuffer(_densityKernel, CellRangesId, snapshot.CellRanges);
                 _densityCompute.SetBuffer(_densityKernel, SpatialCellsId, snapshot.SpatialCells);
+                _densityCompute.SetBuffer(
+                    _densityKernel,
+                    LiquidMaterialParametersId,
+                    snapshot.LiquidMaterialParameters);
+                _densityCompute.SetBuffer(
+                    _densityKernel,
+                    SurfaceSupportsId,
+                    _resources.SurfaceSupportBuffer);
                 if (_settings.UseAnisotropy)
                 {
                     _densityCompute.SetBuffer(
@@ -363,7 +646,7 @@ namespace Game.Rendering
                         AnisotropyTransformsId,
                         _resources.AnisotropyBuffer);
                 }
-                _densityCompute.SetTexture(_densityKernel, DensityTextureId, _resources.DensityTexture);
+                _densityCompute.SetTexture(_densityKernel, DensityTextureId, targetResources.DensityTexture);
                 _densityCompute.Dispatch(
                     _densityKernel,
                     DivideRoundUp(grid.Resolution.x, DensityThreadGroupSize),
@@ -372,11 +655,26 @@ namespace Game.Rendering
             }
         }
 
-        private void DispatchAnisotropy(in FluidGpuSnapshot snapshot)
+        private void DispatchSurfaceNeighborhood(in FluidGpuSnapshot snapshot)
         {
             using (AnisotropyMarker.Auto())
             {
                 SetAnisotropyParameters(in snapshot);
+                if (!_settings.UseAnisotropy)
+                {
+                    BindAnisotropyNeighborhood(_gatherSurfaceSupportKernel, in snapshot);
+                    _anisotropyCompute.SetBuffer(
+                        _gatherSurfaceSupportKernel,
+                        SurfaceSupportsId,
+                        _resources.SurfaceSupportBuffer);
+                    _anisotropyCompute.Dispatch(
+                        _gatherSurfaceSupportKernel,
+                        DivideRoundUp(snapshot.ParticleCapacity, 64),
+                        1,
+                        1);
+                    return;
+                }
+
                 _anisotropyCompute.SetBuffer(
                     _clearAnisotropyCountersKernel,
                     AnisotropyCountersId,
@@ -388,6 +686,10 @@ namespace Game.Rendering
                     _gatherAnisotropyMeanKernel,
                     AnisotropyTransformsId,
                     _resources.AnisotropyBuffer);
+                _anisotropyCompute.SetBuffer(
+                    _gatherAnisotropyMeanKernel,
+                    SurfaceSupportsId,
+                    _resources.SurfaceSupportBuffer);
                 _anisotropyCompute.Dispatch(
                     _gatherAnisotropyMeanKernel,
                     DivideRoundUp(snapshot.ParticleCapacity, 64),
@@ -416,6 +718,12 @@ namespace Game.Rendering
             _anisotropyCompute.SetInt(ParticleCapacityId, snapshot.ParticleCapacity);
             _anisotropyCompute.SetInt(HashTableCapacityId, snapshot.HashTableCapacity);
             _anisotropyCompute.SetInt(NeighborThresholdId, _settings.AnisotropyNeighborThreshold);
+            _anisotropyCompute.SetInt(
+                CrownEdgeNeighborCountId,
+                _settings.CrownEdgeNeighborCount);
+            _anisotropyCompute.SetInt(
+                CrownInteriorNeighborCountId,
+                _settings.CrownInteriorNeighborCount);
             _anisotropyCompute.SetFloat(SmoothingRadiusId, snapshot.SmoothingRadius);
             _anisotropyCompute.SetFloat(MinimumAnisotropyScaleId, _settings.MinimumAnisotropyScale);
             _anisotropyCompute.SetFloat(MaximumAnisotropyScaleId, _settings.MaximumAnisotropyScale);
@@ -431,7 +739,9 @@ namespace Game.Rendering
             _anisotropyCompute.SetBuffer(kernel, SpatialCellsId, snapshot.SpatialCells);
         }
 
-        private void DispatchMarchingCubes(in FluidSurfaceGridSettings grid)
+        private void DispatchMarchingCubes(
+            in FluidSurfaceGridSettings grid,
+            FluidSurfaceGpuResources targetResources)
         {
             using (MarchingCubesMarker.Auto())
             {
@@ -439,51 +749,57 @@ namespace Game.Rendering
                 _marchingCubesCompute.SetFloat(IsoLevelId, _settings.IsoLevel);
                 _marchingCubesCompute.SetInt(MaximumTriangleCountId, grid.MaximumTriangleCount);
 
-                BindSurfaceWriteBuffers(_clearSurfaceCountersKernel);
+                BindSurfaceWriteBuffers(_clearSurfaceCountersKernel, targetResources);
                 _marchingCubesCompute.Dispatch(_clearSurfaceCountersKernel, 1, 1, 1);
 
                 _marchingCubesCompute.SetTexture(
                     _extractSurfaceKernel,
                     DensityTextureId,
-                    _resources.DensityTexture);
-                BindSurfaceWriteBuffers(_extractSurfaceKernel);
+                    targetResources.DensityTexture);
+                BindSurfaceWriteBuffers(_extractSurfaceKernel, targetResources);
                 _marchingCubesCompute.Dispatch(
                     _extractSurfaceKernel,
                     DivideRoundUp(grid.Resolution.x - 1, MarchingCubesThreadGroupSize),
                     DivideRoundUp(grid.Resolution.y - 1, MarchingCubesThreadGroupSize),
                     DivideRoundUp(grid.Resolution.z - 1, MarchingCubesThreadGroupSize));
 
-                BindSurfaceWriteBuffers(_buildIndirectArgsKernel);
+                BindSurfaceWriteBuffers(_buildIndirectArgsKernel, targetResources);
                 _marchingCubesCompute.Dispatch(_buildIndirectArgsKernel, 1, 1, 1);
             }
         }
 
-        private void DrawSurface(in FluidSurfaceGridSettings grid)
+        private void DrawSurface(
+            in FluidSurfaceGridSettings grid,
+            FluidSurfaceGpuResources targetResources)
         {
             using (DrawMarker.Auto())
             {
-                _materialPropertyBlock.SetBuffer(SurfaceTrianglesId, _resources.TriangleBuffer);
+                _materialPropertyBlock.SetBuffer(SurfaceTrianglesId, targetResources.TriangleBuffer);
+                // 每次 Draw 显式写入 MPB，避免只改 Material/SO 却被共享材质或旧序列化值覆盖。
+                _materialPropertyBlock.SetFloat(
+                    DebugForceOpaqueFragmentId,
+                    _debugForceOpaqueFragment ? 1f : 0f);
                 // Bounds 是 padded Density Grid 的真实世界范围；URP 用它进行整批 Culling/透明排序。
                 _renderParams.worldBounds = grid.WorldBounds;
                 Graphics.RenderPrimitivesIndirect(
                     _renderParams,
                     MeshTopology.Triangles,
-                    _resources.IndirectArguments,
+                    targetResources.IndirectArguments,
                     1,
                     0);
             }
         }
 
-        private void BindSurfaceWriteBuffers(int kernel)
+        private void BindSurfaceWriteBuffers(int kernel, FluidSurfaceGpuResources targetResources)
         {
             _marchingCubesCompute.SetBuffer(
-                kernel, SurfaceTrianglesId, _resources.TriangleBuffer);
+                kernel, SurfaceTrianglesId, targetResources.TriangleBuffer);
             _marchingCubesCompute.SetBuffer(
-                kernel, TriangleCounterId, _resources.TriangleCounter);
+                kernel, TriangleCounterId, targetResources.TriangleCounter);
             _marchingCubesCompute.SetBuffer(
-                kernel, OverflowCounterId, _resources.OverflowCounter);
+                kernel, OverflowCounterId, targetResources.OverflowCounter);
             _marchingCubesCompute.SetBuffer(
-                kernel, IndirectArgumentsId, _resources.IndirectArguments);
+                kernel, IndirectArgumentsId, targetResources.IndirectArguments);
         }
 
         private static void SetGridParameters(
@@ -526,6 +842,29 @@ namespace Game.Rendering
             enabled = false;
         }
 
+        private void RefreshDebugStage()
+        {
+            _debugStage = LiquidSurfaceDiagnosticClassifier.Classify(
+                _debugHasSnapshot,
+                _debugResourcesReady,
+                _debugTriangleCount,
+                _debugIndirectVertexCount);
+        }
+
+        private void RefreshDebugGeometryStage()
+        {
+            var drawBounds = new Bounds(_debugDrawBoundsCenter, _debugDrawBoundsSize);
+            _debugGeometryStage = LiquidSurfaceGeometryDiagnosticClassifier.Classify(
+                _debugHasTriangleSample,
+                in drawBounds,
+                _debugTrianglePosition0,
+                _debugTrianglePosition1,
+                _debugTrianglePosition2,
+                _debugTriangleNormal0,
+                _debugTriangleNormal1,
+                _debugTriangleNormal2);
+        }
+
         private void DisposeResources()
         {
             if (_debugCounterOutstanding)
@@ -533,10 +872,10 @@ namespace Game.Rendering
                 _resourceReleasePending = true;
                 return;
             }
-            if (_resources == null)
-                return;
-            _resources.Dispose();
+            _resources?.Dispose();
             _resources = null;
+            _debugResourcesReady = false;
+            RefreshDebugStage();
             _resourceReleasePending = false;
         }
     }

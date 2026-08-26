@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using Game.Combat;
 using UnityEngine;
@@ -145,10 +146,10 @@ namespace Game.ElementField
         {
             ElementCell first = grid.CurrentCells[firstIndex];
             ElementCell second = grid.CurrentCells[secondIndex];
-            bool opposed = first.MaterialKind == ElementMaterialKind.Water
-                && second.MaterialKind == ElementMaterialKind.Fire
-                || first.MaterialKind == ElementMaterialKind.Fire
-                && second.MaterialKind == ElementMaterialKind.Water;
+            bool opposed = first.MaterialKind == MaterialId.Water
+                && second.MaterialKind == MaterialId.Fire
+                || first.MaterialKind == MaterialId.Fire
+                && second.MaterialKind == MaterialId.Water;
             if (!opposed)
                 return;
 
@@ -157,10 +158,10 @@ namespace Game.ElementField
             if (firstAvailable <= 0 || secondAvailable <= 0)
                 return;
 
-            int fireAmount = first.MaterialKind == ElementMaterialKind.Fire
+            int fireAmount = first.MaterialKind == MaterialId.Fire
                 ? firstAvailable
                 : secondAvailable;
-            int waterAmount = first.MaterialKind == ElementMaterialKind.Water
+            int waterAmount = first.MaterialKind == MaterialId.Water
                 ? firstAvailable
                 : secondAvailable;
             float fireIntensity = fireAmount * 100f / byte.MaxValue;
@@ -168,19 +169,28 @@ namespace Game.ElementField
             float threshold = Mathf.Max(0f, tuning.FormalThreshold);
             bool useFormalRate = fireIntensity >= threshold && waterIntensity >= threshold;
 
-            float consumedIntensity = ElementReactionEvaluator.CalculateExtinguishConsumption(
+            ExtinguishResult consumption = ElementReactionEvaluator.CalculateExtinguish(
                 fireIntensity,
                 waterIntensity,
                 deltaTime,
                 useFormalRate,
                 in tuning);
-            int consumedAmount = Mathf.RoundToInt(consumedIntensity * byte.MaxValue / 100f);
-            consumedAmount = Mathf.Min(consumedAmount, Mathf.Min(firstAvailable, secondAvailable));
-            if (consumedAmount <= 0)
+            int fireConsumed = Mathf.Min(
+                Mathf.RoundToInt(consumption.FireRemoved * byte.MaxValue / 100f),
+                fireAmount);
+            int waterConsumed = Mathf.Min(
+                Mathf.RoundToInt(consumption.WaterConsumed * byte.MaxValue / 100f),
+                waterAmount);
+            if (fireConsumed <= 0 || waterConsumed <= 0)
                 return;
 
-            grid.AmountDelta[firstIndex] -= consumedAmount;
-            grid.AmountDelta[secondIndex] -= consumedAmount;
+            // Pair 的遍历顺序不代表材料角色，因此分别按 MaterialKind 写回两侧消耗。
+            grid.AmountDelta[firstIndex] -= first.MaterialKind == MaterialId.Fire
+                ? fireConsumed
+                : waterConsumed;
+            grid.AmountDelta[secondIndex] -= second.MaterialKind == MaterialId.Fire
+                ? fireConsumed
+                : waterConsumed;
             stats.ReactionPairs++;
         }
 
@@ -220,7 +230,7 @@ namespace Game.ElementField
             {
                 var source = new Vector3Int(x, y, z);
                 int sourceIndex = ElementFieldCoordinates.ToIndex(source, size);
-                if (grid.CurrentCells[sourceIndex].MaterialKind != ElementMaterialKind.Water)
+                if (grid.CurrentCells[sourceIndex].MaterialKind != MaterialId.Water)
                     continue;
 
                 var target = new Vector3Int(x, y - 1, z);
@@ -256,7 +266,7 @@ namespace Game.ElementField
             {
                 var source = new Vector3Int(x, y, z);
                 int sourceIndex = ElementFieldCoordinates.ToIndex(source, size);
-                if (grid.CurrentCells[sourceIndex].MaterialKind != ElementMaterialKind.Water)
+                if (grid.CurrentCells[sourceIndex].MaterialKind != MaterialId.Water)
                     continue;
 
                 for (int order = 0; order < HorizontalDirections.Length; order++)
@@ -291,7 +301,7 @@ namespace Game.ElementField
             ElementCell source = grid.CurrentCells[sourceIndex];
             ElementCell target = grid.CurrentCells[targetIndex];
             int sourceAvailable = source.Amount + grid.AmountDelta[sourceIndex];
-            int targetOriginal = target.MaterialKind == ElementMaterialKind.Water ? target.Amount : 0;
+            int targetOriginal = target.MaterialKind == MaterialId.Water ? target.Amount : 0;
             int targetProjected = targetOriginal + grid.AmountDelta[targetIndex];
             int targetCapacity = byte.MaxValue - targetProjected;
             if (sourceAvailable <= 0 || targetCapacity <= 0)
@@ -347,10 +357,10 @@ namespace Game.ElementField
                     continue;
 
                 ElementCell current = grid.CurrentCells[index];
-                int original = current.MaterialKind == ElementMaterialKind.Water ? current.Amount : 0;
+                int original = current.MaterialKind == MaterialId.Water ? current.Amount : 0;
                 int amount = Mathf.Clamp(original + delta, 0, byte.MaxValue);
                 grid.NextCells[index] = amount > 0
-                    ? new ElementCell(ElementMaterialKind.Water, (byte)amount)
+                    ? new ElementCell(MaterialId.Water, (byte)amount)
                     : default;
             }
         }
@@ -366,12 +376,12 @@ namespace Game.ElementField
                 for (int index = 0; index < grid.CellCount; index++)
                 {
                     ElementCell current = grid.CurrentCells[index];
-                    if (current.MaterialKind != ElementMaterialKind.Fire || current.Amount == 0)
+                    if (current.MaterialKind != MaterialId.Fire || current.Amount == 0)
                         continue;
 
                     int amount = Mathf.Max(0, current.Amount - decay);
                     grid.NextCells[index] = amount > 0
-                        ? new ElementCell(ElementMaterialKind.Fire, (byte)amount)
+                        ? new ElementCell(MaterialId.Fire, (byte)amount)
                         : default;
                     stats.FireCellsDecayed++;
                 }
@@ -382,7 +392,7 @@ namespace Game.ElementField
 
         private static bool CanReceiveWater(ElementCell cell)
         {
-            return cell.IsEmpty || cell.MaterialKind == ElementMaterialKind.Water;
+            return cell.IsEmpty || cell.MaterialKind == MaterialId.Water;
         }
     }
 }

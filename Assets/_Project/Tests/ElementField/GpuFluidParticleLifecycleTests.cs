@@ -1,3 +1,4 @@
+using Game.Materials;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -14,6 +15,74 @@ namespace Game.ElementField.Tests
         private const string LifecycleShaderPath =
             "Assets/_Project/Art/Elemental/Compute/PbfParticleLifecycle.compute";
         private const int ThreadGroupSize = 64;
+
+        [Test]
+        public void DensityPackedSpawn_IsDeterministicSeparatedAndDenserThanLegacyRandom()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(LifecycleShaderPath);
+            Assert.That(shader, Is.Not.Null, $"Missing ComputeShader at {LifecycleShaderPath}.");
+
+            const int count = 200;
+            const float restSpacing = 0.1f;
+            const float requiredRadius = 0.4330127f;
+            var resources = new FluidGpuResourceSet(count, 512, 1);
+            try
+            {
+                var packedRequest = new FluidSpawnRequest(
+                    new Vector3(2f, 3f, 4f),
+                    Vector3.zero,
+                    requiredRadius,
+                    count,
+                    1u,
+                    2468u,
+                    FluidSpawnFlags.DensityPacked);
+
+                Vector4[] first = SpawnAndReadPositions(
+                    shader, resources, in packedRequest, restSpacing);
+                Vector4[] second = SpawnAndReadPositions(
+                    shader, resources, in packedRequest, restSpacing);
+
+                for (int i = 0; i < count; i++)
+                {
+                    Assert.That(second[i], Is.EqualTo(first[i]), $"slot {i} 必须 byte-for-byte 确定。");
+                    Vector3 offset = (Vector3)first[i] - packedRequest.WorldPosition;
+                    Assert.That(Mathf.Abs(offset.x), Is.LessThanOrEqualTo(requiredRadius + 1e-5f));
+                    Assert.That(Mathf.Abs(offset.y), Is.LessThanOrEqualTo(requiredRadius + 1e-5f));
+                    Assert.That(Mathf.Abs(offset.z), Is.LessThanOrEqualTo(requiredRadius + 1e-5f));
+                    Assert.That(IsFinite(first[i]), Is.True);
+                    for (int j = i + 1; j < count; j++)
+                    {
+                        Assert.That(
+                            Vector3.Distance(first[i], second[j]),
+                            Is.GreaterThanOrEqualTo(restSpacing - 1e-5f));
+                    }
+                }
+
+                var counters = new uint[FluidGpuLayout.CounterCount];
+                resources.Counters.GetData(counters);
+                Assert.That(counters[FluidGpuLayout.ActiveCountCounterIndex], Is.EqualTo(200u));
+                Assert.That(counters[FluidGpuLayout.NumericalErrorCounterIndex], Is.Zero);
+
+                var legacyRequest = new FluidSpawnRequest(
+                    packedRequest.WorldPosition,
+                    Vector3.zero,
+                    0.75f,
+                    count,
+                    1u,
+                    packedRequest.Seed,
+                    0u);
+                Vector4[] legacy = SpawnAndReadPositions(
+                    shader, resources, in legacyRequest, restSpacing);
+                Assert.That(
+                    AverageDensity(first, 1f, 0.2f),
+                    Is.GreaterThan(AverageDensity(legacy, 1f, 0.2f) * 1.5f));
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
 
         [Test]
         public void InitializePartialSpawnAndOverflowKeepBothActivityFlagsAndCountersInSync()
@@ -191,10 +260,10 @@ namespace Game.ElementField.Tests
                 DispatchInitialize(shader, resources);
                 var water = new FluidSpawnRequest(
                     new Vector3(0.25f, 0.25f, 0.25f), Vector3.zero, 0f, 4u,
-                    (uint)ElementMaterialKind.Water, 1u, 0u);
+                    (uint)MaterialId.Water, 1u, 0u);
                 var fire = new FluidSpawnRequest(
                     new Vector3(0.25f, 0.25f, 0.25f), Vector3.zero, 0f, 2u,
-                    (uint)ElementMaterialKind.Fire, 2u, 0u);
+                    (uint)MaterialId.Fire, 2u, 0u);
                 resources.SpawnRequests.SetData(new[]
                 {
                     new FluidGpuSpawnRequest(in water),
@@ -207,7 +276,7 @@ namespace Game.ElementField.Tests
                     new FluidConsumeCommand(
                         Vector3Int.zero,
                         Vector3Int.zero,
-                        (uint)ElementMaterialKind.Water,
+                        (uint)MaterialId.Water,
                         2u,
                         17u),
                 });
@@ -223,15 +292,77 @@ namespace Game.ElementField.Tests
                 {
                     if ((metadata[index].Y & FluidGpuLayout.ActiveFlag) == 0u)
                         continue;
-                    if (metadata[index].X == (uint)ElementMaterialKind.Water)
+                    if (metadata[index].X == (uint)MaterialId.Water)
                         waterCount++;
-                    if (metadata[index].X == (uint)ElementMaterialKind.Fire)
+                    if (metadata[index].X == (uint)MaterialId.Fire)
                         fireCount++;
                 }
                 Assert.That(waterCount, Is.EqualTo(2));
                 Assert.That(fireCount, Is.EqualTo(2));
                 Assert.That(counters[FluidGpuLayout.ActiveCountCounterIndex], Is.EqualTo(4u));
                 Assert.That(counters[FluidGpuLayout.FreeCountCounterIndex], Is.EqualTo(4u));
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void ConvertParticles_RetagsOnlyWaterAndPreservesAliveAndFreeCounts()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(LifecycleShaderPath);
+            Assert.That(shader, Is.Not.Null);
+            var resources = new FluidGpuResourceSet(8, 16, 4);
+            try
+            {
+                DispatchInitialize(shader, resources);
+                DispatchInitializeActivity(shader, resources);
+                var water = new FluidSpawnRequest(
+                    new Vector3(0.25f, 0.25f, 0.25f), Vector3.zero, 0f, 4u,
+                    (uint)MaterialId.Water, 1u, 0u);
+                var fire = new FluidSpawnRequest(
+                    new Vector3(0.25f, 0.25f, 0.25f), Vector3.zero, 0f, 2u,
+                    (uint)MaterialId.Fire, 2u, 0u);
+                resources.SpawnRequests.SetData(new[]
+                {
+                    new FluidGpuSpawnRequest(in water),
+                    new FluidGpuSpawnRequest(in fire),
+                });
+                DispatchSpawn(shader, resources, 2);
+
+                resources.ConvertRequests.SetData(new[]
+                {
+                    new FluidConvertCommand(
+                        Vector3Int.zero,
+                        Vector3Int.zero,
+                        (uint)MaterialId.Water,
+                        (uint)MaterialId.Sticky,
+                        2u,
+                        17u),
+                });
+                DispatchConvert(shader, resources, 1, Vector3.zero, 1f);
+
+                var metadata = new FluidGpuUInt2[8];
+                var counters = new uint[FluidGpuLayout.CounterCount];
+                resources.Metadata.GetData(metadata);
+                resources.Counters.GetData(counters);
+                int waterCount = 0;
+                int stickyCount = 0;
+                int fireCount = 0;
+                for (int index = 0; index < metadata.Length; index++)
+                {
+                    if ((metadata[index].Y & FluidGpuLayout.AliveFlag) == 0u)
+                        continue;
+                    if (metadata[index].X == (uint)MaterialId.Water) waterCount++;
+                    if (metadata[index].X == (uint)MaterialId.Sticky) stickyCount++;
+                    if (metadata[index].X == (uint)MaterialId.Fire) fireCount++;
+                }
+
+                Assert.That((waterCount, stickyCount, fireCount), Is.EqualTo((2, 2, 2)));
+                Assert.That(counters[FluidGpuLayout.ActiveCountCounterIndex], Is.EqualTo(6u));
+                Assert.That(counters[FluidGpuLayout.FreeCountCounterIndex], Is.EqualTo(2u));
             }
             finally
             {
@@ -282,6 +413,109 @@ namespace Game.ElementField.Tests
                 Assert.That(FluidActivityFlags.RequiresSolver(metadata[64].Y), Is.True);
                 Assert.That(args[0], Is.EqualTo(2u),
                     "slot64 醒着时必须覆盖 65 capacity，而不是按 AwakeCount=1 只发一组。");
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void Activity_RestingUnderdenseSurfaceSleepsWhileOvercompressedParticleStaysAwake()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(LifecycleShaderPath);
+            Assert.That(shader, Is.Not.Null);
+            var resources = new FluidGpuResourceSet(2, 4, 1);
+            try
+            {
+                DispatchInitialize(shader, resources);
+                DispatchInitializeActivity(shader, resources);
+                resources.Positions.SetData(new[]
+                {
+                    new Vector4(1f, 1f, 1f, 1f),
+                    new Vector4(2f, 1f, 1f, 1f)
+                });
+                // 0.005m/s 是视觉上应当静止的残余速度；入睡后必须归零，避免 Wake 时重新带回抖动。
+                resources.Velocities.SetData(new[]
+                {
+                    new Vector4(0.005f, 0f, 0f, 0f),
+                    Vector4.zero
+                });
+                resources.DensityLambda.SetData(new[]
+                {
+                    new Vector2(700f, 0f),
+                    new Vector2(1100f, 0f)
+                });
+                resources.Metadata.SetData(new[]
+                {
+                    new FluidGpuUInt2(1u, FluidGpuLayout.ActiveFlag),
+                    new FluidGpuUInt2(1u, FluidGpuLayout.ActiveFlag)
+                });
+                resources.StableTickCounters.SetData(new[] { 2u, 2u });
+
+                DispatchActivity(shader, resources, wakeAll: false, stableThreshold: 3);
+
+                var metadata = new FluidGpuUInt2[2];
+                var velocities = new Vector4[2];
+                resources.Metadata.GetData(metadata);
+                resources.Velocities.GetData(velocities);
+                Assert.That(FluidActivityFlags.IsSleeping(metadata[0].Y), Is.True,
+                    "Free Surface 缺少外侧邻居会天然低于 Rest Density；低速边缘仍应允许休眠。");
+                Assert.That(velocities[0], Is.EqualTo(Vector4.zero),
+                    "进入 Sleeping 时必须清掉阈值内的残余速度，防止 Wake 后恢复微抖动。");
+                Assert.That(FluidActivityFlags.RequiresSolver(metadata[1].Y), Is.True,
+                    "高于 Rest Density 允许误差的压缩粒子仍需继续求解，不能冻结压力。");
+            }
+            finally
+            {
+                resources.Dispose();
+            }
+        }
+
+        [Test]
+        public void Activity_RemoteSpawnRetainsSolverEligibilityAndReceivesGravity()
+        {
+            IgnoreWithoutComputeSupport();
+            ComputeShader shader = AssetDatabase.LoadAssetAtPath<ComputeShader>(LifecycleShaderPath);
+            Assert.That(shader, Is.Not.Null);
+            var resources = new FluidGpuResourceSet(1, 2, 1);
+            try
+            {
+                DispatchInitialize(shader, resources);
+                DispatchInitializeActivity(shader, resources);
+                resources.SpawnRequests.SetData(new[]
+                {
+                    new FluidGpuSpawnRequest(new FluidSpawnRequest(
+                        new Vector3(100f, 8f, 100f),
+                        Vector3.zero,
+                        0f,
+                        1u,
+                        1u,
+                        11u,
+                        0u))
+                });
+                DispatchSpawn(shader, resources, 1);
+
+                DispatchActivity(shader, resources, wakeAll: false, stableThreshold: 30);
+                var metadata = new FluidGpuUInt2[1];
+                resources.Metadata.GetData(metadata);
+                Assert.That(FluidActivityFlags.RequiresSolver(metadata[0].Y), Is.True,
+                    "远处 Spawn 不能在同 Tick 的 Activity Pass 中被降级为 Alive-only。"
+                );
+
+                int gravity = shader.FindKernel("ApplyGravity");
+                BindApplyGravity(shader, gravity, resources);
+                shader.SetInt("_ParticleCapacity", 1);
+                shader.SetFloat("_DeltaTime", 1f / 60f);
+                shader.SetVector("_Gravity", new Vector3(0f, -9.81f, 0f));
+                shader.Dispatch(gravity, 1, 1, 1);
+
+                var velocities = new Vector4[1];
+                resources.Velocities.GetData(velocities);
+                Assert.That(velocities[0].y, Is.LessThan(0f),
+                    "持有 Remote Lease 的粒子必须进入 Gravity Pass。"
+                );
             }
             finally
             {
@@ -353,6 +587,10 @@ namespace Game.ElementField.Tests
             shader.SetBuffer(update, "_StableTickCounters", resources.StableTickCounters);
             shader.SetBuffer(update, "_WakeRequests", resources.WakeRequests);
             shader.SetBuffer(update, "_ActivityCounters", resources.ActivityCounters);
+            shader.SetBuffer(
+                update,
+                "_LiquidMaterialParameters",
+                resources.LiquidMaterialParameters);
             shader.Dispatch(update, DivideRoundUp(resources.ParticleCapacity), 1, 1);
             shader.SetBuffer(args, "_ActivityCounters", resources.ActivityCounters);
             shader.SetBuffer(args, "_SolverDispatchArgs", resources.SolverDispatchArgs);
@@ -368,7 +606,48 @@ namespace Game.ElementField.Tests
             int kernel = shader.FindKernel("SpawnParticles");
             BindSpawnParticles(shader, kernel, resources);
             shader.SetInt("_SpawnRequestCount", requestCount);
+            shader.SetFloat("_SpawnRestSpacing", 0.1f);
             shader.Dispatch(kernel, DivideRoundUp(requestCount), 1, 1);
+        }
+
+        private static Vector4[] SpawnAndReadPositions(
+            ComputeShader shader,
+            FluidGpuResourceSet resources,
+            in FluidSpawnRequest request,
+            float restSpacing)
+        {
+            DispatchInitialize(shader, resources);
+            resources.SpawnRequests.SetData(new[] { new FluidGpuSpawnRequest(in request) });
+            int kernel = shader.FindKernel("SpawnParticles");
+            BindSpawnParticles(shader, kernel, resources);
+            shader.SetInt("_SpawnRequestCount", 1);
+            shader.SetFloat("_SpawnRestSpacing", restSpacing);
+            shader.Dispatch(kernel, 1, 1, 1);
+            var positions = new Vector4[resources.ParticleCapacity];
+            resources.Positions.GetData(positions);
+            return positions;
+        }
+
+        private static float AverageDensity(Vector4[] positions, float mass, float smoothingRadius)
+        {
+            float sum = 0f;
+            for (int i = 0; i < positions.Length; i++)
+            {
+                float density = 0f;
+                for (int j = 0; j < positions.Length; j++)
+                    density += mass * PbfKernelMath.Poly6(Vector3.Distance(positions[i], positions[j]), smoothingRadius);
+                sum += density;
+            }
+
+            return sum / positions.Length;
+        }
+
+        private static bool IsFinite(Vector4 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z)
+                && !float.IsNaN(value.w) && !float.IsInfinity(value.w);
         }
 
         private static void DispatchMinimumTick(
@@ -413,6 +692,25 @@ namespace Game.ElementField.Tests
             shader.SetBuffer(kernel, "_FreeIndices", resources.FreeIndices);
             shader.SetBuffer(kernel, "_Counters", resources.Counters);
             shader.SetBuffer(kernel, "_ConsumeRequests", resources.ConsumeRequests);
+            shader.Dispatch(kernel, commandCount, 1, 1);
+        }
+
+        private static void DispatchConvert(
+            ComputeShader shader,
+            FluidGpuResourceSet resources,
+            int commandCount,
+            Vector3 worldOrigin,
+            float cellSize)
+        {
+            int kernel = shader.FindKernel("ConvertParticles");
+            shader.SetInt("_ParticleCapacity", resources.ParticleCapacity);
+            shader.SetInt("_ReactionCommandCount", commandCount);
+            shader.SetVector("_WorldOrigin", worldOrigin);
+            shader.SetFloat("_CellSize", cellSize);
+            shader.SetBuffer(kernel, "_Positions", resources.Positions);
+            shader.SetBuffer(kernel, "_ParticleMetadata", resources.Metadata);
+            shader.SetBuffer(kernel, "_StableTickCounters", resources.StableTickCounters);
+            shader.SetBuffer(kernel, "_ConvertRequests", resources.ConvertRequests);
             shader.Dispatch(kernel, commandCount, 1, 1);
         }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Game.ElementField.Tests
@@ -93,7 +94,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ProfileCreatesIndependentValidatedRuntimeSettingsSnapshot()
         {
-            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
+            LiquidSimulationProfile profile = CreateConfiguredProfile();
             try
             {
                 LiquidSimulationSettings first = profile.CreateSettings();
@@ -133,7 +134,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ProfileSnapshotsPositiveFluidColliderCapacity()
         {
-            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
+            LiquidSimulationProfile profile = CreateConfiguredProfile();
             try
             {
                 SetPrivateField(profile, "_maxFluidColliders", 17);
@@ -153,7 +154,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ProfileRejectsMaxDisplacementBeyondBoundedCollisionSweepCoverage()
         {
-            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
+            LiquidSimulationProfile profile = CreateConfiguredProfile();
             try
             {
                 // 10000 / (60*2) = 83.33m，而 32 个 0.1m sweep sample 只能无缝覆盖 3.2m。
@@ -171,7 +172,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ProfileRejectsCatchUpLimitAboveClockHardMaximum()
         {
-            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
+            LiquidSimulationProfile profile = CreateConfiguredProfile();
             try
             {
                 SetPrivateField(
@@ -192,7 +193,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void ProfileSnapshotsMaximumPositionCorrectionAndRejectsUnsafeValues()
         {
-            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
+            LiquidSimulationProfile profile = CreateConfiguredProfile();
             try
             {
                 SetPrivateField(profile, "_maximumPositionCorrection", 0.08f);
@@ -216,28 +217,6 @@ namespace Game.ElementField.Tests
             }
         }
 
-        [Test]
-        public void ProfileRejectsXsphViscosityOutsideUnitIntervalAtSettingsBoundary()
-        {
-            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
-            try
-            {
-                SetPrivateField(profile, "_viscosity", 1.01f);
-                Assert.That(
-                    () => profile.CreateSettings(),
-                    Throws.TypeOf<ArgumentOutOfRangeException>());
-
-                SetPrivateField(profile, "_viscosity", -0.01f);
-                Assert.That(
-                    () => profile.CreateSettings(),
-                    Throws.TypeOf<ArgumentOutOfRangeException>());
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(profile);
-            }
-        }
-
         private static void SetPrivateField<TValue>(
             LiquidSimulationProfile profile,
             string fieldName,
@@ -248,6 +227,22 @@ namespace Game.ElementField.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(field, Is.Not.Null, $"缺少 Profile 序列化字段 {fieldName}。");
             field.SetValue(profile, value);
+        }
+
+        private static LiquidSimulationProfile CreateConfiguredProfile()
+        {
+            LiquidSimulationProfile source = AssetDatabase.LoadAssetAtPath<LiquidSimulationProfile>(
+                "Assets/_Project/ScriptableObjects/ElementField/Fluid/LiquidSimulationProfile_Water.asset");
+            Assert.That(source, Is.Not.Null);
+            LiquidSimulationProfile profile = ScriptableObject.CreateInstance<LiquidSimulationProfile>();
+            foreach (string fieldName in new[] { "_materialCatalog", "_liquidMaterials" })
+            {
+                FieldInfo field = typeof(LiquidSimulationProfile).GetField(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                field.SetValue(profile, field.GetValue(source));
+            }
+            return profile;
         }
     }
 }

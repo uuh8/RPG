@@ -14,10 +14,13 @@ namespace Game.Skills
         /// </summary>
         public static float SpreadOffsetDegrees(int index, int count, float spreadDegrees)
         {
+            // 边界检测：只有1发子弹，或者总夹角<=0，那不用散射，直接返回偏航角 0（正前方）
             if (count <= 1 || spreadDegrees <= 0f) return 0f;
-            // 显式转 float 防止整数除法；t 将离散下标映射到闭区间 [0, 1]。
+
+            // 归一化映射：这是最核心的一步。它把离散的子弹索引 [0, 1, 2... count-1] 映射到了连续的闭区间 [0, 1]
             float t = (float)index / (count - 1);
-            // Lerp(a,b,t) 做线性插值，让第一发位于 -spread/2、最后一发位于 +spread/2，中间均匀分布。
+
+            // 线性插值铺开：Mathf.Lerp(a, b, t) 的公式是 a + (b - a) * t
             return Mathf.Lerp(-spreadDegrees * 0.5f, spreadDegrees * 0.5f, t);
         }
 

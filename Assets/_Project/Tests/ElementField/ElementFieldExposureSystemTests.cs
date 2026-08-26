@@ -1,3 +1,4 @@
+using Game.Materials;
 using System.Collections.Generic;
 using System.Reflection;
 using Game.Combat;
@@ -94,7 +95,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void WaterCellAppliesWetProportionalToAmount()
         {
-            Deposit(new Vector3Int(0, 0, 0), ElementMaterialKind.Water, amount: 128);
+            Deposit(new Vector3Int(0, 0, 0), MaterialId.Water, amount: 128);
             StatusController target = CreateTarget(CellCenter(0), Vector3.one * 0.4f);
 
             _exposure.TickForTests(ExposureInterval);
@@ -107,7 +108,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void FireCellAppliesBurningProportionalToAmount()
         {
-            Deposit(new Vector3Int(1, 0, 0), ElementMaterialKind.Fire, amount: 64);
+            Deposit(new Vector3Int(1, 0, 0), MaterialId.Fire, amount: 64);
             StatusController target = CreateTarget(CellCenter(1), Vector3.one * 0.4f);
 
             _exposure.TickForTests(ExposureInterval);
@@ -131,7 +132,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void MultipleCollidersApplyOnlyOncePerTarget()
         {
-            Deposit(new Vector3Int(0, 0, 0), ElementMaterialKind.Water, byte.MaxValue);
+            Deposit(new Vector3Int(0, 0, 0), MaterialId.Water, byte.MaxValue);
             GameObject targetRoot = new GameObject("ExposureTarget.MultiCollider");
             _createdTargets.Add(targetRoot);
             targetRoot.transform.position = CellCenter(0);
@@ -149,8 +150,8 @@ namespace Game.ElementField.Tests
         [Test]
         public void ColliderCoveringSeveralCellsUsesMaximumIntensity()
         {
-            Deposit(new Vector3Int(0, 0, 0), ElementMaterialKind.Water, amount: 64);
-            Deposit(new Vector3Int(1, 0, 0), ElementMaterialKind.Water, amount: 200);
+            Deposit(new Vector3Int(0, 0, 0), MaterialId.Water, amount: 64);
+            Deposit(new Vector3Int(1, 0, 0), MaterialId.Water, amount: 200);
             StatusController target = CreateTarget(
                 new Vector3(1f, 0.5f, 0.5f),
                 new Vector3(1.8f, 0.4f, 0.4f));
@@ -180,7 +181,7 @@ namespace Game.ElementField.Tests
         {
             // Exposure 每 0.25 秒只采样一次，但接触在 Gameplay 语义上是连续的。
             // 因此每次补充都把 Hold 刷新为 0.25 + 0.10 秒；离场后才让剩余时间耗尽并恢复衰减。
-            Deposit(new Vector3Int(0, 0, 0), ElementMaterialKind.Water, byte.MaxValue);
+            Deposit(new Vector3Int(0, 0, 0), MaterialId.Water, byte.MaxValue);
             StatusController target = CreateTarget(CellCenter(0), Vector3.one * 0.4f);
             target.SetDefinitionsForTests(CreateDefinition(StatusKind.Wet, naturalDecayPerSecond: 8f));
 
@@ -204,7 +205,7 @@ namespace Game.ElementField.Tests
             Assert.That(target.GetIntensity(StatusKind.Wet), Is.EqualTo(19.2f).Within(0.0001f));
         }
 
-        private void Deposit(Vector3Int coordinate, ElementMaterialKind kind, byte amount)
+        private void Deposit(Vector3Int coordinate, MaterialId kind, byte amount)
         {
             var request = new ElementWriteRequest(
                 CellCenter(coordinate.x),

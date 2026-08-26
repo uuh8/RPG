@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using UnityEngine;
 
@@ -55,8 +56,8 @@ namespace Game.ElementField
                     if (cell.IsEmpty)
                         continue;
 
-                    bool water = cell.MaterialKind == ElementMaterialKind.Water;
-                    bool fire = cell.MaterialKind == ElementMaterialKind.Fire;
+                    bool water = cell.MaterialKind == MaterialId.Water;
+                    bool fire = cell.MaterialKind == MaterialId.Fire;
                     if (!water && !fire)
                         continue;
 

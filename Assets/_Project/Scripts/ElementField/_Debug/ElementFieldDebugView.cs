@@ -1,3 +1,4 @@
+using Game.Materials;
 using UnityEngine;
 
 namespace Game.ElementField
@@ -71,7 +72,7 @@ namespace Game.ElementField
             if (cell.IsEmpty)
                 return solid ? _solidColor : _emptyColor;
 
-            Color color = cell.MaterialKind == ElementMaterialKind.Fire
+            Color color = cell.MaterialKind == MaterialId.Fire
                 ? _fireColor
                 : _waterColor;
             // Gameplay 强度仍按 Amount/255 归一化，但 Debug View 额外保留最小可见 Alpha。

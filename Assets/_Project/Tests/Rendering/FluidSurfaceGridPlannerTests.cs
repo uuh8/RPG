@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -25,7 +26,7 @@ namespace Game.Rendering.Tests
             FluidSurfaceGridSettings grid = FluidSurfaceGridPlanner.Plan(bounds, in profile);
 
             Assert.That(grid.Resolution, Is.EqualTo(new Vector3Int(6, 4, 8)));
-            Assert.That(grid.WorldOrigin, Is.EqualTo(new Vector3(7.5f, 18.5f, 26.5f)));
+            Assert.That(grid.WorldOrigin, Is.EqualTo(new Vector3(8f, 19f, 27f)));
             Assert.That(grid.VoxelSize.x, Is.EqualTo(1f).Within(1e-6f));
             Assert.That(grid.VoxelSize.y, Is.EqualTo(1f).Within(1e-6f));
             Assert.That(grid.VoxelSize.z, Is.EqualTo(1f).Within(1e-6f));
@@ -104,6 +105,56 @@ namespace Game.Rendering.Tests
         }
 
         [Test]
+        public void SubVoxelBoundsMotionKeepsTheDensityLatticeWorldAnchored()
+        {
+            var profile = new LiquidRenderSettings(0.5f, 64, 2048, 0.5f, 1f);
+            var stationaryWindow = new Bounds(Vector3.zero, new Vector3(4f, 2f, 3f));
+            var slightlyMovedWindow = new Bounds(
+                new Vector3(0.1f, 0f, 0.1f),
+                stationaryWindow.size);
+
+            FluidSurfaceGridSettings first = FluidSurfaceGridPlanner.Plan(stationaryWindow, in profile);
+            FluidSurfaceGridSettings moved = FluidSurfaceGridPlanner.Plan(slightlyMovedWindow, in profile);
+
+            Assert.That(moved.WorldOrigin, Is.EqualTo(first.WorldOrigin));
+            Assert.That(ContainsBounds(moved.WorldBounds, slightlyMovedWindow), Is.True,
+                "量化后的 Density Grid 仍必须完整包住实际模拟窗口，不能用稳定性换裁切。");
+        }
+
+        [Test]
+        public void LargerBoundsMotionMovesOriginByWholeVoxelStepsAndStillCoversInterestBounds()
+        {
+            var profile = new LiquidRenderSettings(0.5f, 64, 2048, 0.5f, 1f);
+            var firstWindow = new Bounds(Vector3.zero, new Vector3(4f, 2f, 3f));
+            var movedWindow = new Bounds(new Vector3(0.4f, 0f, 0f), firstWindow.size);
+
+            FluidSurfaceGridSettings first = FluidSurfaceGridPlanner.Plan(firstWindow, in profile);
+            FluidSurfaceGridSettings moved = FluidSurfaceGridPlanner.Plan(movedWindow, in profile);
+
+            float originDeltaInVoxels =
+                (moved.WorldOrigin.x - first.WorldOrigin.x) / moved.VoxelSize.x;
+            Assert.That(originDeltaInVoxels, Is.EqualTo(Mathf.Round(originDeltaInVoxels)).Within(1e-5f));
+            Assert.That(ContainsBounds(moved.WorldBounds, movedWindow), Is.True);
+        }
+
+        [Test]
+        public void SingleSurfaceGridCoversTheWholeRequestedBounds()
+        {
+            var requestedBounds = new Bounds(
+                new Vector3(4f, 2f, -3f),
+                new Vector3(18f, 6f, 22f));
+            var settings = new LiquidRenderSettings(
+                0.1f, 96, 131072, 0.3f, 500f,
+                useStylizedCrown: true);
+
+            FluidSurfaceGridSettings grid = FluidSurfaceGridPlanner.Plan(
+                requestedBounds, in settings);
+
+            Assert.That(ContainsBounds(grid.WorldBounds, requestedBounds), Is.True,
+                "单 Surface 路径必须重建调用者请求的完整 Bounds，不能再裁成角色附近的 Near Box。");
+        }
+
+        [Test]
         public void ProfileCreatesAnImmutableInitializationSnapshot()
         {
             LiquidRenderProfile profile = ScriptableObject.CreateInstance<LiquidRenderProfile>();
@@ -123,6 +174,42 @@ namespace Game.Rendering.Tests
             {
                 UnityEngine.Object.DestroyImmediate(profile);
             }
+        }
+
+        [Test]
+        public void FireParcelLifecycleBlendsSurfaceIntoGasAndFadesAtExpiry()
+        {
+            var settings = new FireParcelPhaseSettings(0.8f, 0.2f, 1.2f, 1f, 2f);
+            FireParcelPhaseSample young = FireParcelPhaseMath.Evaluate(0f, in settings);
+            FireParcelPhaseSample middle = FireParcelPhaseMath.Evaluate(0.9f, in settings);
+            FireParcelPhaseSample expired = FireParcelPhaseMath.Evaluate(
+                settings.TotalLifetimeSeconds, in settings);
+
+            Assert.That(young.SurfaceWeight, Is.EqualTo(1f));
+            Assert.That(young.GasWeight, Is.EqualTo(0f));
+            Assert.That(middle.SurfaceWeight, Is.GreaterThan(0f));
+            Assert.That(middle.GasWeight, Is.GreaterThan(0f));
+            Assert.That(expired.SurfaceWeight, Is.EqualTo(0f));
+            Assert.That(expired.GasWeight, Is.EqualTo(0f));
+        }
+
+        [Test]
+        public void FireParcelGpuRecordsAndRingCursorKeepTheirContracts()
+        {
+            Assert.That(Marshal.SizeOf<FireParcelSpawnGpu>(), Is.EqualTo(32));
+            Assert.That(Marshal.SizeOf<FireParcelStateGpu>(), Is.EqualTo(64));
+            Assert.That(FireParcelPoolMath.ResolveRingSlot(5u, 4), Is.EqualTo(1));
+        }
+
+        private static bool ContainsBounds(Bounds container, Bounds content)
+        {
+            const float Epsilon = 1e-5f;
+            return container.min.x <= content.min.x + Epsilon
+                && container.min.y <= content.min.y + Epsilon
+                && container.min.z <= content.min.z + Epsilon
+                && container.max.x + Epsilon >= content.max.x
+                && container.max.y + Epsilon >= content.max.y
+                && container.max.z + Epsilon >= content.max.z;
         }
     }
 }

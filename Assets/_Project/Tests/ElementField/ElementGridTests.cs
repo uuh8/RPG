@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using NUnit.Framework;
 using UnityEngine;
@@ -13,19 +14,19 @@ namespace Game.ElementField.Tests
         [Test]
         public void SerializedMaterialValues_AreStable()
         {
-            Assert.That((byte)ElementMaterialKind.Empty, Is.EqualTo(0));
-            Assert.That((byte)ElementMaterialKind.Water, Is.EqualTo(1));
-            Assert.That((byte)ElementMaterialKind.Fire, Is.EqualTo(2));
-            Assert.That((byte)ElementMaterialKind.Poison, Is.EqualTo(3));
-            Assert.That((byte)ElementMaterialKind.Sticky, Is.EqualTo(4));
+            Assert.That((byte)MaterialId.Empty, Is.EqualTo(0));
+            Assert.That((byte)MaterialId.Water, Is.EqualTo(1));
+            Assert.That((byte)MaterialId.Fire, Is.EqualTo(2));
+            Assert.That((byte)MaterialId.Poison, Is.EqualTo(3));
+            Assert.That((byte)MaterialId.Sticky, Is.EqualTo(4));
         }
 
         [Test]
         public void ElementCell_IsEmptyWhenMaterialOrAmountIsEmpty()
         {
-            Assert.That(new ElementCell(ElementMaterialKind.Empty, 255).IsEmpty, Is.True);
-            Assert.That(new ElementCell(ElementMaterialKind.Water, 0).IsEmpty, Is.True);
-            Assert.That(new ElementCell(ElementMaterialKind.Water, 1).IsEmpty, Is.False);
+            Assert.That(new ElementCell(MaterialId.Empty, 255).IsEmpty, Is.True);
+            Assert.That(new ElementCell(MaterialId.Water, 0).IsEmpty, Is.True);
+            Assert.That(new ElementCell(MaterialId.Water, 1).IsEmpty, Is.False);
         }
 
         [Test]
@@ -72,14 +73,14 @@ namespace Game.ElementField.Tests
             var grid = new ElementGrid(new Vector3Int(2, 2, 2), maximumCellCount: 8);
             var coordinate = new Vector3Int(1, 0, 1);
 
-            grid.SetCell(coordinate, new ElementCell(ElementMaterialKind.Water, 128));
-            Assert.That(grid.GetCell(coordinate).MaterialKind, Is.EqualTo(ElementMaterialKind.Water));
+            grid.SetCell(coordinate, new ElementCell(MaterialId.Water, 128));
+            Assert.That(grid.GetCell(coordinate).MaterialKind, Is.EqualTo(MaterialId.Water));
             Assert.That(grid.GetCell(coordinate).Amount, Is.EqualTo(128));
             Assert.That(grid.IsSolid(coordinate), Is.False);
 
             grid.SetSolid(coordinate, true);
             Assert.That(grid.IsSolid(coordinate), Is.True);
-            Assert.That(grid.GetCell(coordinate).MaterialKind, Is.EqualTo(ElementMaterialKind.Water));
+            Assert.That(grid.GetCell(coordinate).MaterialKind, Is.EqualTo(MaterialId.Water));
             Assert.That(grid.GetCell(coordinate).Amount, Is.EqualTo(128));
         }
 
@@ -110,7 +111,7 @@ namespace Game.ElementField.Tests
         public void DebugClearCannotResurrectElementFromNextBuffer()
         {
             var grid = new ElementGrid(Vector3Int.one, maximumCellCount: 1, chunkSize: 1);
-            grid.SetCell(Vector3Int.zero, new ElementCell(ElementMaterialKind.Water, 30));
+            grid.SetCell(Vector3Int.zero, new ElementCell(MaterialId.Water, 30));
             grid.PrepareNextFromCurrent();
 
             Assert.That(grid.ClearElementsAndCommitVersions(), Is.EqualTo(1));

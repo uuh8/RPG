@@ -10,6 +10,7 @@ StructuredBuffer<uint2> _ParticleMetadata;
 StructuredBuffer<uint2> _SpatialEntries;
 StructuredBuffer<uint2> _CellRanges;
 StructuredBuffer<int4> _SpatialCells;
+StructuredBuffer<FluidGpuLiquidMaterialParameters> _LiquidMaterialParameters;
 struct FluidAnisotropyTransform
 {
     float4 row0;
@@ -18,16 +19,21 @@ struct FluidAnisotropyTransform
     float4 scaleValidity;
 };
 StructuredBuffer<FluidAnisotropyTransform> _AnisotropyTransforms;
+StructuredBuffer<float> _SurfaceSupports;
 RWTexture3D<float> _DensityTexture;
 
 int _ParticleCapacity;
 int _HashTableCapacity;
 float _SmoothingRadius;
 float _ParticleMass;
+int _TargetMaterialId;
 int _GridResolutionX;
 int _GridResolutionY;
 int _GridResolutionZ;
-int _AnisotropyCellRadius;
+int _DensityCellRadius;
+int _UseStylizedCrown;
+float _CrownHeightRatio;
+float _CrownFalloff;
 float3 _WorldOrigin;
 float3 _VoxelSize;
 
@@ -93,7 +99,8 @@ bool TryGetParticle(
     int4 buildCell = _SpatialCells[particleIndex];
     float3 surfaceBoundsMax = _WorldOrigin
         + float3(_GridResolutionX - 1, _GridResolutionY - 1, _GridResolutionZ - 1) * _VoxelSize;
-    if (!FluidIsInInterest(metadata.y)
+    if (!FluidIsAlive(metadata.y)
+        || (_TargetMaterialId > 0 && metadata.x != (uint)_TargetMaterialId)
         || predictedPosition.w <= 0.5f
         || buildCell.w == 0
         || any(buildCell.xyz != requiredCell)
@@ -109,6 +116,53 @@ bool TryGetParticle(
     return true;
 }
 
+float CalculateCrownUpScale(uint particleIndex, float baseUpMetric)
+{
+    if (_UseStylizedCrown == 0 || _CrownHeightRatio <= 0.0f)
+        return 1.0f;
+
+    float support = _SurfaceSupports[particleIndex];
+    if (!IsFiniteFloat(support)
+        || !IsFiniteFloat(_CrownHeightRatio)
+        || !IsFiniteFloat(_CrownFalloff)
+        || !IsFiniteFloat(baseUpMetric)
+        || _CrownHeightRatio < 0.0f
+        || _CrownHeightRatio > 1.0f
+        || _CrownFalloff <= 0.0f
+        || baseUpMetric <= 0.0f)
+    {
+        return 1.0f;
+    }
+
+    float clampedSupport = saturate(support);
+    // exp2/log2 避免部分 D3D11 compiler 对通用 pow 的负底数保守 warning；
+    // clampedSupport==0 单独返回，确保不会计算 log2(0)。
+    float weight = clampedSupport > 0.0f
+        ? exp2(log2(clampedSupport) * _CrownFalloff)
+        : 0.0f;
+    float desiredScale = 1.0f + _CrownHeightRatio * weight;
+    // Anisotropy 与 Crown 合成后的世界支持域仍不得超过 2h，
+    // 否则固定 5^3 Hash Cell 查询会漏掉本应贡献 Density 的粒子。
+    float maximumSafeScale = max(1.0f, 2.0f * baseUpMetric);
+    return min(desiredScale, maximumSafeScale);
+}
+
+float3 AdjustSampleAboveParticle(
+    float3 worldPosition,
+    float3 particlePosition,
+    float appliedUpScale)
+{
+    float height = worldPosition.y - particlePosition.y;
+    if (height <= 0.0f || appliedUpScale <= 1.0f)
+        return worldPosition;
+
+    // 只把粒子上方的 World Space Y 差值压缩后再送入 Kernel；
+    // 下半部保持原样，避免表面向地板内部同量膨胀。
+    float3 adjusted = worldPosition;
+    adjusted.y = particlePosition.y + height / appliedUpScale;
+    return adjusted;
+}
+
 [numthreads(4, 4, 4)]
 void GatherIsotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
@@ -121,22 +175,26 @@ void GatherIsotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     float3 worldPosition = _WorldOrigin + (float3)dispatchThreadId * _VoxelSize;
     float density = 0.0f;
+    float particleMass = _TargetMaterialId > 0
+        ? _LiquidMaterialParameters[(uint)_TargetMaterialId].massDensityViscosityPressure.x
+        : _ParticleMass;
     if (IsFiniteFloat3(worldPosition)
         && IsFiniteFloat(_SmoothingRadius)
         && _SmoothingRadius > 0.0f
-        && IsFiniteFloat(_ParticleMass)
-        && _ParticleMass > 0.0f
+        && IsFiniteFloat(particleMass)
+        && particleMass > 0.0f
         && _HashTableCapacity > 0)
     {
         int3 centerCell = PositionToCell(worldPosition);
-        [unroll]
-        for (int z = -1; z <= 1; z++)
+        int cellRadius = clamp(_DensityCellRadius, 1, 2);
+        [loop]
+        for (int z = -cellRadius; z <= cellRadius; z++)
         {
-            [unroll]
-            for (int y = -1; y <= 1; y++)
+            [loop]
+            for (int y = -cellRadius; y <= cellRadius; y++)
             {
-                [unroll]
-                for (int x = -1; x <= 1; x++)
+                [loop]
+                for (int x = -cellRadius; x <= cellRadius; x++)
                 {
                     int3 requiredCell = centerCell + int3(x, y, z);
                     uint bucket = HashCell(requiredCell);
@@ -159,8 +217,13 @@ void GatherIsotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
                                 particlePosition))
                             continue;
 
-                        float distance = length(worldPosition - particlePosition);
-                        density += _ParticleMass * Poly6(distance);
+                        float upScale = CalculateCrownUpScale(particleIndex, 1.0f);
+                        float3 adjustedSample = AdjustSampleAboveParticle(
+                            worldPosition,
+                            particlePosition,
+                            upScale);
+                        float distance = length(adjustedSample - particlePosition);
+                        density += particleMass * Poly6(distance);
                     }
                 }
             }
@@ -183,12 +246,15 @@ void GatherAnisotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
 
     float3 worldPosition = _WorldOrigin + (float3)dispatchThreadId * _VoxelSize;
     float density = 0.0f;
-    int cellRadius = clamp(_AnisotropyCellRadius, 1, 2);
+    float particleMass = _TargetMaterialId > 0
+        ? _LiquidMaterialParameters[(uint)_TargetMaterialId].massDensityViscosityPressure.x
+        : _ParticleMass;
+    int cellRadius = clamp(_DensityCellRadius, 1, 2);
     if (IsFiniteFloat3(worldPosition)
         && IsFiniteFloat(_SmoothingRadius)
         && _SmoothingRadius > 0.0f
-        && IsFiniteFloat(_ParticleMass)
-        && _ParticleMass > 0.0f
+        && IsFiniteFloat(particleMass)
+        && particleMass > 0.0f
         && _HashTableCapacity > 0)
     {
         int3 centerCell = PositionToCell(worldPosition);
@@ -229,19 +295,34 @@ void GatherAnisotropicDensity(uint3 dispatchThreadId : SV_DispatchThreadID)
                         // inactive slot 的记录可能仍是零矩阵；若它刚被 Spawn/reuse，零 affine 会让所有
                         // sample 都错误落到 Poly6(0) 峰值。valid 不成立或矩阵损坏时，以当前 Position
                         // 为中心做 Identity fallback，形成独立于 CPU schedule 的消费端防线。
-                        float3 kernelPosition = worldPosition - particlePosition;
-                        if (IsFiniteFloat(transform.scaleValidity.w)
-                            && transform.scaleValidity.w > 0.5f)
+                        float3 kernelPosition;
+                        float baseUpMetric = 1.0f;
+                        bool validTransform = IsFiniteFloat(transform.scaleValidity.w)
+                            && transform.scaleValidity.w > 0.5f;
+                        if (validTransform)
+                        {
+                            baseUpMetric = length(float3(
+                                transform.row0.y,
+                                transform.row1.y,
+                                transform.row2.y));
+                        }
+                        float upScale = CalculateCrownUpScale(particleIndex, baseUpMetric);
+                        float3 adjustedSample = AdjustSampleAboveParticle(
+                            worldPosition,
+                            particlePosition,
+                            upScale);
+                        kernelPosition = adjustedSample - particlePosition;
+                        if (validTransform)
                         {
                             float3 transformedPosition = float3(
-                                dot(transform.row0.xyz, worldPosition) + transform.row0.w,
-                                dot(transform.row1.xyz, worldPosition) + transform.row1.w,
-                                dot(transform.row2.xyz, worldPosition) + transform.row2.w);
+                                dot(transform.row0.xyz, adjustedSample) + transform.row0.w,
+                                dot(transform.row1.xyz, adjustedSample) + transform.row1.w,
+                                dot(transform.row2.xyz, adjustedSample) + transform.row2.w);
                             if (IsFiniteFloat3(transformedPosition))
                                 kernelPosition = transformedPosition;
                         }
 
-                        density += _ParticleMass * Poly6(length(kernelPosition));
+                        density += particleMass * Poly6(length(kernelPosition));
                     }
                 }
             }

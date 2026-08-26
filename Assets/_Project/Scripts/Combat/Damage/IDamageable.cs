@@ -14,8 +14,7 @@ namespace Game.Combat
         bool IsAlive { get; }
 
         /// <summary>
-        /// 受理一次命中。in 表示按只读引用传入 struct：方法内不能修改请求，也无需复制整份快照。
-        /// 实现方负责结算、扣血并同帧派发事件。
+        /// 受理一次命中
         /// </summary>
         void ReceiveHit(in DamageRequest req);
     }

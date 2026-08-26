@@ -1,0 +1,21 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7cece60d2e190b4ebeb72af59f1b581, type: 3}
+  m_Name: StatusReactionVisualProfile_Default
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.StatusReactionVisualProfile
+  ExtinguishSteamPrefab: {fileID: 0}
+  IgniteGooPrefab: {fileID: 0}
+  ToxicWindUpPrefab: {fileID: 0}
+  ToxicResolvedPrefab: {fileID: 4193361870976833811, guid: 16d64ab92f0ed2c40ae03b6c92878f99, type: 3}
+  ToxicResolvedLifetime: 2
+  ToxicBurstPoolCapacity: 4
+  ToxicCancelledPrefab: {fileID: 0}

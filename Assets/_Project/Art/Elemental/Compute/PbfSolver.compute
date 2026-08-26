@@ -1,7 +1,9 @@
 #pragma kernel ComputeDensityLambda
 #pragma kernel ComputeDeltaPosition
 #pragma kernel ApplyDeltaPosition
+#pragma kernel ApplyTensileDeltaPosition
 #pragma kernel UpdateVelocities
+#pragma kernel ComputeCohesionDeltaVelocities
 #pragma kernel ComputeXsphDeltaVelocities
 #pragma kernel ApplyDeltaVelocities
 #pragma kernel ComputeVorticities
@@ -23,6 +25,7 @@ RWStructuredBuffer<float4> _Vorticities;
 StructuredBuffer<uint2> _SpatialEntries;
 StructuredBuffer<uint2> _CellRanges;
 StructuredBuffer<int4> _SpatialCells;
+StructuredBuffer<FluidGpuLiquidMaterialParameters> _LiquidMaterialParameters;
 RWStructuredBuffer<uint> _Counters;
 
 int _ParticleCapacity;
@@ -33,9 +36,14 @@ float _RestDensity;
 float _LambdaEpsilon;
 float _ArtificialPressure;
 float _MaximumPositionCorrection;
+float _TensileStrength;
+float _MaximumTensilePositionCorrection;
 float _DeltaTime;
 float _Viscosity;
 float _Vorticity;
+float _CohesionStrength;
+float _CohesionRestDistance;
+float _MaximumCohesionDeltaSpeed;
 float _MaxSpeed;
 
 static const uint FLUID_INACTIVE_BUCKET = 0xffffffffu;
@@ -51,6 +59,30 @@ bool IsFiniteFloat(float value)
 bool IsFiniteFloat3(float3 value)
 {
     return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+FluidGpuLiquidMaterialParameters ResolveMaterialParameters(uint particleIndex)
+{
+    FluidGpuLiquidMaterialParameters value =
+        _LiquidMaterialParameters[_ParticleMetadata[particleIndex].x];
+    // 旧 GPU fixture 会绕过 Production Spawn Adapter 直接写粒子且不上传参数表。
+    // Production 对无 Row Material 会在 CPU 边界拒绝；这里的 fallback 仅保持既有 fixture 可诊断。
+    if (value.massDensityViscosityPressure.x <= 0.0f
+        || value.massDensityViscosityPressure.y <= 0.0f)
+    {
+        float restSpacing = pow(_ParticleMass / max(_RestDensity, 1e-6f), 1.0f / 3.0f);
+        value.massDensityViscosityPressure = float4(
+            _ParticleMass,
+            _RestDensity,
+            _Viscosity,
+            _ArtificialPressure);
+        value.cohesionAndSleep = float4(
+            _CohesionStrength,
+            _CohesionRestDistance / max(restSpacing, 1e-6f),
+            _MaximumCohesionDeltaSpeed,
+            0.02f);
+    }
+    return value;
 }
 
 void RecordNumericalError()
@@ -99,18 +131,18 @@ float3 SpikyGradient(float3 offset)
     return coefficient * pow(_SmoothingRadius - distance, 2.0f) * (offset / distance);
 }
 
-float ArtificialPressure(float distance)
+float ArtificialPressure(float distance, float artificialPressure)
 {
-    if (_ArtificialPressure <= 0.0f || distance >= _SmoothingRadius)
+    if (artificialPressure <= 0.0f || distance >= _SmoothingRadius)
         return 0.0f;
 
     // sCorr 的 ratio 截断到 1，保证该项位于 [-ArtificialPressure, 0]，而非在重合时无界放大。
     float denominator = max(Poly6(FLUID_ARTIFICIAL_PRESSURE_RATIO * _SmoothingRadius), 1e-6f);
     float ratio = saturate(Poly6(distance) / denominator);
-    return -_ArtificialPressure * ratio * ratio * ratio * ratio;
+    return -artificialPressure * ratio * ratio * ratio * ratio;
 }
 
-bool TryGetNeighbor(uint sortedIndex, int3 requiredCell, out uint neighborIndex)
+bool TryGetNeighbor(uint sortedIndex, int3 requiredCell, uint targetParticleIndex, out uint neighborIndex)
 {
     neighborIndex = 0u;
     if (sortedIndex >= (uint)_ParticleCapacity)
@@ -122,7 +154,10 @@ bool TryGetNeighbor(uint sortedIndex, int3 requiredCell, out uint neighborIndex)
 
     float4 candidatePosition = _PredictedPositions[entry.y];
     int4 candidateCell = _SpatialCells[entry.y];
-    if (!FluidIsInInterest(_ParticleMetadata[entry.y].y)
+    // Hash 已收录所有 Alive。Remote target 既要和同批远程粒子聚合，也要把已经落稳的
+    // Resident 水滩当作静态密度邻居；只有 target 是否推进才由 IsActive/RequiresSimulation 决定。
+    if (!FluidIsAlive(_ParticleMetadata[entry.y].y)
+        || _ParticleMetadata[entry.y].x != _ParticleMetadata[targetParticleIndex].x
         || candidatePosition.w <= 0.5f
         || candidateCell.w == 0
         || !IsFiniteFloat3(candidatePosition.xyz))
@@ -160,6 +195,10 @@ void ComputeDensityLambda(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (!IsActive(particleIndex))
         return;
 
+    FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
+    float particleMass = material.massDensityViscosityPressure.x;
+    float restDensity = material.massDensityViscosityPressure.y;
+
     float3 position = _PredictedPositions[particleIndex].xyz;
     if (!IsFiniteFloat3(position))
     {
@@ -194,23 +233,27 @@ void ComputeDensityLambda(uint3 dispatchThreadId : SV_DispatchThreadID)
         for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
         {
             uint neighborIndex;
-            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex))
+            if (!TryGetNeighbor(sortedIndex, neighborCell, particleIndex, neighborIndex))
                 continue;
 
             float3 offset = position - _PredictedPositions[neighborIndex].xyz;
             float distance = length(offset);
-            density += _ParticleMass * Poly6(distance);
+            density += particleMass * Poly6(distance);
             if (neighborIndex == particleIndex)
                 continue;
 
-            float3 gradientJ = -(_ParticleMass / _RestDensity) * SpikyGradient(offset);
+            float3 gradientJ = -(particleMass / restDensity) * SpikyGradient(offset);
             gradientI -= gradientJ;
             gradientSumSquared += dot(gradientJ, gradientJ);
         }
     }
 
     gradientSumSquared += dot(gradientI, gradientI);
-    float lambda = -(density / _RestDensity - 1.0f) / (gradientSumSquared + _LambdaEpsilon);
+    // Free Surface 外侧没有邻居，Density 低于 Rest Density 是离散 SPH 的正常边界现象。
+    // 只约束正 Compression，避免欠密度产生巨大正 Lambda 并在边缘反复吸引/回弹；
+    // 连续水团的聚合职责已经由后续有界 Cohesion Pass 承担。
+    float compressionConstraint = max(density / restDensity - 1.0f, 0.0f);
+    float lambda = -compressionConstraint / (gradientSumSquared + _LambdaEpsilon);
     if (!IsFiniteFloat(density) || !IsFiniteFloat(lambda))
     {
         _DensityLambda[particleIndex] = float2(0.0f, 0.0f);
@@ -228,11 +271,16 @@ void ComputeDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (!IsActive(particleIndex))
         return;
 
+    FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
+    float restDensity = material.massDensityViscosityPressure.y;
+    float artificialPressure = material.massDensityViscosityPressure.w;
+
     float3 position = _PredictedPositions[particleIndex].xyz;
     float lambdaI = _DensityLambda[particleIndex].y;
     if (!IsFiniteFloat3(position) || !IsFiniteFloat(lambdaI))
     {
         _DeltaPositions[particleIndex] = 0.0f;
+        _DeltaVelocities[particleIndex] = 0.0f;
         RecordNumericalError();
         return;
     }
@@ -241,10 +289,14 @@ void ComputeDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (!TryGetSpatialCell(particleIndex, cell))
     {
         _DeltaPositions[particleIndex] = 0.0f;
+        _DeltaVelocities[particleIndex] = 0.0f;
         RecordNumericalError();
         return;
     }
     float3 deltaPosition = 0.0f;
+    float3 tensileDeltaPosition = 0.0f;
+    float densityI = _DensityLambda[particleIndex].x;
+    float densityDeficitI = saturate(1.0f - densityI / restDensity);
 
     [unroll]
     for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
@@ -261,7 +313,7 @@ void ComputeDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
         for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
         {
             uint neighborIndex;
-            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex)
+            if (!TryGetNeighbor(sortedIndex, neighborCell, particleIndex, neighborIndex)
                 || neighborIndex == particleIndex)
             {
                 continue;
@@ -269,21 +321,48 @@ void ComputeDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
 
             float3 offset = position - _PredictedPositions[neighborIndex].xyz;
             float lambdaJ = _DensityLambda[neighborIndex].y;
+            float densityJ = _DensityLambda[neighborIndex].x;
             float3 gradient = SpikyGradient(offset);
-            deltaPosition += (lambdaI + lambdaJ + ArtificialPressure(length(offset)))
-                * gradient / _RestDensity;
+            deltaPosition += (lambdaI + lambdaJ + ArtificialPressure(length(offset), artificialPressure))
+                * gradient / restDensity;
+            // 与主 Lambda 分离：只有欠密度自由表面获得极弱吸引；达到 RestDensity 后严格为 0。
+            float densityDeficitJ = saturate(1.0f - densityJ / restDensity);
+            float tensilePressure = _TensileStrength
+                * 0.5f * (densityDeficitI + densityDeficitJ);
+            tensileDeltaPosition += tensilePressure * gradient / restDensity;
         }
     }
 
-    if (!IsFiniteFloat3(deltaPosition))
+    if (!IsFiniteFloat3(deltaPosition)
+        || !IsFiniteFloat3(tensileDeltaPosition)
+        || !IsFiniteFloat(densityI))
     {
         _DeltaPositions[particleIndex] = 0.0f;
+        _DeltaVelocities[particleIndex] = 0.0f;
         RecordNumericalError();
         return;
     }
 
-    // 该 Kernel 只写私有 Delta 槽位，绝不直接写 PredictedPositions；下一 Dispatch 才统一 Apply。
+    float tensileLength = length(tensileDeltaPosition);
+    if (_TensileStrength <= 0.0f)
+    {
+        tensileDeltaPosition = 0.0f;
+    }
+    else if (!IsFiniteFloat(_MaximumTensilePositionCorrection)
+        || _MaximumTensilePositionCorrection <= 0.0f)
+    {
+        tensileDeltaPosition = 0.0f;
+        RecordNumericalError();
+    }
+    else if (tensileLength > _MaximumTensilePositionCorrection && tensileLength > 0.0f)
+    {
+        tensileDeltaPosition *= _MaximumTensilePositionCorrection / tensileLength;
+    }
+
+    // 复用速度阶段尚未消费的 DeltaVelocities 作为第二个私有 Position Delta，避免新增常驻 GPU Buffer。
+    // 两个 Delta 都在后续独立 Dispatch Apply，不能在邻居循环里直接写 PredictedPositions。
     _DeltaPositions[particleIndex] = float4(deltaPosition, 0.0f);
+    _DeltaVelocities[particleIndex] = float4(tensileDeltaPosition, 0.0f);
 }
 
 [numthreads(64, 1, 1)]
@@ -323,6 +402,42 @@ void ApplyDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 
 [numthreads(64, 1, 1)]
+void ApplyTensileDeltaPosition(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    float3 correction = _DeltaVelocities[particleIndex].xyz;
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    if (!IsFiniteFloat3(correction) || !IsFiniteFloat3(position))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        _PredictedPositions[particleIndex] = float4(
+            IsFiniteFloat3(position) ? position : 0.0f,
+            1.0f);
+        RecordNumericalError();
+        return;
+    }
+
+    // Compute 阶段已截断；Apply 再做一次防御式上限，避免错误绑定参数突破安全边界。
+    float correctionLength = length(correction);
+    if (correctionLength > _MaximumTensilePositionCorrection && correctionLength > 0.0f)
+        correction *= _MaximumTensilePositionCorrection / correctionLength;
+
+    float3 correctedPosition = position + correction;
+    if (!IsFiniteFloat3(correctedPosition))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        _PredictedPositions[particleIndex] = float4(position, 1.0f);
+        RecordNumericalError();
+        return;
+    }
+
+    _PredictedPositions[particleIndex] = float4(correctedPosition, 1.0f);
+}
+
+[numthreads(64, 1, 1)]
 void UpdateVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint particleIndex = dispatchThreadId.x;
@@ -344,11 +459,114 @@ void UpdateVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 
 [numthreads(64, 1, 1)]
+void ComputeCohesionDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint particleIndex = dispatchThreadId.x;
+    if (!IsActive(particleIndex))
+        return;
+
+    FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
+    float cohesionStrength = material.cohesionAndSleep.x;
+    float cohesionRestDistance = pow(
+        material.massDensityViscosityPressure.x / material.massDensityViscosityPressure.y,
+        1.0f / 3.0f) * material.cohesionAndSleep.y;
+    float maximumCohesionDeltaSpeed = material.cohesionAndSleep.z;
+
+    float3 position = _PredictedPositions[particleIndex].xyz;
+    if (!IsFiniteFloat3(position)
+        || !IsFiniteFloat(cohesionRestDistance)
+        || cohesionRestDistance < 0.0f
+        || cohesionRestDistance >= _SmoothingRadius)
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    int3 cell;
+    if (!TryGetSpatialCell(particleIndex, cell))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    float3 weightedDirection = 0.0f;
+    float weightSum = 0.0f;
+    [unroll]
+    for (int cellOffsetIndex = 0; cellOffsetIndex < 27; cellOffsetIndex++)
+    {
+        int3 neighborCell = cell + int3(
+            cellOffsetIndex % 3 - 1,
+            (cellOffsetIndex / 3) % 3 - 1,
+            cellOffsetIndex / 9 - 1);
+        uint2 range = _CellRanges[HashCell(neighborCell)];
+        if (range.x == FLUID_INACTIVE_BUCKET || range.y <= range.x)
+            continue;
+
+        uint end = min(range.y, (uint)_ParticleCapacity);
+        for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
+        {
+            uint neighborIndex;
+            if (!TryGetNeighbor(sortedIndex, neighborCell, particleIndex, neighborIndex)
+                || neighborIndex == particleIndex)
+            {
+                continue;
+            }
+
+            float3 neighborPosition = _PredictedPositions[neighborIndex].xyz;
+            float neighborDensity = _DensityLambda[neighborIndex].x;
+            float3 offset = neighborPosition - position;
+            float distance = length(offset);
+            if (!IsFiniteFloat3(neighborPosition)
+                || !IsFiniteFloat(neighborDensity)
+                || !IsFiniteFloat(distance))
+            {
+                _DeltaVelocities[particleIndex] = 0.0f;
+                RecordNumericalError();
+                return;
+            }
+            if (distance <= cohesionRestDistance || distance >= _SmoothingRadius)
+                continue;
+
+            float q = (distance - cohesionRestDistance)
+                / (_SmoothingRadius - cohesionRestDistance);
+            float weight = 4.0f * q * (1.0f - q);
+            weightedDirection += (offset / distance) * weight;
+            weightSum += weight;
+        }
+    }
+
+    float3 acceleration = weightSum > 1e-6f
+        ? cohesionStrength * weightedDirection / weightSum
+        : 0.0f;
+    float3 deltaVelocity = acceleration * _DeltaTime;
+    float deltaSpeed = length(deltaVelocity);
+    if (deltaSpeed > maximumCohesionDeltaSpeed && deltaSpeed > 0.0f)
+        deltaVelocity *= maximumCohesionDeltaSpeed / deltaSpeed;
+
+    if (!IsFiniteFloat3(weightedDirection)
+        || !IsFiniteFloat(weightSum)
+        || !IsFiniteFloat3(deltaVelocity))
+    {
+        _DeltaVelocities[particleIndex] = 0.0f;
+        RecordNumericalError();
+        return;
+    }
+
+    _DeltaVelocities[particleIndex] = float4(deltaVelocity, 0.0f);
+}
+
+[numthreads(64, 1, 1)]
 void ComputeXsphDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     uint particleIndex = dispatchThreadId.x;
     if (!IsActive(particleIndex))
         return;
+
+    FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
+    float particleMass = material.massDensityViscosityPressure.x;
+    float viscosity = material.massDensityViscosityPressure.z;
 
     float3 position = _PredictedPositions[particleIndex].xyz;
     float3 velocity = _Velocities[particleIndex].xyz;
@@ -379,7 +597,7 @@ void ComputeXsphDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
         for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
         {
             uint neighborIndex;
-            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex) || neighborIndex == particleIndex)
+            if (!TryGetNeighbor(sortedIndex, neighborCell, particleIndex, neighborIndex) || neighborIndex == particleIndex)
                 continue;
 
             float3 neighborVelocity = _Velocities[neighborIndex].xyz;
@@ -393,7 +611,7 @@ void ComputeXsphDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID)
             float distance = length(position - _PredictedPositions[neighborIndex].xyz);
             // 标准 XSPH：c * (m_j/rho_j) * (v_j-v_i) * W。rho 来自本轮 Density Kernel，
             // 不能偷用 RestDensity，否则不同密度区域会得到错误的平滑尺度。
-            deltaVelocity += _Viscosity * (_ParticleMass / neighborDensity)
+            deltaVelocity += viscosity * (particleMass / neighborDensity)
                 * (neighborVelocity - velocity) * Poly6(distance);
         }
     }
@@ -436,6 +654,9 @@ void ComputeVorticities(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (!IsActive(particleIndex))
         return;
 
+    FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
+    float particleMass = material.massDensityViscosityPressure.x;
+
     float3 position = _PredictedPositions[particleIndex].xyz;
     float3 velocity = _Velocities[particleIndex].xyz;
     if (!IsFiniteFloat3(position) || !IsFiniteFloat3(velocity))
@@ -465,7 +686,7 @@ void ComputeVorticities(uint3 dispatchThreadId : SV_DispatchThreadID)
         for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
         {
             uint neighborIndex;
-            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex) || neighborIndex == particleIndex)
+            if (!TryGetNeighbor(sortedIndex, neighborCell, particleIndex, neighborIndex) || neighborIndex == particleIndex)
                 continue;
 
             float neighborDensity = _DensityLambda[neighborIndex].x;
@@ -477,7 +698,7 @@ void ComputeVorticities(uint3 dispatchThreadId : SV_DispatchThreadID)
             }
 
             float3 offset = position - _PredictedPositions[neighborIndex].xyz;
-            vorticity += (_ParticleMass / neighborDensity)
+            vorticity += (particleMass / neighborDensity)
                 * cross(neighborVelocity - velocity, SpikyGradient(offset));
         }
     }
@@ -498,6 +719,9 @@ void ComputeVorticityDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadI
     uint particleIndex = dispatchThreadId.x;
     if (!IsActive(particleIndex))
         return;
+
+    FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
+    float particleMass = material.massDensityViscosityPressure.x;
 
     float3 position = _PredictedPositions[particleIndex].xyz;
     float3 vorticity = _Vorticities[particleIndex].xyz;
@@ -529,7 +753,7 @@ void ComputeVorticityDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadI
         for (uint sortedIndex = range.x; sortedIndex < end; sortedIndex++)
         {
             uint neighborIndex;
-            if (!TryGetNeighbor(sortedIndex, neighborCell, neighborIndex) || neighborIndex == particleIndex)
+            if (!TryGetNeighbor(sortedIndex, neighborCell, particleIndex, neighborIndex) || neighborIndex == particleIndex)
                 continue;
 
             float neighborDensity = _DensityLambda[neighborIndex].x;
@@ -542,7 +766,7 @@ void ComputeVorticityDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadI
 
             float3 offset = position - _PredictedPositions[neighborIndex].xyz;
             // eta 是 |omega| 的归一化差分梯度；减去本粒子项才能得到局部变化而非整体尺度偏移。
-            eta += (_ParticleMass / neighborDensity)
+            eta += (particleMass / neighborDensity)
                 * (length(neighborVorticity) - vorticityMagnitude) * SpikyGradient(offset);
         }
     }

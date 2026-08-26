@@ -1,3 +1,4 @@
+using Game.Materials;
 using System;
 using System.Runtime.CompilerServices;
 using Game.ElementField;
@@ -167,7 +168,7 @@ namespace Game.Rendering
                 byte waterAmount =
                     world.TryGetCell(globalCell, out ElementCell cell)
                     && !cell.IsEmpty
-                    && cell.MaterialKind == ElementMaterialKind.Water
+                    && cell.MaterialKind == MaterialId.Water
                         ? cell.Amount
                         : (byte)0;
                 CachedWaterAmounts[index] = waterAmount;

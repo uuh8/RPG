@@ -24,8 +24,9 @@ SamplerState sampler_DensityTexture;
 RWStructuredBuffer<FluidSurfaceTriangle> _FluidSurfaceTriangles;
 RWStructuredBuffer<uint> _TriangleCounter;
 RWStructuredBuffer<uint> _OverflowCounter;
-// IndirectArguments 在 D3D11 上暴露 R32_UINT typed UAV；按 4 个 uint 寻址，不能误当 Structured struct。
-RWBuffer<uint> _IndirectArguments;
+// C# 侧 Buffer 是 count=1、stride=16 的 IndirectDrawArgs。D3D12 仍把它视为一个逻辑元素，
+// 所以不能用 RWBuffer<uint>[1..3] 越界寻址；ByteAddress 的 0/4/8/12 byte offset 才跨后端一致。
+RWByteAddressBuffer _IndirectArguments;
 
 int _GridResolutionX;
 int _GridResolutionY;
@@ -104,10 +105,10 @@ void ClearSurfaceCounters(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
     _TriangleCounter[0] = 0u;
     _OverflowCounter[0] = 0u;
-    _IndirectArguments[0] = 0u;
-    _IndirectArguments[1] = 1u;
-    _IndirectArguments[2] = 0u;
-    _IndirectArguments[3] = 0u;
+    _IndirectArguments.Store(0u, 0u);
+    _IndirectArguments.Store(4u, 1u);
+    _IndirectArguments.Store(8u, 0u);
+    _IndirectArguments.Store(12u, 0u);
 }
 
 // 一个 thread 只拥有一个 Cell，读取该 Cell 的 8 个 Lattice Samples，最多生成 5 个 Triangle。
@@ -218,11 +219,12 @@ void ExtractSurface(uint3 dispatchThreadId : SV_DispatchThreadID)
             continue;
         }
 
-        FluidSurfaceTriangle triangle;
-        triangle.v0 = MakeVertex(p0, n0, geometricNormal);
-        triangle.v1 = MakeVertex(p1, n1, geometricNormal);
-        triangle.v2 = MakeVertex(p2, n2, geometricNormal);
-        _FluidSurfaceTriangles[triangleIndex] = triangle;
+        // `triangle` 在部分 Unity HLSL/DXC 路径中会被当成保留 token，使用明确变量名保证 D3D11/12 都可编译。
+        FluidSurfaceTriangle outputTriangle;
+        outputTriangle.v0 = MakeVertex(p0, n0, geometricNormal);
+        outputTriangle.v1 = MakeVertex(p1, n1, geometricNormal);
+        outputTriangle.v2 = MakeVertex(p2, n2, geometricNormal);
+        _FluidSurfaceTriangles[triangleIndex] = outputTriangle;
     }
 }
 
@@ -232,8 +234,8 @@ void BuildIndirectArgs(uint3 dispatchThreadId : SV_DispatchThreadID)
     uint boundedTriangleCount = min(
         min(_TriangleCounter[0], (uint)max(_MaximumTriangleCount, 0)),
         1431655765u);
-    _IndirectArguments[0] = boundedTriangleCount * 3u;
-    _IndirectArguments[1] = 1u;
-    _IndirectArguments[2] = 0u;
-    _IndirectArguments[3] = 0u;
+    _IndirectArguments.Store(0u, boundedTriangleCount * 3u);
+    _IndirectArguments.Store(4u, 1u);
+    _IndirectArguments.Store(8u, 0u);
+    _IndirectArguments.Store(12u, 0u);
 }

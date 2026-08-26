@@ -1,3 +1,4 @@
+using Game.Materials;
 using System.Collections.Generic;
 using Game.ElementField;
 using NUnit.Framework;
@@ -223,7 +224,7 @@ namespace Game.Rendering.Tests
 
             public void SetWater(int x, int y, int z, byte amount)
             {
-                _cells[ToIndex(x, y, z)] = new ElementCell(ElementMaterialKind.Water, amount);
+                _cells[ToIndex(x, y, z)] = new ElementCell(MaterialId.Water, amount);
             }
 
             public void SetSolid(int x, int y, int z, bool solid)

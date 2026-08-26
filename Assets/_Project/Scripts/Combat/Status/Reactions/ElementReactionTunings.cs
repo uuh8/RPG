@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Game.Combat
 {
@@ -14,6 +15,23 @@ namespace Game.Combat
         [Min(0f)] public float FormalThreshold;
         [Min(0f)] public float LowRatePerSecond;
         [Min(0f)] public float FormalRatePerSecond;
+        // 一点 Water 能移除多少 Fire。生产配置为 2，旧 Asset 缺失该字段时由纯公式兼容为 1。
+        [Min(0.01f)] public float FireRemovedPerWater;
+    }
+
+    /// <summary>
+    /// 一步灭火计算的两侧独立消耗量。非对称结果避免上层 Runtime 再猜测换算关系。
+    /// </summary>
+    public readonly struct ExtinguishResult
+    {
+        public readonly float FireRemoved;
+        public readonly float WaterConsumed;
+
+        public ExtinguishResult(float fireRemoved, float waterConsumed)
+        {
+            FireRemoved = fireRemoved;
+            WaterConsumed = waterConsumed;
+        }
     }
 
     /// <summary>
@@ -62,6 +80,17 @@ namespace Game.Combat
     }
 
     /// <summary>
+    /// Water + Goo 的连续转化速率。Sticky 只作为催化接触条件；WaterConvertPerSecond
+    /// 表示每秒最多把多少“状态强度点”等价的 Water 原位改成 Sticky。
+    /// </summary>
+    [Serializable]
+    public struct AbsorbWaterTuning
+    {
+        [FormerlySerializedAs("GooConsumePerSecond")]
+        [Min(0f)] public float WaterConvertPerSecond;
+    }
+
+    /// <summary>
     /// Wet 的一帧有限清洗预算分配结果。先 Poison 后 Goo，因此两者不会重复使用同一份预算。
     /// </summary>
     public readonly struct WetCleanseResult
@@ -89,6 +118,7 @@ namespace Game.Combat
         public readonly WetCleanseTuning WetCleanse;
         public readonly ToxicCombustionTuning ToxicCombustion;
         public readonly IgniteGooTuning IgniteGoo;
+        public readonly AbsorbWaterTuning AbsorbWater;
         public readonly float PoisonWetCleanseMultiplier;
         public readonly float GooWetCleanseMultiplier;
 
@@ -97,6 +127,7 @@ namespace Game.Combat
             WetCleanseTuning wetCleanse,
             ToxicCombustionTuning toxicCombustion,
             IgniteGooTuning igniteGoo,
+            AbsorbWaterTuning absorbWater,
             float poisonWetCleanseMultiplier,
             float gooWetCleanseMultiplier)
         {
@@ -105,8 +136,23 @@ namespace Game.Combat
             WetCleanse = wetCleanse;
             ToxicCombustion = toxicCombustion;
             IgniteGoo = igniteGoo;
+            AbsorbWater = absorbWater;
             PoisonWetCleanseMultiplier = poisonWetCleanseMultiplier;
             GooWetCleanseMultiplier = gooWetCleanseMultiplier;
+        }
+
+
+        // 保留旧构造签名，避免已有测试与工具因新增反应调参被迫同步修改。
+        public ElementReactionTuningSnapshot(
+            ExtinguishTuning extinguish,
+            WetCleanseTuning wetCleanse,
+            ToxicCombustionTuning toxicCombustion,
+            IgniteGooTuning igniteGoo,
+            float poisonWetCleanseMultiplier,
+            float gooWetCleanseMultiplier)
+            : this(extinguish, wetCleanse, toxicCombustion, igniteGoo, default,
+                poisonWetCleanseMultiplier, gooWetCleanseMultiplier)
+        {
         }
     }
 }

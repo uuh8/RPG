@@ -1,3 +1,4 @@
+using Game.Materials;
 using System.Collections;
 using Game.Core;
 using UnityEngine;
@@ -94,7 +95,7 @@ namespace Game.ElementField
 
             request = new ElementWriteRequest(
                 worldPosition,
-                ElementMaterialKind.Fire,
+                MaterialId.Fire,
                 (ushort)Mathf.Clamp(_pulseAmount, 1, ushort.MaxValue),
                 Mathf.Max(0f, _radius),
                 _useLinearFalloff);

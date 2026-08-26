@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b27caa4898008c54bb6205ad8b16e7e3, type: 3}
+  m_Name: LiquidMaterialProfile_Water
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.LiquidMaterialProfile
+  _material: 1
+  _amountUnitsPerParticle: 8
+  _particleMass: 1
+  _restDensity: 1000
+  _viscosity: 0.08
+  _artificialPressure: 0.001
+  _cohesionStrength: 12
+  _cohesionRestDistanceRatio: 1
+  _maximumCohesionDeltaSpeed: 0.2
+  _sleepDensityErrorThreshold: 0.02

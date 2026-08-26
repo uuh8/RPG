@@ -22,6 +22,7 @@ namespace Game.Character
 
         protected CharacterController _cc;
         protected Animator _animator;
+        private StatusController _statusController;
 
         private EnemyPerception _perception;
         private EnemyStateMachine _stateMachine;
@@ -54,6 +55,9 @@ namespace Game.Character
         {
             _cc = GetComponent<CharacterController>();
             _animator = GetComponentInChildren<Animator>();
+            // StatusController 属于 Combat，Character 只消费最终倍率，不理解 Sticky/Reaction 规则。
+            // Awake 缓存避免敌人 MoveHorizontal 热路径反复 GetComponent。
+            _statusController = GetComponent<StatusController>();
 
             _perception = new EnemyPerception(this);
             _stateMachine = new EnemyStateMachine();
@@ -137,8 +141,12 @@ namespace Game.Character
         private void MoveHorizontal(Vector3 dir)
         {
             dir.y = 0f;
+            float statusMultiplier = _statusController != null
+                ? _statusController.MoveSpeedMultiplier
+                : 1f;
             Vector3 horizontal = dir.sqrMagnitude > 1e-6f
-                ? dir.normalized * _definition.MoveSpeed : Vector3.zero;
+                ? dir.normalized * _definition.MoveSpeed * Mathf.Max(0f, statusMultiplier)
+                : Vector3.zero;
             ApplyGravity();
             Vector3 velocity = horizontal;
             velocity.y = _verticalVelocity;

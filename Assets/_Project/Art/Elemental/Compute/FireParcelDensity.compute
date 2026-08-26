@@ -1,0 +1,54 @@
+#pragma kernel GatherFireDensity
+
+struct FireParcelStateGpu
+{
+    float3 position; float age;
+    float3 velocity; float lifetime;
+    float3 sourcePosition; float radius;
+    float surfaceWeight; float gasWeight; float heat; float active;
+};
+StructuredBuffer<FireParcelStateGpu> _FireParcelStates;
+RWTexture3D<float> _FireDensity;
+int _Capacity;
+int _SurfaceParcelBudget;
+int _SurfaceStartSlot;
+int _GridResolutionX, _GridResolutionY, _GridResolutionZ;
+float3 _WorldOrigin;
+float3 _VoxelSize;
+float _SurfaceKernelScale;
+float _LiquidLikeRadiusMultiplier;
+
+[numthreads(4,4,4)]
+void GatherFireDensity(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_GridResolutionX
+        || id.y >= (uint)_GridResolutionY
+        || id.z >= (uint)_GridResolutionZ)
+        return;
+    // point 在部分 HLSL importer 中会被解析为保留 token，使用明确的 World-space 名称。
+    float3 samplePositionWS = _WorldOrigin + (float3)id * _VoxelSize;
+    float density = 0.0;
+    int count = min(_Capacity, _SurfaceParcelBudget);
+    [loop] for (int i = 0; i < count; i++)
+    {
+        // start 与 count 都小于等于 Capacity，所以和最多跨过 Ring 尾部一次；
+        // 条件减法规避每个 Voxel、每个 Parcel 都执行昂贵的整数 modulus。
+        int slot = _SurfaceStartSlot + i;
+        if (slot >= _Capacity)
+            slot -= _Capacity;
+        FireParcelStateGpu state = _FireParcelStates[slot];
+        if (state.active < 0.5 || state.surfaceWeight <= 0.001) continue;
+        // Surface 与 Gas 使用独立半径：这里仅增强 Liquid-like Density 的连通体积，
+        // Gas Billboard 的大小仍由 Shader 中的 GasRadiusMultiplier 控制。
+        float support = max(
+            state.radius * _SurfaceKernelScale * _LiquidLikeRadiusMultiplier,
+            0.001);
+        float q = length(samplePositionWS - state.position) / support;
+        if (q < 1.0)
+        {
+            float x = 1.0 - q * q;
+            density += x * x * x * state.surfaceWeight * lerp(0.55, 1.0, state.heat);
+        }
+    }
+    _FireDensity[id] = density;
+}

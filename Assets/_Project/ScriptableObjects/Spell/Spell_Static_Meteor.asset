@@ -25,7 +25,7 @@ MonoBehaviour:
   CastSfx: {fileID: 8300000, guid: 5cd691c7632755d499fbbb55bc1f0fac, type: 3}
   PayloadTrigger: 0
   PayloadDelaySeconds: 1
-  SpawnMode: 0
+  SpawnMode: 1
   LandingSitePrefab: {fileID: 72791106268204831, guid: 12b7fadf73dea6e438f34f19557d5b1a, type: 3}
   SkyfallHeight: 20
   SkyfallBackOffset: 20

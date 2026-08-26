@@ -29,6 +29,7 @@ namespace Game.ElementField
         public GraphicsBuffer Counters { get; private set; }
         public GraphicsBuffer SpawnRequests { get; private set; }
         public GraphicsBuffer ConsumeRequests { get; private set; }
+        public GraphicsBuffer ConvertRequests { get; private set; }
         public GraphicsBuffer ColliderProxies { get; private set; }
         public GraphicsBuffer CollisionContacts { get; private set; }
         public GraphicsBuffer GameplaySamples { get; private set; }
@@ -37,12 +38,14 @@ namespace Game.ElementField
         public GraphicsBuffer ActivityCounters { get; private set; }
         public GraphicsBuffer SolverDispatchArgs { get; private set; }
         public GraphicsBuffer HashDispatchArgs { get; private set; }
+        public GraphicsBuffer LiquidMaterialParameters { get; private set; }
 
         public FluidGpuResourceSet(
             int particleCapacity,
             int hashTableCapacity,
             int maxSpawnRequests,
-            int maxFluidColliders = 64)
+            int maxFluidColliders = 64,
+            FluidGpuLiquidMaterialParameters[] liquidMaterialParameters = null)
         {
             if (particleCapacity <= 0)
                 throw new ArgumentOutOfRangeException(nameof(particleCapacity));
@@ -75,6 +78,7 @@ namespace Game.ElementField
                 Counters = CreateStructured(FluidGpuLayout.CounterCount, sizeof(uint));
                 SpawnRequests = CreateStructured(maxSpawnRequests, FluidGpuLayout.SpawnRequestStride);
                 ConsumeRequests = CreateStructured(maxSpawnRequests, FluidGpuLayout.ConsumeRequestStride);
+                ConvertRequests = CreateStructured(maxSpawnRequests, FluidGpuLayout.ConvertRequestStride);
                 ColliderProxies = CreateStructured(maxFluidColliders, FluidGpuLayout.ColliderProxyStride);
                 CollisionContacts = CreateStructured(
                     particleCapacity,
@@ -92,6 +96,16 @@ namespace Game.ElementField
                     GraphicsBuffer.Target.IndirectArguments,
                     3,
                     sizeof(uint));
+                LiquidMaterialParameters = CreateStructured(
+                    LiquidMaterialSettingsTable.Capacity,
+                    FluidGpuLayout.LiquidMaterialParameterStride);
+                FluidGpuLiquidMaterialParameters[] materialRows = liquidMaterialParameters
+                    ?? new FluidGpuLiquidMaterialParameters[LiquidMaterialSettingsTable.Capacity];
+                if (materialRows.Length != LiquidMaterialSettingsTable.Capacity)
+                    throw new ArgumentException("Liquid Material GPU table must contain 256 rows.", nameof(liquidMaterialParameters));
+                // GraphicsBuffer 初始显存未定义；显式上传 zero rows，测试/Debug 绕过 Production Table 时
+                // 才能可靠进入 Shader 的 legacy-fixture fallback，而不是读取上一块 VRAM 残值。
+                LiquidMaterialParameters.SetData(materialRows);
             }
             catch
             {
@@ -121,6 +135,7 @@ namespace Game.ElementField
             Counters = DisposeBuffer(Counters);
             SpawnRequests = DisposeBuffer(SpawnRequests);
             ConsumeRequests = DisposeBuffer(ConsumeRequests);
+            ConvertRequests = DisposeBuffer(ConvertRequests);
             ColliderProxies = DisposeBuffer(ColliderProxies);
             CollisionContacts = DisposeBuffer(CollisionContacts);
             GameplaySamples = DisposeBuffer(GameplaySamples);
@@ -129,6 +144,7 @@ namespace Game.ElementField
             ActivityCounters = DisposeBuffer(ActivityCounters);
             SolverDispatchArgs = DisposeBuffer(SolverDispatchArgs);
             HashDispatchArgs = DisposeBuffer(HashDispatchArgs);
+            LiquidMaterialParameters = DisposeBuffer(LiquidMaterialParameters);
         }
 
         private static GraphicsBuffer CreateStructured(int count, int stride)

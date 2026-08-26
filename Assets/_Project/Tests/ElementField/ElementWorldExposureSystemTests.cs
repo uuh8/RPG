@@ -1,7 +1,9 @@
+using Game.Materials;
 using System.Collections.Generic;
 using System.Reflection;
 using Game.Combat;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 
 namespace Game.ElementField.Tests
@@ -21,12 +23,17 @@ namespace Game.ElementField.Tests
         private ElementWorldExposureSystem _exposure;
         private ElementWorldProfile _profile;
         private ElementReactionProfile _reactionProfile;
+        private MaterialDefinition[] _materialDefinitions;
+        private MaterialCatalog _materialCatalog;
+        private MaterialSimulationRoutingProfile _routingProfile;
+        private MaterialStatusProjectionProfile _statusProjection;
         private readonly List<GameObject> _createdTargets = new List<GameObject>(4);
 
         [SetUp]
         public void SetUp()
         {
             _reactionProfile = ScriptableObject.CreateInstance<ElementReactionProfile>();
+            CreateMaterialRoutingFixture();
             _profile = ScriptableObject.CreateInstance<ElementWorldProfile>();
             SetPrivateField(_profile, "_cellSize", 1f);
             SetPrivateField(_profile, "_chunkSize", 2);
@@ -41,6 +48,33 @@ namespace Game.ElementField.Tests
             SetPrivateField(_profile, "_maxLateralFlowPerTick", 0);
             SetPrivateField(_profile, "_fireDecayPerTick", 0);
             SetPrivateField(_profile, "_reactionProfile", _reactionProfile);
+            SetPrivateField(_profile, "_materialCatalog", _materialCatalog);
+            SetPrivateField(_profile, "_materialSimulationRouting", _routingProfile);
+            _statusProjection = ScriptableObject.CreateInstance<MaterialStatusProjectionProfile>();
+            SetPrivateField(
+                _statusProjection,
+                "_bindings",
+                new[]
+                {
+                    new MaterialStatusProjectionBinding
+                    {
+                        Material = MaterialId.Water,
+                        Status = StatusKind.Wet,
+                        MaximumApplyPerExposureTick = MaxApplyPerTick,
+                    },
+                    new MaterialStatusProjectionBinding
+                    {
+                        Material = MaterialId.Fire,
+                        Status = StatusKind.Burning,
+                        MaximumApplyPerExposureTick = MaxApplyPerTick,
+                    },
+                });
+            SetPrivateField(_profile, "_materialStatusProjection", _statusProjection);
+            SetPrivateField(
+                _profile,
+                "_materialReactionBindings",
+                AssetDatabase.LoadAssetAtPath<MaterialReactionBindingProfile>(
+                    "Assets/_Project/ScriptableObjects/Combat/Reactions/MaterialReactionBindings_Default.asset"));
 
             _interestObject = new GameObject("ElementWorldExposure.Interest");
             _interestObject.transform.position = CellCenter(0);
@@ -54,8 +88,6 @@ namespace Game.ElementField.Tests
             SetPrivateField(_exposure, "_targetLayers", (LayerMask)~0);
             SetPrivateField(_exposure, "_exposureInterval", ExposureInterval);
             SetPrivateField(_exposure, "_naturalDecayHoldGraceSeconds", 0.1f);
-            SetPrivateField(_exposure, "_maxWetApplyPerTick", MaxApplyPerTick);
-            SetPrivateField(_exposure, "_maxBurningApplyPerTick", MaxApplyPerTick);
 
             Assert.That(InvokePrivateResult<bool>(_runtime, "TryInitialize"), Is.True);
             InvokePrivateVoid(_exposure, "Awake");
@@ -80,12 +112,23 @@ namespace Game.ElementField.Tests
                 Object.DestroyImmediate(_profile);
             if (_reactionProfile != null)
                 Object.DestroyImmediate(_reactionProfile);
+            if (_routingProfile != null)
+                Object.DestroyImmediate(_routingProfile);
+            if (_statusProjection != null)
+                Object.DestroyImmediate(_statusProjection);
+            if (_materialCatalog != null)
+                Object.DestroyImmediate(_materialCatalog);
+            if (_materialDefinitions != null)
+            {
+                for (int i = 0; i < _materialDefinitions.Length; i++)
+                    Object.DestroyImmediate(_materialDefinitions[i]);
+            }
         }
 
         [Test]
         public void WaterCellAppliesWetProportionalToAmount()
         {
-            Deposit(0, ElementMaterialKind.Water, amount: 128);
+            Deposit(0, MaterialId.Water, amount: 128);
             StatusController target = CreateTarget(CellCenter(0), Vector3.one * 0.4f);
 
             _exposure.TickForTests(ExposureInterval);
@@ -98,7 +141,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void SettledSleepingWaterStillAppliesWetInsideInterestRegion()
         {
-            Deposit(0, ElementMaterialKind.Water, amount: 128);
+            Deposit(0, MaterialId.Water, amount: 128);
 
             // 写入 Tick 之后再推进两个无变化 Tick，使该非空 Chunk 达到默认 Settlement Hysteresis。
             Assert.That(_runtime.TickForTests(0.1f), Is.EqualTo(1));
@@ -115,7 +158,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void FireCellAppliesBurningProportionalToAmount()
         {
-            Deposit(1, ElementMaterialKind.Fire, amount: 64);
+            Deposit(1, MaterialId.Fire, amount: 64);
             StatusController target = CreateTarget(CellCenter(1), Vector3.one * 0.4f);
 
             _exposure.TickForTests(ExposureInterval);
@@ -128,8 +171,8 @@ namespace Game.ElementField.Tests
         [Test]
         public void ColliderCrossingChunkBoundaryUsesMaximumIntensity()
         {
-            Deposit(1, ElementMaterialKind.Water, amount: 64);
-            Deposit(2, ElementMaterialKind.Water, amount: 200);
+            Deposit(1, MaterialId.Water, amount: 64);
+            Deposit(2, MaterialId.Water, amount: 200);
             StatusController target = CreateTarget(
                 new Vector3(2f, 0.5f, 0.5f),
                 new Vector3(1.8f, 0.4f, 0.4f));
@@ -144,7 +187,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void MultipleCollidersApplyOnlyOncePerStatusTarget()
         {
-            Deposit(0, ElementMaterialKind.Water, byte.MaxValue);
+            Deposit(0, MaterialId.Water, byte.MaxValue);
             GameObject targetRoot = new GameObject("WorldExposureTarget.MultiCollider");
             _createdTargets.Add(targetRoot);
             targetRoot.transform.position = CellCenter(0);
@@ -161,7 +204,7 @@ namespace Game.ElementField.Tests
         [Test]
         public void TargetOutsideActiveWorldRegionIsIgnored()
         {
-            Deposit(8, ElementMaterialKind.Water, byte.MaxValue);
+            Deposit(8, MaterialId.Water, byte.MaxValue);
             StatusController target = CreateTarget(CellCenter(8), Vector3.one * 0.4f);
 
             _exposure.TickForTests(ExposureInterval);
@@ -170,7 +213,7 @@ namespace Game.ElementField.Tests
                 "远离 Interest Region 的 Collider 即使所在 Sleeping Chunk 保留 Water，也不应继续接受 Exposure。");
         }
 
-        private void Deposit(int globalX, ElementMaterialKind kind, byte amount)
+        private void Deposit(int globalX, MaterialId kind, byte amount)
         {
             var request = new ElementWriteRequest(
                 CellCenter(globalX),
@@ -206,6 +249,43 @@ namespace Game.ElementField.Tests
         private static Vector3 CellCenter(int x)
         {
             return new Vector3(x + 0.5f, 0.5f, 0.5f);
+        }
+
+        private void CreateMaterialRoutingFixture()
+        {
+            _materialDefinitions = new[]
+            {
+                CreateDefinition(MaterialId.Water, MaterialBehaviorKind.Liquid),
+                CreateDefinition(MaterialId.Fire, MaterialBehaviorKind.ReactiveField),
+                CreateDefinition(MaterialId.Poison, MaterialBehaviorKind.Liquid),
+            };
+            _materialCatalog = ScriptableObject.CreateInstance<MaterialCatalog>();
+            SetPrivateField(_materialCatalog, "_definitions", _materialDefinitions);
+
+            _routingProfile = ScriptableObject.CreateInstance<MaterialSimulationRoutingProfile>();
+            var serialized = new SerializedObject(_routingProfile);
+            SerializedProperty routes = serialized.FindProperty("_routes");
+            routes.arraySize = 2;
+            SetRoute(routes.GetArrayElementAtIndex(0), MaterialId.Fire, MaterialSimulationBackendKind.ElementCell);
+            SetRoute(routes.GetArrayElementAtIndex(1), MaterialId.Poison, MaterialSimulationBackendKind.Unsupported);
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static MaterialDefinition CreateDefinition(MaterialId id, MaterialBehaviorKind behavior)
+        {
+            MaterialDefinition definition = ScriptableObject.CreateInstance<MaterialDefinition>();
+            SetPrivateField(definition, "_id", id);
+            SetPrivateField(definition, "_behavior", behavior);
+            return definition;
+        }
+
+        private static void SetRoute(
+            SerializedProperty route,
+            MaterialId material,
+            MaterialSimulationBackendKind backend)
+        {
+            route.FindPropertyRelative("_material").intValue = (byte)material;
+            route.FindPropertyRelative("_backend").intValue = (byte)backend;
         }
 
         private static void SetPrivateField<TTarget, TValue>(

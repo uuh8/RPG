@@ -74,7 +74,11 @@ namespace Game.Combat
         /// </summary>
         // event 只允许本类触发 Invoke，外部只能 += 订阅或 -= 取消订阅，避免上层伪造命中。
         public event System.Action<Vector3, Vector3> Impacted;
-
+        /// <summary>
+        /// 需要真实接触法线的消费者使用该通道；旧 Impacted 继续服务 Spell Payload/VFX，
+        /// 两个事件由同一次 ContactPoint 构造，避免不同模块各自猜测表面朝向。
+        /// </summary>
+        public event System.Action<ProjectileImpactContext> SurfaceImpacted;
         /// <summary>
         /// 定时触发计时器到点时广播当前位置与当前方向。Combat 不知道 payload；上层可选择订阅。
         /// 提前命中/销毁不会触发该事件。
@@ -91,6 +95,7 @@ namespace Game.Combat
         public static int ActiveCount => s_active.Count;
         internal static IReadOnlyList<ProjectileBase> ActiveProjectiles => s_active;
 
+        # region Unity生命周期函数
         protected virtual void Awake()
         {
             // Awake 在 Prefab 实例创建后调用一次；GetComponent 只搜索当前 GameObject。
@@ -124,6 +129,29 @@ namespace Game.Combat
             OnProjectileUpdate();
         }
 
+        protected virtual void FixedUpdate()
+        {
+            if (_consumed || _rb == null) return;
+
+            // Rigidbody 属于 Physics Step，FixedUpdate 按固定时间步调用；使用 fixedDeltaTime 才与物理更新频率一致。
+            using (s_motionMarker.Auto())
+            {
+                if (_orbitEnabled)
+                    TickOrbit(Time.fixedDeltaTime);
+                else
+                    TickHoming(Time.fixedDeltaTime);    // 追踪行为放在 `FixedUpdate` 中执行，因为它修改的是 `Rigidbody.linearVelocity`，属于 Physics Step 使用的运动数据
+
+                // 非抛物线投射物不更新模型朝向；命中冻结(velocity≈0)时自动停止，保留命中姿态
+                if (!FaceVelocityInFlight) return;
+                Vector3 v = _rb.linearVelocity;
+                if (v.sqrMagnitude > 1e-6f)
+                    // LookRotation 让局部 +Z 朝向速度；Euler 偏移再补偿模型资产自身的前轴差异。
+                    transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
+            }
+        }
+
+        # endregion
+
         protected virtual void OnProjectileUpdate() { }
 
         private void TickTimedTrigger()
@@ -138,27 +166,6 @@ namespace Game.Combat
             // ?.Invoke 表示有订阅者才调用；没有 Payload 监听时不会产生 NullReferenceException。
             TimedTriggerElapsed?.Invoke(transform.position, ResolveCurrentDirection());
             Destroy(gameObject);
-        }
-
-        protected virtual void FixedUpdate()
-        {
-            if (_consumed || _rb == null) return;
-
-            // Rigidbody 属于 Physics Step，FixedUpdate 按固定时间步调用；使用 fixedDeltaTime 才与物理更新频率一致。
-            using (s_motionMarker.Auto())
-            {
-                if (_orbitEnabled)
-                    TickOrbit(Time.fixedDeltaTime);
-                else
-                    TickHoming(Time.fixedDeltaTime);
-
-                // 非抛物线投射物不更新模型朝向；命中冻结(velocity≈0)时自动停止，保留命中姿态
-                if (!FaceVelocityInFlight) return;
-                Vector3 v = _rb.linearVelocity;
-                if (v.sqrMagnitude > 1e-6f)
-                    // LookRotation 让局部 +Z 朝向速度；Euler 偏移再补偿模型资产自身的前轴差异。
-                    transform.rotation = Quaternion.LookRotation(v) * Quaternion.Euler(_modelForwardOffsetEuler);
-            }
         }
 
         /// <summary>
@@ -321,7 +328,7 @@ namespace Game.Combat
             // GetComponentInParent 从发生接触的 Collider 开始向父节点查找接口，兼容“子节点碰撞体、根节点生命组件”。
             IDamageable target = collision.collider.GetComponentInParent<IDamageable>();
 
-            // 同阵营（施法者自身/队友）→ 穿过，不结算不销毁、不算命中（不触发）。
+            // 处理同阵营穿过
             if (target != null && target.TeamId == _attackerTeam)
             {
                 if (_collider != null)
@@ -331,6 +338,7 @@ namespace Game.Combat
                 return;
             }
 
+            // 尝试环境弹跳
             if (TryBounce(collision, target))
                 return;
 
@@ -338,7 +346,8 @@ namespace Game.Combat
                 return;
 
             // GetContact(0) 直接读取第一个 ContactPoint，比先取 contacts 数组更适合这里只需一个命中点的场景。
-            Vector3 hitPoint = collision.GetContact(0).point;
+            ContactPoint contact = collision.GetContact(0);
+            Vector3 hitPoint = contact.point;
             Vector3 vel = _rb != null ? _rb.linearVelocity : Vector3.zero;
             Vector3 hitDir = vel.sqrMagnitude > 1e-6f ? vel.normalized : transform.forward;
             bool damaged = false;
@@ -357,6 +366,13 @@ namespace Game.Combat
 
             // 命中通知：法术触发据此在命中点跑载荷（普通投射物无监听者，空触发无开销）
             _consumed = true;
+            SurfaceImpacted?.Invoke(new ProjectileImpactContext(
+                hitPoint,
+                hitDir,
+                contact.normal,
+                target,
+                _attackerId,
+                _attackerTeam));
             // SpellCaster 若为该投射物绑定了 Payload，会在这个同步回调里以命中点运行下一层法术序列。
             Impacted?.Invoke(hitPoint, hitDir);
 
@@ -369,44 +385,72 @@ namespace Game.Combat
             return false;
         }
 
+        // 弹跳_修正
         private bool TryBounce(Collision collision, IDamageable target)
         {
+            // 1. 反弹前置拦截
+            // - 碰到了有效伤害目标（如敌人）：不反弹，而是穿透或造成伤害。
+            // - 反弹次数耗尽：不再反弹。
+            // - 刚体丢失：物理失控，无法反弹。
             if (target != null || _bounceRemaining <= 0 || _rb == null)
                 return false;
-
+            // 没有接触点信息无法计算法线，直接退出
             if (collision.contactCount <= 0)
                 return false;
 
+            // 2. 确定入射方向
+            // 物理引擎的实时速度可能因碰撞衰减或微小抖动而不可靠，因此优先使用记录的初速度 _launchVelocity。
             Vector3 velocity = _rb.linearVelocity;
             Vector3 intendedVelocity = _launchVelocity.sqrMagnitude > 1e-6f ? _launchVelocity : velocity;
+            // 获取单位化的入射方向向量；若速度接近零（静止或极慢），退而使用投射物的前朝向。
             Vector3 incoming = intendedVelocity.sqrMagnitude > 1e-6f ? intendedVelocity.normalized : transform.forward;
-            Vector3 normal = collision.GetContact(0).normal;
-            float normalDot = Vector3.Dot(incoming, normal);
-            // Dot < 0 表示速度确实朝向表面；Reflect 按表面法线计算镜面反射方向。
+
+            // 3. 计算反射方向
+            Vector3 normal = collision.GetContact(0).normal;        // 碰撞表面的法线方向
+            float normalDot = Vector3.Dot(incoming, normal);      // 入射方向与法线的点积
+            // 若 Dot < 0 表示速度确实朝向表面；Reflect 按表面法线计算镜面反射方向。
+            // 若 Dot >= 0 表示可能是从表面内部穿出或擦边，此时保持原方向，不做反射。
             Vector3 reflected = normalDot < 0f ? Vector3.Reflect(incoming, normal) : incoming;
 
+            // 反射后速度接近零（例如几乎垂直法线入射导致反射量极小），视为无效反弹。
             if (reflected.sqrMagnitude <= 1e-6f)
                 return false;
 
             reflected.Normalize();
+
+            // 4. 记录调试可视化信息（供开发期在 Scene 视图绘制射线辅助 Debug）
             ContactPoint contact = collision.GetContact(0);
             RecordDebugReflection(contact.point, normal, reflected);
+
+            // 5. 确定反弹速率
+            // 优先使用当前记录的速率 _currentSpeed（可能受加速/减速 Buff 影响），
+            // 若无效则退回预期速度的模长，再无效则使用初速度的模长。
             float speed = _currentSpeed > 1e-6f ? _currentSpeed : intendedVelocity.magnitude;
             if (speed <= 1e-6f)
                 speed = _launchVelocity.magnitude;
 
-            _bounceRemaining--;
-            _orbitEnabled = false;
-            Vector3 newVelocity = reflected * speed;
-            // 沿法线轻推离表面，避免下一固定步仍重叠而立即重复触发碰撞。
-            _rb.position += normal * 0.03f;
-            _rb.linearVelocity = newVelocity;
-            _launchVelocity = newVelocity;
+            // 6. 应用反弹状态
+            _bounceRemaining--;          // 消耗一次反弹次数
+            _orbitEnabled = false;       // 反弹后脱离任何追踪/环绕轨道，改为纯直线飞行
 
+            Vector3 newVelocity = reflected * speed;    // 最终的新速度 = 反射方向 × 速率
+
+            // 优化点：沿法线方向将刚体微推离碰撞表面。
+            // 物理引擎中，碰撞后刚体可能仍与碰撞体存在微小重叠，
+            // 如果不推开，下一固定帧会立即再次触发碰撞，导致投射物“卡在墙里”或连续异常反弹。
+            _rb.position += normal * 0.03f;
+
+            _rb.linearVelocity = newVelocity;   // 写入新速度
+            _launchVelocity = newVelocity;      // 更新记录的初速度，供后续可能的再次反弹或逻辑使用
+
+            // 7. 更新朝向
+            // 将投射物的 Z 轴对齐到反射方向，并叠加模型本身的旋转偏移修正（_modelForwardOffsetEuler）
             transform.rotation = Quaternion.LookRotation(reflected) * Quaternion.Euler(_modelForwardOffsetEuler);
+
             return true;
         }
 
+        // 轨道_修正
         private void TickOrbit(float deltaTime)
         {
             if (!_orbitEnabled || _rb == null)
@@ -429,25 +473,41 @@ namespace Game.Combat
             _currentSpeed = newVelocity.magnitude;
         }
 
+        # region 追踪法术
         private void TickHoming(float deltaTime)
         {
+            // 若该投射物未配置追踪特性，直接跳过。
             if (!_homingEnabled)
                 return;
+
+            // 阶段 1：目标未锁定 -> 节流扫描
 
             if (!_homingAcquired)
             {
                 _homingScanTimer -= deltaTime;
+                // 扫描冷却未结束，本帧不执行耗性能的 OverlapSphere 查询。
                 if (_homingScanTimer > 0f)
                     return;
 
+                // 冷却结束，重置下次扫描计时器。
+                // 下限钳制为 0.02s（最多每秒扫描50次），防止配置极小值导致每帧扫描拖垮性能。
                 _homingScanTimer = Mathf.Max(0.02f, _homingScanInterval);
                 TryAcquireHomingTarget();
                 return;
             }
 
+            // 阶段 2：目标已锁定 -> 有效性守卫
+
+            // 追踪持续时间耗尽，停止转向（保持当前直线飞行方向）。
             if (_homingRemaining <= 0f)
                 return;
 
+            // 多维度的目标失效检测：
+            // 1. Collider 引用丢失（目标被 Destroy）
+            // 2. Collider 被禁用（目标进入不可交互状态）
+            // 3. GameObject 被隐藏（SetActive(false)）
+            // 4. 接口引用丢失或目标已死亡
+            // 一旦任何条件满足，立即清零剩余追踪时间，使投射物放弃追踪变为直飞弹。
             if (_homingTargetCollider == null ||
                 !_homingTargetCollider.enabled ||
                 !_homingTargetCollider.gameObject.activeInHierarchy ||
@@ -458,67 +518,108 @@ namespace Game.Combat
                 return;
             }
 
+            // 消耗追踪时长
             _homingRemaining -= deltaTime;
+
+            // 阶段 3：计算并应用转向
 
             Vector3 velocity = _rb.linearVelocity;
             float speed = velocity.magnitude;
+            // 速度极小（近乎静止），无法确定当前飞行方向，放弃本帧转向。
             if (speed <= 1e-6f)
                 return;
 
-            // Character Root 通常位于脚底。持续读取实际命中 Collider 的 Bounds Center，
-            // 才能在不同身高、不同 Collider 类型的目标之间保持通用且可命中的追踪点。
+
+            // 计算指向目标追踪锚点的向量。
+            // ResolveHomingTargetPoint 会读取命中 Collider 的 Bounds Center，
+            // 这样能适应不同身高/不同Collider类型的单位（如人和巨龙），而不是死板地追踪 Transform.position（往往在脚底）。
             Vector3 toTarget =
                 ResolveHomingTargetPoint(_homingTargetCollider) -
                 transform.position;
+
+            // 投射物与目标几乎重合（距离极小），方向向量无意义，放弃本帧转向。
             if (toTarget.sqrMagnitude <= 1e-6f)
                 return;
 
-            // RotateTowards 每步最多旋转 maxRadians，形成有转向速度上限的追踪，而不是瞬间锁死目标方向。
+            // 计算本物理步允许旋转的最大弧度。
+            // _homingTurnRateDegrees 是“度/秒”，乘以 Deg2Rad 转为“弧度/秒”，再乘 deltaTime 得到本步增量。
             float maxRadians = _homingTurnRateDegrees * Mathf.Deg2Rad * deltaTime;
+
+            // 核心转向算法：Vector3.RotateTowards
+            // 从当前飞行方向，向目标方向旋转，但单步最大旋转量不超过 maxRadians。
+            // 这使得投射物拥有“转向速度上限”，形成平滑的弧线追踪轨迹，而不是瞬间锁死目标。
             Vector3 newDir = Vector3.RotateTowards(velocity.normalized, toTarget.normalized, maxRadians, 0f);
+
+            // 组装新速度：新方向 × 原速率（追踪过程只改方向，不改变飞行速率大小）
             Vector3 newVelocity = newDir * speed;
+
+            // 写入物理引擎并同步更新记录的初速度（供后续碰撞反弹等逻辑使用）
             _rb.linearVelocity = newVelocity;
             _launchVelocity = newVelocity;
         }
 
+        /// <summary>
+        /// 尝试在设定的追踪半径内寻找最佳的追踪目标。
+        /// 扫描周围所有碰撞体，过滤掉无效目标（自身、友军、死亡单位），选出距离最近的敌方目标并锁定。
+        /// </summary>
         private void TryAcquireHomingTarget()
         {
-            // OverlapSphereNonAlloc 查询半径内所有 Collider，并把结果写入复用数组；返回值是实际写入数量。
-            // 数组容量是系统边界：同一范围超过 16 个 Collider 时只处理写入的部分。
+            // 1. 空间扫描
+            // OverlapSphereNonAlloc 以投射物当前位置为球心，_homingRadius 为半径，查询所有重叠的 Collider。
+            // 结果写入静态复用数组 s_homingHits（避免每帧 GC Alloc 产生内存垃圾）。
+            // 返回值 hitCount 是实际碰到的 Collider 数量（受限于数组长度，超过部分会被截断丢弃）。
             int hitCount = Physics.OverlapSphereNonAlloc(transform.position, _homingRadius, s_homingHits);
-            float bestSqrDistance = float.MaxValue;
+
+            // 初始化最佳候选记录
+            float bestSqrDistance = float.MaxValue; ; // 记录当前最小距离（初始设为最大值，以便第一个合法目标直接覆盖）
             Collider bestTargetCollider = null;
             IDamageable bestDamageable = null;
 
+            // 2. 遍历与过滤
             for (int i = 0; i < hitCount; i++)
             {
                 Collider hit = s_homingHits[i];
+
+                // 过滤条件 A：忽略空引用和自身碰撞体（防止投射物追踪自己）
                 if (hit == null || hit == _collider)
                     continue;
 
+                // 向上查找挂载在父物体上的 IDamageable 接口（因为 Collider 常挂在子节点，而逻辑脚本在父节点）
                 IDamageable damageable = hit.GetComponentInParent<IDamageable>();
+
+                // 过滤条件 B：必须满足以下全部条件，否则跳过：
+                // 1) 实现了 IDamageable 接口（是可受伤实体，而不是纯墙壁）
+                // 2) 目标存活
+                // 3) 阵营不同（避免友军相残，追踪弹不会锁友军）
                 if (damageable == null || !damageable.IsAlive || damageable.TeamId == _attackerTeam)
                     continue;
 
-                Vector3 targetPoint =
-                    ResolveHomingTargetPoint(hit);
-                // 只比较距离大小时使用平方距离，省去每个候选目标的平方根运算。
+                // 获取该候选目标的精确追踪锚点（头部），而不是简单的 Collider 中心
+                Vector3 targetPoint = ResolveHomingTargetPoint(hit);
+
+                // 过滤条件 C：距离筛选
+                // 使用 sqrMagnitude（平方距离）代替 magnitude（距离）。
+                // 因为平方根运算开销大，且在仅比较大小的情况下，平方距离的大小关系与真实距离完全一致。
                 float sqrDistance = (targetPoint - transform.position).sqrMagnitude;
                 if (sqrDistance >= bestSqrDistance)
-                    continue;
+                    continue;   // 距离不如当前最佳候选近，跳过
 
+                // 更新最佳候选记录
                 bestSqrDistance = sqrDistance;
                 bestTargetCollider = hit;
                 bestDamageable = damageable;
             }
 
+            // 3. 锁定目标
+            // 如果扫完整个数组都没找到合法目标，直接返回，保持未追踪状态。
             if (bestTargetCollider == null)
                 return;
 
-            _homingTargetCollider = bestTargetCollider;
-            _homingTargetDamageable = bestDamageable;
-            _homingAcquired = true;
-            _homingRemaining = _homingDuration;
+            // 找到了最佳目标，写入投射物的追踪状态字段
+            _homingTargetCollider = bestTargetCollider;   // 锁定目标的 Collider，供后续每帧持续朝它转向
+            _homingTargetDamageable = bestDamageable;     // 缓存接口引用，避免后续帧重复调用 GetComponentInParent
+            _homingAcquired = true;                       // 标记已获取目标，激活追踪转向逻辑
+            _homingRemaining = _homingDuration;           // 重置追踪持续时间倒计时（限制追踪弹不能无限拐弯）
         }
 
         /// <summary>
@@ -532,6 +633,8 @@ namespace Game.Combat
                 ? targetCollider.bounds.center
                 : Vector3.zero;
         }
+
+        # endregion
 
         public ProjectileDebugSnapshot GetDebugSnapshot()
         {

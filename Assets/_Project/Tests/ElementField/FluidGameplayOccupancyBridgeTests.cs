@@ -1,3 +1,4 @@
+using Game.Materials;
 using NUnit.Framework;
 using UnityEngine;
 
@@ -70,40 +71,6 @@ namespace Game.ElementField.Tests
             Assert.That(FluidSnapshotPublishPolicy.ShouldPublish(
                 requestHasError: false,
                 stagingRebuildSucceeded: true), Is.True);
-        }
-
-        [TestCase(WaterSimulationMode.LegacyCell, ElementMaterialKind.Water, false)]
-        [TestCase(WaterSimulationMode.LegacyCell, ElementMaterialKind.Fire, false)]
-        [TestCase(WaterSimulationMode.GpuPbf, ElementMaterialKind.Water, true)]
-        [TestCase(WaterSimulationMode.GpuPbf, ElementMaterialKind.Fire, false)]
-        public void ExposurePolicy_RoutesOnlyPbfWaterToOccupancy(
-            WaterSimulationMode mode,
-            ElementMaterialKind material,
-            bool expectedOccupancy)
-        {
-            Assert.That(
-                ElementExposureSourcePolicy.ShouldReadOccupancy(mode, material),
-                Is.EqualTo(expectedOccupancy));
-        }
-
-        [Test]
-        public void ExposurePolicy_MissingPbfSnapshotDoesNotRedirectFire()
-        {
-            Assert.That(ElementExposureSourcePolicy.ResolveAmount(
-                WaterSimulationMode.GpuPbf,
-                ElementMaterialKind.Fire,
-                hasLegacyCell: true,
-                legacyAmount: 77,
-                hasOccupancy: false,
-                occupancyAmount: 0), Is.EqualTo(77));
-
-            Assert.That(ElementExposureSourcePolicy.ResolveAmount(
-                WaterSimulationMode.GpuPbf,
-                ElementMaterialKind.Water,
-                hasLegacyCell: true,
-                legacyAmount: 99,
-                hasOccupancy: false,
-                occupancyAmount: 0), Is.Zero);
         }
 
         [Test]
