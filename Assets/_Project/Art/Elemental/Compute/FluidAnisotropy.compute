@@ -39,12 +39,21 @@ static const float FLUID_EPSILON = 1e-6f;
 
 bool IsFiniteFloat(float value)
 {
-    return !isnan(value) && !isinf(value);
+    // exponent 全 1 是 IEEE 754 的 NaN/Infinity；bit test 不受 fast-math 影响。
+    return (asuint(value) & 0x7f800000u) != 0x7f800000u;
 }
 
 bool IsFiniteFloat3(float3 value)
 {
     return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+float PositiveTwoThirdsPower(float value)
+{
+    // Anisotropy ratio 在业务上至少为 1。显式限制正数域后用 log2/exp2，
+    // 避免通用分数次幂让 D3D compiler 假设底数可能为负。
+    float safeValue = max(value, 1.0f);
+    return exp2(log2(safeValue) * (2.0f / 3.0f));
 }
 
 int3 PositionToCell(float3 position)
@@ -501,7 +510,7 @@ void BuildAnisotropyTransform(uint3 dispatchThreadId : SV_DispatchThreadID)
     float transverseVariance = max(0.5f * (max(yy, 0.0f) + max(zz, 0.0f)), varianceFloor);
     float3 dominantAxis = normalize(v0);
     float rawElongation = sqrt(dominantVariance / transverseVariance);
-    float maximumLongFromRatio = pow(max(_MaximumAnisotropyRatio, 1.0f), 2.0f / 3.0f);
+    float maximumLongFromRatio = PositiveTwoThirdsPower(_MaximumAnisotropyRatio);
     float maximumLongFromMinimumScale = rcp(
         max(_MinimumAnisotropyScale * _MinimumAnisotropyScale, FLUID_EPSILON));
     float maximumLong = min(

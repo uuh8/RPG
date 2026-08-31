@@ -26,7 +26,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _DebugForceOpaqueFragment: 0
-    - _DeepAlpha: 0.279
+    - _DeepAlpha: 1
     - _DepthFadeDistance: 1.5
     - _DepthNoiseStrength: 0.12
     - _FoamAlphaBoost: 0.2
@@ -43,10 +43,10 @@ Material:
     - _WaveScaleA: 15
     - _WaveScaleB: 12
     m_Colors:
-    - _DeepColor: {r: 0.49056602, g: 0.1694542, b: 0, a: 0.88}
-    - _FoamColor: {r: 0.54901963, g: 0.24832153, b: 0, a: 1}
+    - _DeepColor: {r: 0.6509434, g: 0.22392453, b: 0, a: 0.88}
+    - _FoamColor: {r: 0.4056604, g: 0.18254717, b: 0, a: 1}
     - _FresnelColor: {r: 1, g: 0.5686902, b: 0, a: 1}
-    - _ShallowColor: {r: 1, g: 0.75977707, b: 0, a: 0.72}
+    - _ShallowColor: {r: 0.8396226, g: 0.3734571, b: 0, a: 0.72}
     - _WaveSpeedA: {r: 0.05, g: 0.02, b: 0, a: 0}
     - _WaveSpeedB: {r: -0.03, g: 0.04, b: 0, a: 0}
   m_BuildTextureStacks: []

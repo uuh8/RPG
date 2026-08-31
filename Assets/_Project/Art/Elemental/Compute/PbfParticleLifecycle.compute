@@ -16,6 +16,13 @@
 
 #define THREADS_PER_GROUP 64
 
+float PositiveCubeRoot(float value)
+{
+    // Spawn 随机数和粒子数都属于非负域。0 单独返回，其余通过 log2/exp2 求立方根，
+    // 避免通用分数次幂在 D3D compiler 中触发“底数可能为负”的 warning。
+    return value > 0.0f ? exp2(log2(value) / 3.0f) : 0.0f;
+}
+
 RWStructuredBuffer<float4> _Positions;
 RWStructuredBuffer<float4> _PredictedPositions;
 RWStructuredBuffer<float4> _Velocities;
@@ -161,14 +168,14 @@ float3 SpawnOffset(FluidGpuSpawnRequest request, uint localIndex)
     float radiusSample = FluidRandom01(seed + 2u);
     float distance = useLinearFalloff
         ? SampleLinearFalloffRadius(radiusSample)
-        : pow(radiusSample, 1.0f / 3.0f);
+        : PositiveCubeRoot(radiusSample);
     return direction * (distance * request.positionRadius.w);
 }
 
 float3 PackedLatticeOffset(FluidGpuSpawnRequest request, uint localIndex)
 {
     uint particleCount = request.materialSeedFlagsParticleCount.w;
-    uint side = (uint)ceil(pow((float)particleCount, 1.0f / 3.0f));
+    uint side = (uint)ceil(PositiveCubeRoot((float)particleCount));
     // 浮点 cubic root 在完全立方数附近可能向下舍入；整数校正保证 side^3 始终容纳全部粒子。
     while (side * side * side < particleCount)
         side++;

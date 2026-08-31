@@ -49,7 +49,8 @@ static const int FLUID_SWEEP_BISECTION_ITERATIONS = 6;
 
 bool IsFiniteFloat(float value)
 {
-    return !isnan(value) && !isinf(value);
+    // exponent 全 1 是 IEEE 754 的 NaN/Infinity；bit test 不受 fast-math 影响。
+    return (asuint(value) & 0x7f800000u) != 0x7f800000u;
 }
 
 bool IsFiniteFloat3(float3 value)

@@ -51,6 +51,8 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 3f07c671870a25842a9f57ca7f576868, type: 2}
   - {fileID: 11400000, guid: 819c62799c4c3f641b8da0bd3b9a1f3f, type: 2}
   - {fileID: 11400000, guid: 382aea7cccaf4f64fa6f21507c6a141b, type: 2}
+  - {fileID: 11400000, guid: 6dea445eed5bf814185d5f7850deb7a0, type: 2}
+  - {fileID: 11400000, guid: 37cb2d9d6a1a51d46bdaaf57f035bb50, type: 2}
   TeleportMinRadius: 6
   TeleportMaxRadius: 12
   TeleportCandidateCount: 12

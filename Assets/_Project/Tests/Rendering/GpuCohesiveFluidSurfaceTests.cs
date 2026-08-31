@@ -191,6 +191,45 @@ namespace Game.Rendering.Tests
             StringAssert.Contains("UseStylizedCrown", profile);
         }
 
+        [Test]
+        public void FluidComputeSourcesUsePortableFiniteChecksAndExplicitMathDomains()
+        {
+            string[] numericalShaderPaths =
+            {
+                SolverShaderPath,
+                DensityShaderPath,
+                "Assets/_Project/Art/Elemental/Compute/FluidAnisotropy.compute",
+                "Assets/_Project/Art/Elemental/Compute/FluidMarchingCubes.compute",
+                "Assets/_Project/Art/Elemental/Compute/PbfCollision.compute",
+            };
+
+            for (int i = 0; i < numericalShaderPaths.Length; i++)
+            {
+                string source = File.ReadAllText(numericalShaderPaths[i]);
+                StringAssert.DoesNotContain("isnan(", source,
+                    $"{numericalShaderPaths[i]} 不得依赖可能被 D3D fast-math 优化掉的 isnan。 ");
+                StringAssert.DoesNotContain("isinf(", source,
+                    $"{numericalShaderPaths[i]} 不得依赖可能被 D3D fast-math 优化掉的 isinf。 ");
+                StringAssert.Contains("asuint(value)", source,
+                    $"{numericalShaderPaths[i]} 必须使用 IEEE 754 bit pattern 检测 NaN/Infinity。 ");
+            }
+
+            string solver = File.ReadAllText(SolverShaderPath);
+            string anisotropy = File.ReadAllText(
+                "Assets/_Project/Art/Elemental/Compute/FluidAnisotropy.compute");
+            string lifecycle = File.ReadAllText(LifecycleShaderPath);
+            string fireSurface = File.ReadAllText(
+                "Assets/_Project/Art/Elemental/Compute/FireParcelMarchingCubes.compute");
+            StringAssert.DoesNotContain("pow(", solver,
+                "PBF 固定整数次幂应展开为乘法；分数次幂必须走显式正数域 helper。 ");
+            StringAssert.DoesNotContain("pow(", anisotropy,
+                "Anisotropy 比例幂必须先限定正数域并使用不触发负底数 warning 的实现。 ");
+            StringAssert.DoesNotContain("pow(", lifecycle,
+                "Spawn 的立方根必须显式限定非负域，避免 Shader compiler 保守 warning。 ");
+            StringAssert.Contains("uint3 maximumCell", fireSurface,
+                "Fire Marching Cubes 的 Dispatch ID 与 Grid 上界必须显式统一为 uint。 ");
+        }
+
         private static int CountMajorComponents(
             float[] density,
             Vector3Int resolution,

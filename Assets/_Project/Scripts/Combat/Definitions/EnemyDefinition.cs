@@ -13,6 +13,22 @@ namespace Game.Combat
         [Header("移动")]
         public float MoveSpeed = 3.5f;
 
+        [Header("NavMesh 寻路")]
+        [Tooltip("两次常规路径刷新之间的最短时间(秒)。限制 SetDestination 频率，避免多个 Enemy 每帧重复寻路")]
+        public float PathRefreshInterval = 0.2f;
+        [Tooltip("目标水平移动超过此距离(米)时允许提前刷新路径")]
+        public float DestinationMoveThreshold = 0.5f;
+        [Tooltip("把玩家位置投影到最近 NavMesh 时允许搜索的半径(米)")]
+        public float DestinationSampleRadius = 2f;
+        [Tooltip("远程 Enemy 每次尝试后撤的目标距离(米)")]
+        public float RetreatStepDistance = 4f;
+        [Tooltip("后撤候选点投影到 NavMesh 时允许搜索的半径(米)")]
+        public float RetreatSampleRadius = 1.5f;
+        [Tooltip("每隔多久检查一次 CharacterController 是否产生了实际水平位移(秒)")]
+        public float StuckCheckInterval = 0.5f;
+        [Tooltip("一次卡住检查中至少应前进的水平距离(米)")]
+        public float StuckProgressDistance = 0.05f;
+
         [Header("感知 (半径，带滞回防抖)")]
         [Tooltip("进入战斗的侦测半径")]
         public float DetectRadius = 12f;

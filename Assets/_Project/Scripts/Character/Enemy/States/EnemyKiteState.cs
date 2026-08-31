@@ -4,9 +4,9 @@ using Game.Combat;
 namespace Game.Character
 {
     /// <summary>
-    /// 远程走位：远追 / 近退 / 中间站档输出。始终面向玩家。
-    ///   距离 > AttackRange      → 接近(MoveTo)
-    ///   距离 < RetreatDistance  → 后撤(MoveAway，被贴脸时拉开)
+    /// 远程走位：远追 / 近退 / 中间站档输出。移动时朝实际路径方向，攻击前才面向玩家。
+    ///   距离 > AttackRange      → 沿 NavMesh 接近
+    ///   距离 < RetreatDistance  → 从后方/左后/右后候选中选择完整路径后撤
     ///   在 [RetreatDistance, AttackRange] 档内且冷却就绪 → 切施法态；冷却中 → 站定等待
     /// 丢失目标 → 回待机。
     /// </summary>
@@ -16,7 +16,10 @@ namespace Game.Character
 
         public EnemyKiteState(RangedEnemyController enemy) : base(enemy) { _ranged = enemy; }
 
-        public override void Enter() { }
+        public override void Enter()
+        {
+            _enemy.BeginNavigation();
+        }
 
         public override void Update()
         {
@@ -28,31 +31,42 @@ namespace Game.Character
             }
 
             Vector3 targetPos = p.Target.position;
-            _enemy.FaceTarget(targetPos); // 始终朝向玩家(便于施法/后撤朝向正确)
 
             EnemyDefinition def = _enemy.Definition;
             float dist = p.DistanceToTarget;
 
-            if (dist > def.AttackRange)         // 太远 → 接近
+            if (dist < def.RetreatDistance)
             {
-                _enemy.MoveTo(targetPos);
-                return;
-            }
-            if (dist < def.RetreatDistance)     // 太近 → 后撤
-            {
-                _enemy.MoveAway(targetPos);
+                _enemy.PlanNavigationAwayFrom(targetPos);
+                _enemy.FaceNavigationOrTarget(targetPos);
+                _enemy.MoveAlongNavigation();
                 return;
             }
 
-            // 档内：冷却就绪 → 施法；否则站定等待
-            if (_enemy.AttackCooldownCounter <= 0f)
+            // 不做视野判定；路径仍在绕障碍时继续走，进入最终直达段后才允许站定施法。
+            _enemy.PlanNavigationTo(targetPos, 0.05f);
+
+            bool inAttackBand = dist >= def.RetreatDistance && dist <= def.AttackRange;
+            if (inAttackBand && _enemy.CanAttackThroughNavigation(targetPos, def.AttackRange))
             {
-                _enemy.StateMachine.ChangeState(_ranged.RangedAttackState);
+                _enemy.FaceTarget(targetPos);
+                if (_enemy.AttackCooldownCounter <= 0f)
+                {
+                    _enemy.StateMachine.ChangeState(_ranged.RangedAttackState);
+                    return;
+                }
+
+                _enemy.StayGrounded();
                 return;
             }
-            _enemy.StayGrounded();
+
+            _enemy.FaceNavigationOrTarget(targetPos);
+            _enemy.MoveAlongNavigation();
         }
 
-        public override void Exit() { }
+        public override void Exit()
+        {
+            _enemy.StopNavigation(true);
+        }
     }
 }

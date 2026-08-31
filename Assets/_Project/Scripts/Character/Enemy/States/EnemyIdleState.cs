@@ -5,7 +5,10 @@ namespace Game.Character
     {
         public EnemyIdleState(EnemyControllerBase enemy) : base(enemy) { }
 
-        public override void Enter() { }
+        public override void Enter()
+        {
+            _enemy.StopNavigation(true);
+        }
 
         public override void Update()
         {

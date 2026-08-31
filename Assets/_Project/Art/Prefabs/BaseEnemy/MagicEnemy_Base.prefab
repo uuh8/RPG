@@ -10547,12 +10547,13 @@ GameObject:
   m_Component:
   - component: {fileID: 7940037871327440175}
   - component: {fileID: 3956887702129054430}
+  - component: {fileID: 8172392546173343538}
   - component: {fileID: 7398128447007756495}
   - component: {fileID: 6741324570361955063}
-  - component: {fileID: 8172392546173343538}
   - component: {fileID: 431805772827992418}
   - component: {fileID: 5127256133659184201}
   - component: {fileID: 8007896320182037090}
+  - component: {fileID: 4050619892352157578}
   m_Layer: 7
   m_Name: MagicEnemy_Base
   m_TagString: Untagged
@@ -10663,6 +10664,31 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
+--- !u!143 &8172392546173343538
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6186421515269797264}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 1.79
+  m_Radius: 0.36
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 0.82, z: 0}
 --- !u!114 &7398128447007756495
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10677,6 +10703,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Combat::Game.Combat.HealthComponent
   _maxHp: 100
   _teamId: 0
+  _currentHp: 0
 --- !u!114 &6741324570361955063
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10703,31 +10730,6 @@ MonoBehaviour:
   _bloodHitLifetime: 2
   _bloodDripPrefab: {fileID: 7323871151985639507, guid: 5b4753961b655db4a8402ae014b59d2e, type: 3}
   _bloodDripLifetime: 3
---- !u!143 &8172392546173343538
-CharacterController:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 6186421515269797264}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Height: 1.79
-  m_Radius: 0.36
-  m_SlopeLimit: 45
-  m_StepOffset: 0.3
-  m_SkinWidth: 0.08
-  m_MinMoveDistance: 0.001
-  m_Center: {x: 0, y: 0.82, z: 0}
 --- !u!114 &431805772827992418
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10773,6 +10775,28 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Rendering::Game.Rendering.StatusMaterialController
   _targetRenderers: []
   _responseSpeed: 4
+--- !u!195 &4050619892352157578
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6186421515269797264}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 0.4
+  m_Speed: 3.5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 120
+  m_StoppingDistance: 0
+  m_AutoTraverseOffMeshLink: 0
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 1.8
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
 --- !u!1 &6285617985785799075
 GameObject:
   m_ObjectHideFlags: 0

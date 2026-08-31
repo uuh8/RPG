@@ -53,12 +53,21 @@ static const float FLUID_ARTIFICIAL_PRESSURE_RATIO = 0.3f;
 
 bool IsFiniteFloat(float value)
 {
-    return !isnan(value) && !isinf(value);
+    // IEEE 754 的 exponent 全为 1 代表 NaN 或 Infinity。直接检查 bit pattern，
+    // 避免 D3D fast-math 把 isnan/isinf 当成恒 false 并产生无意义 warning。
+    return (asuint(value) & 0x7f800000u) != 0x7f800000u;
 }
 
 bool IsFiniteFloat3(float3 value)
 {
     return IsFiniteFloat(value.x) && IsFiniteFloat(value.y) && IsFiniteFloat(value.z);
+}
+
+float PositiveCubeRoot(float value)
+{
+    // log2/exp2 只在正数域内求分数次幂；0 单独返回，既保持数学语义，也消除
+    // 通用幂函数对负底数的保守编译警告。
+    return value > 0.0f ? exp2(log2(value) / 3.0f) : 0.0f;
 }
 
 FluidGpuLiquidMaterialParameters ResolveMaterialParameters(uint particleIndex)
@@ -70,7 +79,8 @@ FluidGpuLiquidMaterialParameters ResolveMaterialParameters(uint particleIndex)
     if (value.massDensityViscosityPressure.x <= 0.0f
         || value.massDensityViscosityPressure.y <= 0.0f)
     {
-        float restSpacing = pow(_ParticleMass / max(_RestDensity, 1e-6f), 1.0f / 3.0f);
+        float restSpacing = PositiveCubeRoot(
+            max(_ParticleMass, 0.0f) / max(_RestDensity, 1e-6f));
         value.massDensityViscosityPressure = float4(
             _ParticleMass,
             _RestDensity,
@@ -113,7 +123,9 @@ float Poly6(float distance)
 
     float h2 = _SmoothingRadius * _SmoothingRadius;
     float difference = h2 - distance * distance;
-    float h9 = pow(_SmoothingRadius, 9.0f);
+    float h4 = h2 * h2;
+    float h8 = h4 * h4;
+    float h9 = h8 * _SmoothingRadius;
     return 315.0f / (64.0f * FLUID_PI * h9) * difference * difference * difference;
 }
 
@@ -127,8 +139,11 @@ float3 SpikyGradient(float3 offset)
     if (distance >= _SmoothingRadius)
         return 0.0f;
 
-    float coefficient = -45.0f / (FLUID_PI * pow(_SmoothingRadius, 6.0f));
-    return coefficient * pow(_SmoothingRadius - distance, 2.0f) * (offset / distance);
+    float h2 = _SmoothingRadius * _SmoothingRadius;
+    float h6 = h2 * h2 * h2;
+    float surfaceDistance = _SmoothingRadius - distance;
+    float coefficient = -45.0f / (FLUID_PI * h6);
+    return coefficient * surfaceDistance * surfaceDistance * (offset / distance);
 }
 
 float ArtificialPressure(float distance, float artificialPressure)
@@ -467,9 +482,10 @@ void ComputeCohesionDeltaVelocities(uint3 dispatchThreadId : SV_DispatchThreadID
 
     FluidGpuLiquidMaterialParameters material = ResolveMaterialParameters(particleIndex);
     float cohesionStrength = material.cohesionAndSleep.x;
-    float cohesionRestDistance = pow(
-        material.massDensityViscosityPressure.x / material.massDensityViscosityPressure.y,
-        1.0f / 3.0f) * material.cohesionAndSleep.y;
+    float cohesionRestDistance = PositiveCubeRoot(
+        max(material.massDensityViscosityPressure.x, 0.0f)
+            / max(material.massDensityViscosityPressure.y, 1e-6f))
+        * material.cohesionAndSleep.y;
     float maximumCohesionDeltaSpeed = material.cohesionAndSleep.z;
 
     float3 position = _PredictedPositions[particleIndex].xyz;

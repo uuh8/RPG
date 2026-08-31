@@ -139,6 +139,21 @@ namespace Game.ElementField.Tests
         }
 
         [Test]
+        public void LiquidCellImmediatelyBelowColliderStillCountsAsGroundContact()
+        {
+            Deposit(0, MaterialId.Water, amount: 128);
+            StatusController target = CreateTarget(
+                new Vector3(0.5f, 1.125f, 0.5f),
+                new Vector3(0.4f, 0.05f, 0.4f));
+
+            _exposure.TickForTests(ExposureInterval);
+
+            float expected = MaxApplyPerTick * 128f / byte.MaxValue;
+            Assert.That(target.GetIntensity(StatusKind.Wet), Is.EqualTo(expected).Within(0.0001f),
+                "CharacterController 的 Skin Width 会让 Collider 底面略高于地面；脚底相邻 Cell 的液体仍应算持续接触。");
+        }
+
+        [Test]
         public void SettledSleepingWaterStillAppliesWetInsideInterestRegion()
         {
             Deposit(0, MaterialId.Water, amount: 128);

@@ -42,7 +42,8 @@ static const float FLUID_PI = 3.14159265359f;
 
 bool IsFiniteFloat(float value)
 {
-    return !isnan(value) && !isinf(value);
+    // exponent 全 1 是 IEEE 754 的 NaN/Infinity；bit test 不受 fast-math 影响。
+    return (asuint(value) & 0x7f800000u) != 0x7f800000u;
 }
 
 bool IsFiniteFloat3(float3 value)
@@ -71,7 +72,7 @@ float Poly6(float distance)
 
     float h2 = _SmoothingRadius * _SmoothingRadius;
     float difference = h2 - distance * distance;
-    // h 恒为正，但部分 D3D11 compiler 仍对通用 pow(f,e) 发出“负底数”保守 warning；
+    // h 恒为正，但部分 D3D11 compiler 仍会对通用幂函数发出“负底数”保守 warning；
     // 固定九次方拆成乘法后数学等价，也让 importer 保持安静。
     float h9 = h2 * h2 * h2 * h2 * _SmoothingRadius;
     return 315.0f / (64.0f * FLUID_PI * h9)

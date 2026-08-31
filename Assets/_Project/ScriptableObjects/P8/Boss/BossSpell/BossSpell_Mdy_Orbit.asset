@@ -47,7 +47,7 @@ MonoBehaviour:
   ModHomingDuration: 0
   ModHomingTurnRateDegrees: 0
   ModOrbitRadius: 4.5
-  ModOrbitAngularSpeedDegrees: 720
+  ModOrbitAngularSpeedDegrees: 360
   ModOrbitPhaseOffsetDegrees: 0
   ModOrbitPlaneTiltDegrees: 90
   ExtraDraws: 0

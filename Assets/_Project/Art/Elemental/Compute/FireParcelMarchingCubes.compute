@@ -68,7 +68,14 @@ void PolygoniseTetra(float3 p[4], float d[4])
 [numthreads(4,4,4)]
 void ExtractFireSurface(uint3 id:SV_DispatchThreadID)
 {
-    if(id.x >= _GridResolutionX-1 || id.y >= _GridResolutionY-1 || id.z >= _GridResolutionZ-1) return;
+    if (_GridResolutionX <= 1 || _GridResolutionY <= 1 || _GridResolutionZ <= 1) return;
+    // SV_DispatchThreadID 是 uint3；先验证 int 配置，再显式转成相同的 unsigned domain，
+    // 防止 signed/unsigned mismatch 让不同 Graphics API 采用不同的隐式转换。
+    uint3 maximumCell = uint3(
+        (uint)(_GridResolutionX - 1),
+        (uint)(_GridResolutionY - 1),
+        (uint)(_GridResolutionZ - 1));
+    if (any(id >= maximumCell)) return;
     static const int3 offsets[8]={int3(0,0,0),int3(1,0,0),int3(1,1,0),int3(0,1,0),int3(0,0,1),int3(1,0,1),int3(1,1,1),int3(0,1,1)};
     static const uint4 tetra[6]={uint4(0,5,1,6),uint4(0,1,2,6),uint4(0,2,3,6),uint4(0,3,7,6),uint4(0,7,4,6),uint4(0,4,5,6)};
     float3 p8[8]; float d8[8];

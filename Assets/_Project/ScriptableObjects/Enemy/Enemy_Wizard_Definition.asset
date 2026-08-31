@@ -13,6 +13,13 @@ MonoBehaviour:
   m_Name: Enemy_Wizard_Definition
   m_EditorClassIdentifier: Game.Combat::Game.Combat.EnemyDefinition
   MoveSpeed: 3.5
+  PathRefreshInterval: 0.2
+  DestinationMoveThreshold: 0.5
+  DestinationSampleRadius: 2
+  RetreatStepDistance: 4
+  RetreatSampleRadius: 1.5
+  StuckCheckInterval: 0.5
+  StuckProgressDistance: 0.05
   DetectRadius: 14
   LoseRadius: 16
   AttackRange: 12

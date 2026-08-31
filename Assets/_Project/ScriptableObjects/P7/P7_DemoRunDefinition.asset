@@ -15,13 +15,15 @@ MonoBehaviour:
   _completionMode: 1
   _encounters:
   - _displayName: "\u57FA\u7840\u6218\u6597\u533A\u57DF"
-    _objectiveText: "\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
-    _rewardSpell: {fileID: 11400000, guid: 810da91f01d3dff4ea593cfb839defdd, type: 2}
+    _objectiveText: "\u8BD5\u8BD5\u5728\u706B\u7403\u524D\u52A0\u5165\u591A\u4E2A\u201C\u6CD5\u672F\u589E\u5E45\u201D\u4FEE\u6B63
+      \u589E\u52A0\u706B\u7403\u4F24\u5BB3"
+    _rewardSpell: {fileID: 11400000, guid: 0af141911c3492f47a18027ba2a9e7f6, type: 2}
   - _displayName: "\u5143\u7D20\u53CD\u5E94\u533A\u57DF"
-    _objectiveText: "\u5229\u7528\u6C34\u706B\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
-    _rewardSpell: {fileID: 11400000, guid: 3b8d1bef6676c0f4a9bd794566986907, type: 2}
+    _objectiveText: "\u706B\u7130\u548C\u6BD2\u6DB2\u4F1A\u53D1\u751F\u5267\u70C8\u7206\u70B8
+      \u8BD5\u8BD5\u5229\u7528\u8FD9\u4E2A\u7279\u6027\u914D\u5408\u201C\u53CC\u91CD\u5C04\u51FB\u201D\u51FB\u8D25\u654C\u4EBA"
+    _rewardSpell: {fileID: 11400000, guid: e5953034a0147f44a8577462a5ac484f, type: 2}
   - _displayName: "\u5143\u7D20\u53CD\u5E94\u533A\u57DF2"
-    _objectiveText: "\u5229\u7528\u6C34\u706B\u51FB\u8D25\u533A\u57DF\u5185\u6240\u6709\u654C\u4EBA"
+    _objectiveText: "\u7C98\u6DB2\u4F1A\u5C06\u6C34\u4E5F\u8F6C\u6362\u6210\u7C98\u6DB2\uFF0C\u706B\u7130\u53EF\u4EE5\u71C3\u70E7\u7C98\u6DB2"
     _rewardSpell: {fileID: 11400000, guid: 0f25994c178df4549bdc4503794fc324, type: 2}
   - _displayName: "Boss\u533A\u57DF"
     _objectiveText: "\u51FB\u8D25Boss"

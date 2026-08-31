@@ -6,7 +6,7 @@ namespace Game.Character
 {
     /// <summary>
     /// 感知（Sense）：每帧用 sqrMagnitude 比侦测半径判断玩家是否在范围内；用滞回(进用 DetectRadius、
-    /// 已锁定用更大的 LoseRadius)防止边界抖动。MVP 只用半径(360°)；视野锥/视线 Raycast 留作扩展。
+    /// 已锁定用更大的 LoseRadius)防止边界抖动。感知只使用 360° 半径，不受墙体或朝向影响。
     /// 玩家来源 = PlayerControllerBase.Current（零查找）。
     /// </summary>
     public class EnemyPerception
@@ -47,5 +47,6 @@ namespace Game.Character
                 HasTarget = false; Target = null;
             }
         }
+
     }
 }

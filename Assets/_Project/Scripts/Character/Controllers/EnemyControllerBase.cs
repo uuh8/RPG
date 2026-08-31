@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 using Game.Combat;
 using Game.Core;
 
@@ -10,6 +11,7 @@ namespace Game.Character
     /// MeleeEnemyController(贴身近战) / RangedEnemyController(保距离施法)。决策层(状态)只决定做什么，怎么做在本类/子类。
     /// </summary>
     [RequireComponent(typeof(CharacterController))]
+    [RequireComponent(typeof(NavMeshAgent))]
     [RequireComponent(typeof(HealthComponent))]
     public abstract class EnemyControllerBase : MonoBehaviour
     {
@@ -28,6 +30,7 @@ namespace Game.Character
         private EnemyStateMachine _stateMachine;
         private EnemyIdleState _idleState;
         private EnemyHurtState _hurtState;
+        private EnemyNavigationMotor _navigation;
         private int _attackStateHash;
         private int _hurtStateHash;
         private int _id;
@@ -54,6 +57,7 @@ namespace Game.Character
         protected virtual void Awake()
         {
             _cc = GetComponent<CharacterController>();
+            NavMeshAgent navMeshAgent = GetComponent<NavMeshAgent>();
             _animator = GetComponentInChildren<Animator>();
             // StatusController 属于 Combat，Character 只消费最终倍率，不理解 Sticky/Reaction 规则。
             // Awake 缓存避免敌人 MoveHorizontal 热路径反复 GetComponent。
@@ -63,6 +67,7 @@ namespace Game.Character
             _stateMachine = new EnemyStateMachine();
             _idleState = new EnemyIdleState(this);
             _hurtState = new EnemyHurtState(this);
+            _navigation = new EnemyNavigationMotor(navMeshAgent, _definition, transform);
 
             // 攻击/施法动画状态名取自攻击数据(数据驱动)；空 → 0 → CrossFade 不切动画
             string atkStateName = (_definition != null && _definition.Attack != null)
@@ -108,6 +113,7 @@ namespace Game.Character
         {
             if (_dead || e.TargetId != _id) return;
             _dead = true;
+            _navigation?.DisableNavigation();
             OnDied(); // 子类收尾(如关近战命中窗口)；死亡动画+销毁由 CharacterCombatFeedback 负责
         }
 
@@ -132,25 +138,46 @@ namespace Game.Character
 
         #region 行动能力（供状态调用）
 
-        /// <summary>朝目标水平移动(含重力)。</summary>
-        public void MoveTo(Vector3 targetPos) => MoveHorizontal(targetPos - transform.position);
+        public void BeginNavigation() => _navigation?.BeginNavigation();
 
-        /// <summary>远离目标水平移动(后撤，含重力)。</summary>
-        public void MoveAway(Vector3 targetPos) => MoveHorizontal(transform.position - targetPos);
+        public void StopNavigation(bool clearPath = true) => _navigation?.StopNavigation(clearPath);
 
-        private void MoveHorizontal(Vector3 dir)
+        /// <summary>只更新目标、路径与 Steering，不立即移动；状态可先判断能否攻击，再保证本帧只调用一次 Move。</summary>
+        public EnemyNavigationResult PlanNavigationTo(Vector3 targetPos, float stoppingDistance)
         {
-            dir.y = 0f;
             float statusMultiplier = _statusController != null
                 ? _statusController.MoveSpeedMultiplier
                 : 1f;
-            Vector3 horizontal = dir.sqrMagnitude > 1e-6f
-                ? dir.normalized * _definition.MoveSpeed * Mathf.Max(0f, statusMultiplier)
-                : Vector3.zero;
+            float moveSpeed = _definition != null
+                ? _definition.MoveSpeed * Mathf.Max(0f, statusMultiplier)
+                : 0f;
+            return _navigation != null
+                ? _navigation.NavigateTo(targetPos, stoppingDistance, moveSpeed, Time.deltaTime)
+                : EnemyNavigationResult.Unavailable;
+        }
+
+        public EnemyNavigationResult PlanNavigationAwayFrom(Vector3 targetPos)
+        {
+            float statusMultiplier = _statusController != null
+                ? _statusController.MoveSpeedMultiplier
+                : 1f;
+            float moveSpeed = _definition != null
+                ? _definition.MoveSpeed * Mathf.Max(0f, statusMultiplier)
+                : 0f;
+            return _navigation != null
+                ? _navigation.TryNavigateRetreat(targetPos, moveSpeed, Time.deltaTime)
+                : EnemyNavigationResult.Unavailable;
+        }
+
+        /// <summary>执行 Agent 给出的水平 Steering；CharacterController 仍是唯一真实位移写入者。</summary>
+        public void MoveAlongNavigation()
+        {
+            Vector3 horizontal = _navigation != null ? _navigation.DesiredVelocity : Vector3.zero;
             ApplyGravity();
             Vector3 velocity = horizontal;
             velocity.y = _verticalVelocity;
             _cc.Move(velocity * Time.deltaTime);
+            _navigation?.SyncToCharacter();
         }
 
         /// <summary>原地不动，仅施加重力贴地。</summary>
@@ -158,14 +185,37 @@ namespace Game.Character
         {
             ApplyGravity();
             _cc.Move(Vector3.up * _verticalVelocity * Time.deltaTime);
+            _navigation?.SyncToCharacter();
+        }
+
+        public bool CanAttackThroughNavigation(Vector3 targetPos, float range)
+        {
+            return _navigation != null && _navigation.CanAttack(targetPos, range);
         }
 
         /// <summary>平滑转向目标的水平方向(只 yaw)。</summary>
         public void FaceTarget(Vector3 targetPos)
         {
             Vector3 dir = targetPos - transform.position; dir.y = 0f;
-            if (dir.sqrMagnitude < 1e-6f) return;
-            Quaternion rot = Quaternion.LookRotation(dir);
+            FaceDirection(dir);
+        }
+
+        /// <summary>
+        /// 追击/绕行时朝 NavMesh 实际 Steering 方向转身；路径尚未产出速度时才暂时面向玩家。
+        /// 攻击态仍显式调用 FaceTarget，确保出手方向准确。
+        /// </summary>
+        public void FaceNavigationOrTarget(Vector3 targetPos)
+        {
+            Vector3 targetDirection = targetPos - transform.position;
+            Vector3 navigationVelocity = _navigation != null ? _navigation.DesiredVelocity : Vector3.zero;
+            FaceDirection(EnemyNavigationMath.SelectFacingDirection(navigationVelocity, targetDirection));
+        }
+
+        private void FaceDirection(Vector3 direction)
+        {
+            direction.y = 0f;
+            if (direction.sqrMagnitude < 1e-6f) return;
+            Quaternion rot = Quaternion.LookRotation(direction);
             transform.rotation = Quaternion.Slerp(transform.rotation, rot, _rotationSpeed * Time.deltaTime);
         }
 

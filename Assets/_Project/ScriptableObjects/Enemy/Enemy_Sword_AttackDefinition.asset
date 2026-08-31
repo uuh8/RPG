@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3391d3abca211044aac16fa190ad11b2, type: 3}
-  m_Name: Enemy_SwordSwing_AttackDefinition
+  m_Name: Enemy_Sword_AttackDefinition
   m_EditorClassIdentifier: Game.Combat::Game.Combat.AttackDefinition
   BaseAmount: 20
   Type: 0

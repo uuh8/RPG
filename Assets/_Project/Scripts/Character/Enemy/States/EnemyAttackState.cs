@@ -22,6 +22,7 @@ namespace Game.Character
 
         public override void Enter()
         {
+            _enemy.StopNavigation(true);
             _windowOpen = false;
             _enteredAnimState = false;
             _elapsed = 0f;

@@ -11,6 +11,7 @@ namespace Game.Character
 
         public override void Enter()
         {
+            _enemy.StopNavigation(true);
             _timer = _enemy.Definition != null ? _enemy.Definition.HurtDuration : 0.3f;
             _enemy.CrossFade(_enemy.HurtStateHash);
         }

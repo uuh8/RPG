@@ -34,7 +34,7 @@ namespace Game.Rendering.Tests
         }
 
         [Test]
-        public void P7HasWaterAndPoisonRenderersSharingOneGpuSource()
+        public void P7HasAllLiquidRenderersSharingOneGpuSource()
         {
             const string scenePath = "Assets/_Project/Scenes/P7_DemoRun.unity";
             SceneSetup[] previousSetup = EditorSceneManager.GetSceneManagerSetup();
@@ -44,12 +44,13 @@ namespace Game.Rendering.Tests
                 GpuLiquidSurfaceRenderer[] renderers = Object.FindObjectsByType<GpuLiquidSurfaceRenderer>(
                     FindObjectsInactive.Include,
                     FindObjectsSortMode.None);
-                Assert.That(renderers, Has.Length.EqualTo(2),
-                    "P7 应为 Water/Poison 各保留一个表面 Renderer，而不是复制 PBF Runtime。");
+                Assert.That(renderers, Has.Length.EqualTo(3),
+                    "P7 应为 Water/Poison/Sticky 各保留一个表面 Renderer，而不是复制 PBF Runtime。");
 
                 Object sharedSource = null;
                 bool hasWater = false;
                 bool hasPoison = false;
+                bool hasSticky = false;
                 for (int i = 0; i < renderers.Length; i++)
                 {
                     var serialized = new SerializedObject(renderers[i]);
@@ -59,10 +60,12 @@ namespace Game.Rendering.Tests
                     Assert.That(source, Is.SameAs(sharedSource));
                     hasWater |= target == MaterialId.Water;
                     hasPoison |= target == MaterialId.Poison;
+                    hasSticky |= target == MaterialId.Sticky;
                 }
 
                 Assert.That(hasWater, Is.True);
                 Assert.That(hasPoison, Is.True);
+                Assert.That(hasSticky, Is.True);
             }
             finally
             {

@@ -9085,12 +9085,13 @@ GameObject:
   m_Component:
   - component: {fileID: 8444702561198123195}
   - component: {fileID: 8444702561198123194}
+  - component: {fileID: 925266231771544054}
   - component: {fileID: 2343903973103372007}
   - component: {fileID: 4563113065739830452}
   - component: {fileID: 3459414776841057456}
-  - component: {fileID: 925266231771544054}
   - component: {fileID: 6060466127136814256}
   - component: {fileID: 1299665379977283279}
+  - component: {fileID: 4272185491880127291}
   m_Layer: 7
   m_Name: SwordEnemy_Base
   m_TagString: Untagged
@@ -9201,6 +9202,31 @@ Animator:
   m_AllowConstantClipSamplingOptimization: 1
   m_KeepAnimatorStateOnDisable: 0
   m_WriteDefaultValuesOnDisable: 0
+--- !u!143 &925266231771544054
+CharacterController:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8444702561198123193}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Height: 1.73
+  m_Radius: 0.39
+  m_SlopeLimit: 45
+  m_StepOffset: 0.3
+  m_SkinWidth: 0.08
+  m_MinMoveDistance: 0.001
+  m_Center: {x: 0, y: 0.86, z: 0}
 --- !u!114 &2343903973103372007
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9215,6 +9241,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Combat::Game.Combat.HealthComponent
   _maxHp: 100
   _teamId: 0
+  _currentHp: 0
 --- !u!114 &4563113065739830452
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9257,31 +9284,6 @@ MonoBehaviour:
   _rotationSpeed: 10
   _gravity: -20
   _hitDetector: {fileID: 4715330727507886007}
---- !u!143 &925266231771544054
-CharacterController:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 8444702561198123193}
-  m_Material: {fileID: 0}
-  m_IncludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_ExcludeLayers:
-    serializedVersion: 2
-    m_Bits: 0
-  m_LayerOverridePriority: 0
-  m_ProvidesContacts: 0
-  m_Enabled: 1
-  serializedVersion: 3
-  m_Height: 1.73
-  m_Radius: 0.39
-  m_SlopeLimit: 45
-  m_StepOffset: 0.3
-  m_SkinWidth: 0.08
-  m_MinMoveDistance: 0.001
-  m_Center: {x: 0, y: 0.86, z: 0}
 --- !u!114 &6060466127136814256
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9310,6 +9312,28 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Rendering::Game.Rendering.StatusMaterialController
   _targetRenderers: []
   _responseSpeed: 4
+--- !u!195 &4272185491880127291
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8444702561198123193}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 0.4
+  m_Speed: 3.5
+  m_Acceleration: 8
+  avoidancePriority: 50
+  m_AngularSpeed: 120
+  m_StoppingDistance: 0
+  m_AutoTraverseOffMeshLink: 0
+  m_AutoBraking: 1
+  m_AutoRepath: 1
+  m_Height: 1.8
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
 --- !u!1 &8444702561204574413
 GameObject:
   m_ObjectHideFlags: 0
@@ -13959,7 +13983,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1807124d864d8f44098145c053016fe8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.MeleeHitDetector
-  _attack: {fileID: 11400000, guid: 48c982613697ea94aae310654785e697, type: 2}
+  _attack: {fileID: 0}
   _weaponPivot: {fileID: 5478964474149219719}
   _ownerRoot: {fileID: 0}
   _attackerTeam: 0
