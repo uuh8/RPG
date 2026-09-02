@@ -26,6 +26,7 @@ namespace Game.Combat
         private readonly int[] _lastPublishedPercent = new int[StatusCount];
         private readonly bool[] _lastPublishedActive = new bool[StatusCount];
         private IDamageable _damageable;
+        private HealthComponent _health;
         private int _targetId;
         private ElementReactionRuntime _reactionRuntime;
         private AreaReactionDamageResolver _areaReactionDamageResolver;
@@ -36,6 +37,7 @@ namespace Game.Combat
         {
             // Unity 会在首帧前调用 Awake；所有热路径需要的组件、身份和纯 C# 对象都在此预缓存。
             _damageable = GetComponent<IDamageable>();
+            _health = GetComponent<HealthComponent>();
             _targetId = gameObject.GetInstanceID();
             CacheDefinitions();
             _areaReactionDamageResolver = new AreaReactionDamageResolver();
@@ -90,7 +92,10 @@ namespace Game.Combat
             byte sourceTeam,
             float naturalDecayHoldSeconds)
         {
-            if (amount <= 0f)
+            // Invulnerability 是 Gameplay Effect 的统一权限门：保护期既不能扣血，也不能提前堆积
+            // Burning/Poison 等状态，避免解除保护后的第一帧由预埋 DoT 或 Reaction 突然结算。
+            // 已存在的状态仍可自然衰减；其伤害 Tick 继续由 HealthComponent 的 Damage Gate 拒绝。
+            if (amount <= 0f || (_health != null && _health.IsInvulnerable))
                 return;
 
             int index = ToIndex(kind);

@@ -63,6 +63,34 @@ namespace Game.Character.Tests
         }
 
         [UnityTest]
+        public IEnumerator BeforeActivation_BossHealthIsInvulnerable()
+        {
+            WizardBossController boss = CreateBoss(CreateDefinition());
+
+            yield return null;
+
+            Assert.That(boss.IsEncounterActive, Is.False);
+            Assert.That(boss.Health.IsInvulnerable, Is.True,
+                "Boss 战尚未启动时，玩家不能从 Safe Zone 提前削减 Boss HP。");
+        }
+
+        [UnityTest]
+        public IEnumerator TryActivate_ReleasesPreEncounterInvulnerability()
+        {
+            WizardBossController boss = CreateBoss(CreateDefinition());
+            Transform target =
+                CreateTarget("Activation Target", new Vector3(5f, 0f, 0f));
+            Assert.That(boss.Health.IsInvulnerable, Is.True);
+
+            Assert.That(boss.TryActivate(target), Is.True);
+            yield return null;
+
+            Assert.That(boss.IsEncounterActive, Is.True);
+            Assert.That(boss.Health.IsInvulnerable, Is.False,
+                "Encounter Start 后必须恢复正常受伤权限。完整 Damage Funnel 测试由 Combat 覆盖。");
+        }
+
+        [UnityTest]
         public IEnumerator TryActivate_CapturesFirstTargetAndNeverRetargets()
         {
             BossDefinition definition = CreateDefinition();

@@ -59,10 +59,14 @@ namespace Game.Skills.Tests
         }
 
         [Test]
-        public void Apply_Twice_AccumulatesMultiplicatively()
+        public void Apply_RepeatedDamageMultipliers_StackTheirBonusAdditively()
         {
-            var s = CastModifierState.Default.Apply(Modify(dmgMul: 2f)).Apply(Modify(dmgMul: 2f));
-            Assert.AreEqual(4f, s.DamageMul, 1e-4f);
+            var s = CastModifierState.Default
+                .Apply(Modify(dmgMul: 1.5f))
+                .Apply(Modify(dmgMul: 1.5f));
+
+            // 每张“1.5 倍”提供 +0.5 倍增量：1 + 0.5 + 0.5 = 2，防止 1.5^n 指数膨胀。
+            Assert.AreEqual(2f, s.DamageMul, 1e-4f);
         }
 
         [Test]

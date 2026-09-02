@@ -74,7 +74,9 @@ namespace Game.Skills
             ProjectileMotionMode.None);
 
         /// <summary>
-        /// 把一条 Modify 指令合并到当前快照并返回新快照。加法、乘法和 bool OR 分别表达不同叠加语义；
+        /// 把一条 Modify 指令合并到当前快照并返回新快照。伤害倍率按“倍率增量”线性叠加，
+        /// 例如两张 1.5 倍得到 1 + 0.5 + 0.5 = 2 倍，避免可重复卡牌产生 1.5^n 的指数膨胀；
+        /// 其他字段仍按各自的加法、乘法、最大值或 bool OR 语义合并。
         /// 调用方必须接住返回值，因为 readonly struct 不会原地修改自身。
         /// </summary>
         public CastModifierState Apply(SpellDefinition modify)
@@ -82,7 +84,7 @@ namespace Game.Skills
             ProjectileMotionMode motionMode = ResolveMotionMode(modify);
             return new CastModifierState(
                 DamageAddFlat + modify.ModDamageAddFlat,
-                DamageMul * modify.ModDamageMul,
+                DamageMul + (modify.ModDamageMul - 1f),
                 SpeedMul * modify.ModSpeedMul,
                 SpreadDegrees + modify.ModSpreadAddDegrees,
                 BounceCount + modify.ModBounceAdd,

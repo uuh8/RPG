@@ -167,6 +167,19 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void RepeatedDamageMultipliers_ProduceLinearFinalDamage()
+        {
+            Run(1, 999f,
+                DamageMod(1.5f),
+                DamageMod(1.5f),
+                DamageMod(1.5f),
+                Emit(dmg: 10f));
+
+            // 三张增幅各贡献 +0.5 倍，最终倍率 2.5；旧乘法规则会错误地产生 33.75 伤害。
+            Assert.AreEqual(25f, _out[0].Damage, 1e-4f);
+        }
+
+        [Test]
         public void FlatDamageBonus_DoesNotRepeatOnExplosionOrEveryFireFieldTick()
         {
             SpellDefinition flat = ScriptableObject.CreateInstance<SpellDefinition>();

@@ -320,5 +320,34 @@ namespace Game.Combat.Tests
 
             Assert.AreEqual(before - 4f, after, 1e-4f);
         }
+
+        [UnityTest]
+        public IEnumerator Invulnerability_BlocksNewStatusUntilReleased()
+        {
+            yield return new EnterPlayMode();
+
+            GameObject go = new GameObject("protected-status-target");
+            HealthComponent health = go.AddComponent<HealthComponent>();
+            StatusController controller = go.AddComponent<StatusController>();
+
+            health.SetInvulnerable(true);
+            controller.ApplyStatus(StatusKind.Burning, 45f, 10, 2);
+            bool appliedWhileProtected =
+                controller.HasStatus(StatusKind.Burning);
+
+            health.SetInvulnerable(false);
+            controller.ApplyStatus(StatusKind.Burning, 45f, 10, 2);
+            bool appliedAfterRelease =
+                controller.HasStatus(StatusKind.Burning);
+
+            Object.Destroy(go);
+            yield return null;
+            yield return new ExitPlayMode();
+
+            Assert.That(appliedWhileProtected, Is.False,
+                "无敌保护期不能预先叠加 Burning/Poison 等状态。");
+            Assert.That(appliedAfterRelease, Is.True,
+                "解除保护后必须恢复正常 Status 写入。");
+        }
     }
 }
