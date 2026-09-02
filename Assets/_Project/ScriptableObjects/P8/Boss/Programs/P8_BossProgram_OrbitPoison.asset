@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Game.Character::Game.Character.BossSpellProgramDefinition
   Wand: {fileID: 11400000, guid: 6ebb626bf6d967c44a1aee5441750b8f, type: 2}
   BaseWeight: 1
-  PhaseMask: 4
+  PhaseMask: 6
   Phase1Multiplier: 0
   Phase2Multiplier: 0
   Phase3Multiplier: 1.6

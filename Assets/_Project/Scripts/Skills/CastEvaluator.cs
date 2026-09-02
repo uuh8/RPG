@@ -27,6 +27,25 @@ namespace Game.Skills
     }
 
     /// <summary>
+    /// 法杖配置在“当前施法层”上的只读预览。
+    /// 它不访问 ManaComponent，也不创建 EmitCommand；因此 UI 可以安全地读取它，
+    /// 并与 SpellCaster 施法前的 Mana 预检使用同一套解释器语义。
+    /// </summary>
+    public readonly struct CastPreview
+    {
+        // 本层真正会执行的指令总成本；Trigger 捕获的 payload 属于未来层，不在这里预付费。
+        public readonly float ImmediateManaCost;
+        // 顺序读完本层后仍未被产出类法术消费的 Draw Budget，不等同于本次已生成的投射物数量。
+        public readonly int RemainingDrawBudget;
+
+        public CastPreview(float immediateManaCost, int remainingDrawBudget)
+        {
+            ImmediateManaCost = immediateManaCost;
+            RemainingDrawBudget = remainingDrawBudget;
+        }
+    }
+
+    /// <summary>
     /// 法术编程系统的解释器内核。
     ///
     /// 正式入口（Evaluate）
@@ -288,8 +307,20 @@ namespace Game.Skills
             int baseDraws,
             CastModifierState incomingMods)
         {
+            return Preview(spells, baseDraws, incomingMods).ImmediateManaCost;
+        }
+
+        /// <summary>
+        /// 预览当前法杖这一层施法会立即扣除的 Mana，以及解释结束后剩余的产出预算。
+        /// EstimateManaCost 与法杖编辑器都调用本方法，避免 UI 另写一套规则后和真实扣费分叉。
+        /// </summary>
+        public static CastPreview Preview(
+            IReadOnlyList<SpellDefinition> spells,
+            int baseDraws,
+            CastModifierState incomingMods)
+        {
             if (spells == null || spells.Count == 0)
-                return 0f;
+                return new CastPreview(0f, baseDraws);
 
             int drawBudget = baseDraws;
             float manaCost = 0f;
@@ -298,9 +329,11 @@ namespace Game.Skills
 
             // 这里故意不调用 Evaluate 再读取 CastSummary：Estimate 不能污染正式 output，也不应先构造临时 EmitCommand。
             int i = 0;
+            int emittedCount = 0;
             // 必须镜像 Evaluate：零预算 Emit 不计费但会被跳过，后续 Multicast
             // 仍可能重新开放预算，因此不能在 drawBudget==0 时提前结束估算。
-            while (i < spells.Count)
+            // emittedCount 同步正式 Evaluate 的 MaxEmitCommands 护栏，避免异常配置让预览成本高于实际运行时。
+            while (i < spells.Count && emittedCount < MaxEmitCommands)
             {
                 SpellDefinition spell = spells[i];
                 if (spell == null)
@@ -336,6 +369,7 @@ namespace Game.Skills
 
                         manaCost += SanitizedManaCost(spell);
                         drawBudget--;
+                        emittedCount++;
 
                         if (spell.PayloadTrigger != PayloadTriggerMode.None)
                         {
@@ -350,7 +384,7 @@ namespace Game.Skills
                 }
             }
 
-            return manaCost;
+            return new CastPreview(manaCost, drawBudget);
         }
 
         /// <summary>

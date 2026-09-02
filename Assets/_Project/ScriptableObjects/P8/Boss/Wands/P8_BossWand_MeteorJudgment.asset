@@ -13,7 +13,6 @@ MonoBehaviour:
   m_Name: P8_BossWand_MeteorJudgment
   m_EditorClassIdentifier: Game.Skills::Game.Skills.WandLoadout
   Spells:
-  - {fileID: 11400000, guid: 7b65862d76c3ef540aee24cd30bcc740, type: 2}
   - {fileID: 11400000, guid: 82e8578b61b785841b3a95e293556eaa, type: 2}
   - {fileID: 11400000, guid: 5d2e6966f44702544904db6684e2b4d5, type: 2}
   - {fileID: 11400000, guid: 5d2e6966f44702544904db6684e2b4d5, type: 2}

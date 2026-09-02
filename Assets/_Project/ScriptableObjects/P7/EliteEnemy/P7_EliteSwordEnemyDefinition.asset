@@ -10,9 +10,9 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 64b7ac34a6a16a24fa60235878b0c6ac, type: 3}
-  m_Name: P7_EliteMagicEnemyDefinition
+  m_Name: P7_EliteSwordEnemyDefinition
   m_EditorClassIdentifier: Game.Combat::Game.Combat.EnemyDefinition
-  MoveSpeed: 3.5
+  MoveSpeed: 10
   PathRefreshInterval: 0.2
   DestinationMoveThreshold: 0.5
   DestinationSampleRadius: 2
@@ -20,12 +20,12 @@ MonoBehaviour:
   RetreatSampleRadius: 1.5
   StuckCheckInterval: 0.5
   StuckProgressDistance: 0.05
-  DetectRadius: 16
-  LoseRadius: 18
-  AttackRange: 12
-  AttackCooldown: 0.3
-  Attack: {fileID: 11400000, guid: f431cb7d1063e104cafeb10f3dc9c980, type: 2}
-  HurtDuration: 0.2
+  DetectRadius: 50
+  LoseRadius: 50
+  AttackRange: 2.2
+  AttackCooldown: 0.5
+  Attack: {fileID: 11400000, guid: 4ea6f119e0cc6a84ba6f8453772be2a0, type: 2}
+  HurtDuration: 0.3
   HurtStateName: GetHit_MagicWand
   RetreatDistance: 5
   CrossFadeDuration: 0.1

@@ -17,7 +17,7 @@ MonoBehaviour:
   PhaseMask: 4
   Phase1Multiplier: 0
   Phase2Multiplier: 0
-  Phase3Multiplier: 1.5
+  Phase3Multiplier: 1.6
   MinPreferredDistance: 0
   MaxPreferredDistance: 12
   DistanceFalloff: 4

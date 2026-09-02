@@ -304,6 +304,19 @@ namespace Game.Skills.Tests
         }
 
         [Test]
+        public void Preview_FireballThenMulticast_ReportsImmediateCostAndRemainingBudget()
+        {
+            // 基础预算 1：火球消耗后为 0；双重射击即使此时没有预算也会被读取，并把预算加回 2。
+            CastPreview preview = CastEvaluator.Preview(
+                new[] { Emit(mana: 7f), Multi(2, mana: 3f) },
+                1,
+                CastModifierState.Default);
+
+            Assert.AreEqual(10f, preview.ImmediateManaCost, 1e-4f);
+            Assert.AreEqual(2, preview.RemainingDrawBudget);
+        }
+
+        [Test]
         public void EnoughMana_EmitsAll_ReportsSpent()
         {
             var summary = Run(1, 100f, Multi(2), Emit(mana: 6f), Emit(mana: 6f), Emit(mana: 6f));

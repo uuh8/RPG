@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 using Game.Core;
 using Game.Run;
 using Game.Skills;
@@ -29,8 +30,11 @@ namespace Game.UI
         [SerializeField] private SpellTooltipPresenter _tooltipPresenter;
 
         [Header("Header (只读展示)")]
-        [SerializeField] private Text _shuffleLabel;          // 显示 "乱序：否"
-        [SerializeField] private Text _castCountLabel;        // 显示 "施放数：N"
+        // 保留旧字段名的序列化迁移，P7/P8 现有场景不需要重新拖拽这两个标题 Text。
+        [FormerlySerializedAs("_shuffleLabel")]
+        [SerializeField] private Text _manaCostLabel;
+        [FormerlySerializedAs("_castCountLabel")]
+        [SerializeField] private Text _remainingDrawBudgetLabel;
 
         [Header("Input")]
         [SerializeField] private InputActionReference _toggleAction; // 开关界面动作（开发者在 Inspector 指派，如 Tab）
@@ -156,12 +160,14 @@ namespace Game.UI
 
         private void RefreshHeader()
         {
-            if (_shuffleLabel != null) _shuffleLabel.text = "乱序：否";
-            if (_castCountLabel != null)
-            {
-                int baseDraws = _wand != null ? _wand.BaseDraws : 1;
-                _castCountLabel.text = $"施放数：{baseDraws}";
-            }
+            CastPreview preview = _wand != null
+                ? CastEvaluator.Preview(_wand.Spells, _wand.BaseDraws, CastModifierState.Default)
+                : new CastPreview(0f, 1);
+
+            if (_manaCostLabel != null)
+                _manaCostLabel.text = $"当前总耗蓝：{preview.ImmediateManaCost:0.#}";
+            if (_remainingDrawBudgetLabel != null)
+                _remainingDrawBudgetLabel.text = $"剩余施放数：{preview.RemainingDrawBudget}";
         }
 
         private void BindRuntimeData()
@@ -245,6 +251,8 @@ namespace Game.UI
                 _frame.ApplyRemove(_dragFromIndex);
 
             if (_frame != null) _frame.Rebuild(this); // 一次拖放结束统一重建（Destroy 延迟到帧末，安全）
+            // 写回 RuntimeWand 后立即重算标题；UI 只消费解释器摘要，不复制任何法术规则。
+            RefreshHeader();
 
             if (_dragGhost != null) _dragGhost.enabled = false;
             _dragSpell = null;

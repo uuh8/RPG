@@ -10,19 +10,20 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6874cdccb415bbf44b4542d068bac7cf, type: 3}
-  m_Name: BossSpell_Mdy_Orbit
+  m_Name: EnemySpell_Emit_Fireball
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
-  Kind: 1
-  DisplayName: "\u8F68\u9053\u87BA\u65CB\u4FEE\u6B63"
-  Description: 
-  Element: 0
-  Icon: {fileID: 21300000, guid: 0bd08bf622bda7f418399c484f569bd6, type: 3}
+  Kind: 0
+  DisplayName: "\u654C\u4EBA\u706B\u7403"
+  Description: "\u6CD5\u5E08\u654C\u4EBA\u4F7F\u7528\u7684\u76F4\u7EBF\u706B\u7403\uFF1BRuntime
+    \u901A\u8FC7 IgnoreMana \u6267\u884C\u3002"
+  Element: 1
+  Icon: {fileID: 21300000, guid: 6c1250795f4468d4ca9d7f0fa331ab41, type: 3}
   ManaCost: 20
-  ProjectilePrefab: {fileID: 0}
+  ProjectilePrefab: {fileID: 7581999627747165493, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
   BaseDamage: 10
-  BaseSpeed: 20
+  BaseSpeed: 18
   DamageType: 1
-  CastSfx: {fileID: 0}
+  CastSfx: {fileID: 8300000, guid: 5cd691c7632755d499fbbb55bc1f0fac, type: 3}
   PayloadTrigger: 0
   PayloadDelaySeconds: 1
   SpawnMode: 0
@@ -46,8 +47,8 @@ MonoBehaviour:
   ModHomingRadius: 0
   ModHomingDuration: 0
   ModHomingTurnRateDegrees: 0
-  ModOrbitRadius: 5
-  ModOrbitAngularSpeedDegrees: 270
+  ModOrbitRadius: 0
+  ModOrbitAngularSpeedDegrees: 0
   ModOrbitPhaseOffsetDegrees: 0
-  ModOrbitPlaneTiltDegrees: 90
-  ExtraDraws: 0
+  ModOrbitPlaneTiltDegrees: 0
+  ExtraDraws: 2

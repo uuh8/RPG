@@ -10,16 +10,16 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6874cdccb415bbf44b4542d068bac7cf, type: 3}
-  m_Name: BossSpell_Mdy_Orbit
+  m_Name: EnemySpell_Emit_Stickyball
   m_EditorClassIdentifier: Game.Skills::Game.Skills.SpellDefinition
-  Kind: 1
-  DisplayName: "\u8F68\u9053\u87BA\u65CB\u4FEE\u6B63"
-  Description: 
-  Element: 0
-  Icon: {fileID: 21300000, guid: 0bd08bf622bda7f418399c484f569bd6, type: 3}
-  ManaCost: 20
-  ProjectilePrefab: {fileID: 0}
-  BaseDamage: 10
+  Kind: 0
+  DisplayName: "\u7C98\u6DB2\u7403"
+  Description: "\u53D1\u5C04\u4E00\u679A\u7C98\u6DB2\u7403\uFF0C\u547D\u4E2D\u540E\u5728\u5730\u9762\u6C89\u79EF\u9ECF\u7A20\u6DB2\u4F53\u5E76\u4F7F\u63A5\u89E6\u8005\u51CF\u901F\u3002"
+  Element: 5
+  Icon: {fileID: 21300000, guid: b5cba47db4f413a4aa87c5ddfec0b669, type: 3}
+  ManaCost: 5
+  ProjectilePrefab: {fileID: 2081726347723894056, guid: 0fe0782ff0a3c894e9ae85d186adc482, type: 3}
+  BaseDamage: 0
   BaseSpeed: 20
   DamageType: 1
   CastSfx: {fileID: 0}
@@ -46,8 +46,8 @@ MonoBehaviour:
   ModHomingRadius: 0
   ModHomingDuration: 0
   ModHomingTurnRateDegrees: 0
-  ModOrbitRadius: 5
-  ModOrbitAngularSpeedDegrees: 270
+  ModOrbitRadius: 0
+  ModOrbitAngularSpeedDegrees: 0
   ModOrbitPhaseOffsetDegrees: 0
-  ModOrbitPlaneTiltDegrees: 90
+  ModOrbitPlaneTiltDegrees: 0
   ExtraDraws: 0
