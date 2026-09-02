@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Game.Combat
 {
     /// <summary>
-    /// 数据驱动的近战敌人定义：AI 感知 / 移动 / 攻击 / 受击 的全部可调参数。
+    /// 数据驱动的敌人通用定义：AI 感知 / 移动 / 攻击 / 受击 的全部可调参数。
     /// 纯数据，仅引用 AttackDefinition（同模块），不引用 Animator/Character。新怪 = 新建一份本资产。
     /// HP/阵营仍在 HealthComponent 上配置（避免重复），本 SO 不含 HP。
     /// </summary>
@@ -40,7 +40,7 @@ namespace Game.Combat
         public float AttackRange = 2.2f;
         [Tooltip("两次攻击的最小间隔(秒)")]
         public float AttackCooldown = 1.5f;
-        [Tooltip("挥击数据：命中盒 HalfExtents / 命中窗口 HitActiveStart-End / 伤害 / 动画状态名")]
+        [Tooltip("攻击数据：近战读取命中盒、命中窗口和伤害；远程读取动画状态名与 ArrowSpawnTime 作为施法时序")]
         public AttackDefinition Attack;
 
         [Header("受击")]
