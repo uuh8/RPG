@@ -32,6 +32,36 @@ namespace Game.Character
         }
 
         /// <summary>
+        /// 后撤候选即使首次选择失败，也必须等待刷新间隔或威胁明显移动后再采样。
+        /// 不能把“当前没有候选”当成“每帧都要重试”，否则狭小高台会持续执行多组 NavMesh 查询。
+        /// </summary>
+        public static bool ShouldRefreshRetreatSelection(
+            bool hasSelectionAttempt,
+            float elapsed,
+            Vector3 previousThreat,
+            Vector3 currentThreat,
+            float interval,
+            float moveThreshold)
+        {
+            return !hasSelectionAttempt || ShouldRefreshPath(
+                elapsed,
+                previousThreat,
+                currentThreat,
+                interval,
+                moveThreshold);
+        }
+
+        /// <summary>
+        /// Moving/Pending 表示后撤仍有实际执行机会；其余结果不能继续独占 FSM 决策，
+        /// 状态层应降级检查原地攻击或普通接近，避免理想行为失败后角色停止战斗。
+        /// </summary>
+        public static bool ShouldContinueRetreat(EnemyNavigationResult result)
+        {
+            return result == EnemyNavigationResult.Moving ||
+                   result == EnemyNavigationResult.Pending;
+        }
+
+        /// <summary>
         /// 把目标位置投影到导航查询参考平面。
         /// CharacterController 的根节点可能处于角色中心、跳跃高度或视觉锚点高度，
         /// 但 NavMesh.SamplePosition 需要在地面附近查询；只替换 Y，保留 XZ，

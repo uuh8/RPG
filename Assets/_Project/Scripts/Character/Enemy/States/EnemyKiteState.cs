@@ -41,10 +41,15 @@ namespace Game.Character
                     def.RetreatDistance,
                     def.RangedRetreatMaxHeight))
             {
-                _enemy.PlanNavigationAwayFrom(targetPos);
-                _enemy.FaceNavigationOrTarget(targetPos);
-                _enemy.MoveAlongNavigation();
-                return;
+                EnemyNavigationResult retreatResult = _enemy.PlanNavigationAwayFrom(targetPos);
+                if (EnemyNavigationMath.ShouldContinueRetreat(retreatResult))
+                {
+                    _enemy.FaceNavigationOrTarget(targetPos);
+                    _enemy.MoveAlongNavigation();
+                    return;
+                }
+
+                // 狭小高台没有完整后撤路线时，后撤只是失败的意图；继续评估攻击，避免该分支饿死战斗行为。
             }
 
             // 远程射击资格独立于步行拓扑：独立高台即使没有通往玩家的 PathComplete，

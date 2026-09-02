@@ -47,6 +47,7 @@ namespace Game.Character
         private float _stuckRecoveryTimeRemaining;
         private bool _hasPathRequestAttempt;
         private bool _hasRetreatDestination;
+        private bool _hasRetreatSelectionAttempt;
         private bool _forceRefresh;
         private bool _navigationActive;
         private bool _initialOffsetConsumed;
@@ -95,6 +96,9 @@ namespace Game.Character
             _failureTracker.Reset();
             _lastProgressPosition = _owner.position;
             _progressCheckElapsed = 0f;
+            _retreatSelectionElapsed = 0f;
+            _hasRetreatSelectionAttempt = false;
+            _hasRetreatDestination = false;
             _stuckRecoveryTimeRemaining = 0f;
             _forceRefresh = true;
 
@@ -112,6 +116,8 @@ namespace Game.Character
             _failureSignal = EnemyNavigationFailureSignal.None;
             _failureTracker.Reset();
             _hasRetreatDestination = false;
+            _hasRetreatSelectionAttempt = false;
+            _retreatSelectionElapsed = 0f;
             _stuckRecoveryTimeRemaining = 0f;
 
             if (!IsReady)
@@ -148,15 +154,17 @@ namespace Game.Character
             EnsureActive();
             _retreatSelectionElapsed += Mathf.Max(0f, deltaTime);
 
-            bool threatMoved = !_hasRetreatDestination || EnemyNavigationMath.ShouldRefreshPath(
+            bool shouldRefreshSelection = EnemyNavigationMath.ShouldRefreshRetreatSelection(
+                _hasRetreatSelectionAttempt,
                 _retreatSelectionElapsed,
                 _lastRetreatThreatPosition,
                 threatPosition,
                 _definition != null ? _definition.PathRefreshInterval : 0.2f,
                 _definition != null ? _definition.DestinationMoveThreshold : 0.5f);
 
-            if (threatMoved)
+            if (shouldRefreshSelection)
             {
+                _hasRetreatSelectionAttempt = true;
                 _lastRetreatThreatPosition = threatPosition;
                 _retreatSelectionElapsed = 0f;
                 _hasRetreatDestination = TrySelectRetreatDestination(threatPosition, out _retreatDestination);

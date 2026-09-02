@@ -298,6 +298,57 @@ namespace Game.Character.Tests
             Assert.That(result, Is.False);
         }
 
+        [TestCase(EnemyNavigationResult.Moving, true)]
+        [TestCase(EnemyNavigationResult.Pending, true)]
+        [TestCase(EnemyNavigationResult.Unavailable, false)]
+        [TestCase(EnemyNavigationResult.Invalid, false)]
+        [TestCase(EnemyNavigationResult.Partial, false)]
+        [TestCase(EnemyNavigationResult.Reached, false)]
+        public void ShouldContinueRetreat_OnlyWhileRetreatCanStillProgress(
+            EnemyNavigationResult navigationResult,
+            bool expected)
+        {
+            Assert.That(
+                EnemyNavigationMath.ShouldContinueRetreat(navigationResult),
+                Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void ShouldRefreshRetreatSelection_AfterFailedAttemptBeforeInterval_ReturnsFalse()
+        {
+            bool result = EnemyNavigationMath.ShouldRefreshRetreatSelection(
+                hasSelectionAttempt: true,
+                elapsed: 0.05f,
+                previousThreat: Vector3.zero,
+                currentThreat: Vector3.zero,
+                interval: 0.2f,
+                moveThreshold: 0.5f);
+
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void ShouldRefreshRetreatSelection_OnFirstAttemptOrElapsedInterval_ReturnsTrue()
+        {
+            bool firstAttempt = EnemyNavigationMath.ShouldRefreshRetreatSelection(
+                hasSelectionAttempt: false,
+                elapsed: 0f,
+                previousThreat: Vector3.zero,
+                currentThreat: Vector3.zero,
+                interval: 0.2f,
+                moveThreshold: 0.5f);
+            bool elapsedInterval = EnemyNavigationMath.ShouldRefreshRetreatSelection(
+                hasSelectionAttempt: true,
+                elapsed: 0.2f,
+                previousThreat: Vector3.zero,
+                currentThreat: Vector3.zero,
+                interval: 0.2f,
+                moveThreshold: 0.5f);
+
+            Assert.That(firstAttempt, Is.True);
+            Assert.That(elapsedInterval, Is.True);
+        }
+
         private static void AssertVector(Vector3 actual, float x, float y, float z)
         {
             Assert.That(actual.x, Is.EqualTo(x).Within(0.0001f));
