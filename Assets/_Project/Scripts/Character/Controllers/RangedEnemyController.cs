@@ -45,6 +45,36 @@ namespace Game.Character
         }
 
         /// <summary>
+        /// 远程攻击资格只回答“当前位置能否把法术射向玩家”：检查水平射程、允许高差与场景遮挡，
+        /// 不要求敌人与玩家的 NavMesh 连通。这样 Authoring 在独立高台上的法师可以原地作战；
+        /// 近战仍走 EnemyNavigationMotor 的完整路径规则，二者不会互相放宽。
+        /// </summary>
+        public bool CanAttackTarget(Vector3 targetPosition)
+        {
+            if (_definition == null || _castOrigin == null)
+                return false;
+
+            if (!EnemyPerceptionMath.IsWithinVerticalCylinder(
+                    transform.position,
+                    targetPosition,
+                    _definition.AttackRange,
+                    _definition.RangedAttackMaxHeight))
+            {
+                return false;
+            }
+
+            Vector3 aimPoint = ResolveAimPoint(targetPosition);
+            int obstacleMask = _definition.RangedLineOfSightObstacleMask.value;
+            // Mask 为 0 可显式关闭遮挡检查；生产配置默认只查询 Ground，避免射线命中施法者自身。
+            return obstacleMask == 0 ||
+                   !Physics.Linecast(
+                       _castOrigin.position,
+                       aimPoint,
+                       obstacleMask,
+                       QueryTriggerInteraction.Ignore);
+        }
+
+        /// <summary>
         /// 在真正的动画释放帧选择并提交一套法术程序。返回值只表示有效 Program 已提交；
         /// 它不把 EmitCommand 数量误当成最终成功 Instantiate 的对象数量。
         /// 普通敌人只有一个候选时稳定选择该配置，精英敌人有多个候选时均匀随机且不连续重复。
@@ -76,7 +106,7 @@ namespace Game.Character
             // 测试或异常初始化顺序下感知器可能尚未建立；此时仍可沿自身 forward 做确定性降级施放。
             Transform target = Perception != null ? Perception.Target : null;
             Vector3 aimPoint = target != null
-                ? target.position + Vector3.up * _aimHeightOffset
+                ? ResolveAimPoint(target.position)
                 : _castOrigin.position + transform.forward;
 
             byte team = _health != null ? _health.TeamId : (byte)0;
@@ -90,6 +120,11 @@ namespace Game.Character
                 _cc,
                 SpellManaPolicy.IgnoreMana);
             return true;
+        }
+
+        private Vector3 ResolveAimPoint(Vector3 targetPosition)
+        {
+            return targetPosition + Vector3.up * _aimHeightOffset;
         }
 
         /// <summary>

@@ -59,6 +59,60 @@ namespace Game.Character.Tests
             Assert.That(enemy.CastSelectedProgram(), Is.False);
         }
 
+        [Test]
+        public void CanAttackTarget_FromDisconnectedHighGround_DoesNotRequireNavMeshPath()
+        {
+            RangedEnemyController enemy = CreateEnemy(
+                new[] { CreateWand(CreateEmit(0f)) },
+                out _);
+            enemy.Definition.AttackRange = 12f;
+            enemy.Definition.RangedAttackMaxHeight = 6f;
+            enemy.Definition.RangedLineOfSightObstacleMask = 1 << 8;
+
+            // 测试对象没有 Bake NavMesh；只要高台到目标的射击几何成立，远程攻击资格仍应成立。
+            bool canAttack = enemy.CanAttackTarget(new Vector3(5f, -4f, 0f));
+
+            Assert.That(canAttack, Is.True);
+        }
+
+        [Test]
+        public void CanAttackTarget_WhenGroundLayerWallBlocksShot_ReturnsFalse()
+        {
+            RangedEnemyController enemy = CreateEnemy(
+                new[] { CreateWand(CreateEmit(0f)) },
+                out _);
+            enemy.Definition.AttackRange = 12f;
+            enemy.Definition.RangedAttackMaxHeight = 6f;
+            enemy.Definition.RangedLineOfSightObstacleMask = 1 << 8;
+
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = "Ranged LOS Wall";
+            wall.layer = 8;
+            wall.transform.position = new Vector3(2.5f, 0.5f, 0f);
+            wall.transform.localScale = new Vector3(0.5f, 4f, 4f);
+            _createdObjects.Add(wall);
+            Physics.SyncTransforms();
+
+            bool canAttack = enemy.CanAttackTarget(new Vector3(5f, 0f, 0f));
+
+            Assert.That(canAttack, Is.False);
+        }
+
+        [Test]
+        public void CanAttackTarget_WhenVerticalDifferenceExceedsLimit_ReturnsFalse()
+        {
+            RangedEnemyController enemy = CreateEnemy(
+                new[] { CreateWand(CreateEmit(0f)) },
+                out _);
+            enemy.Definition.AttackRange = 12f;
+            enemy.Definition.RangedAttackMaxHeight = 4f;
+            enemy.Definition.RangedLineOfSightObstacleMask = 1 << 8;
+
+            bool canAttack = enemy.CanAttackTarget(new Vector3(3f, -5f, 0f));
+
+            Assert.That(canAttack, Is.False);
+        }
+
         private RangedEnemyController CreateEnemy(
             WandLoadout[] programs,
             out ManaComponent mana)

@@ -250,6 +250,54 @@ namespace Game.Character.Tests
             Assert.That(result, Is.True);
         }
 
+        [Test]
+        public void IsWithinVerticalCylinder_WhenTargetIsOnLowerGroundInsideBothLimits_ReturnsTrue()
+        {
+            bool result = EnemyPerceptionMath.IsWithinVerticalCylinder(
+                observerPosition: new Vector3(0f, 4f, 0f),
+                targetPosition: new Vector3(3f, 0f, 4f),
+                horizontalRadius: 5f,
+                verticalHalfHeight: 4f);
+
+            Assert.That(result, Is.True);
+        }
+
+        [Test]
+        public void IsWithinVerticalCylinder_WhenTargetIsManyFloorsBelow_ReturnsFalse()
+        {
+            bool result = EnemyPerceptionMath.IsWithinVerticalCylinder(
+                observerPosition: new Vector3(0f, 12f, 0f),
+                targetPosition: Vector3.zero,
+                horizontalRadius: 5f,
+                verticalHalfHeight: 6f);
+
+            Assert.That(result, Is.False);
+        }
+
+        [Test]
+        public void ShouldRetreat_WhenPlayerIsCloseOnSameLevel_ReturnsTrue()
+        {
+            bool result = EnemyPerceptionMath.ShouldRetreat(
+                horizontalDistance: 2f,
+                verticalDistance: 0.5f,
+                retreatDistance: 4f,
+                retreatHeight: 1.5f);
+
+            Assert.That(result, Is.True);
+        }
+
+        [Test]
+        public void ShouldRetreat_WhenPlayerIsBelowHighGround_ReturnsFalse()
+        {
+            bool result = EnemyPerceptionMath.ShouldRetreat(
+                horizontalDistance: 2f,
+                verticalDistance: 3f,
+                retreatDistance: 4f,
+                retreatHeight: 1.5f);
+
+            Assert.That(result, Is.False);
+        }
+
         private static void AssertVector(Vector3 actual, float x, float y, float z)
         {
             Assert.That(actual.x, Is.EqualTo(x).Within(0.0001f));

@@ -32,8 +32,12 @@ namespace Game.Combat
         [Header("感知 (半径，带滞回防抖)")]
         [Tooltip("进入战斗的侦测半径")]
         public float DetectRadius = 12f;
+        [Tooltip("进入战斗允许的最大绝对高度差(米)，与 DetectRadius 共同形成有限高度圆柱")]
+        [Min(0f)] public float DetectHeight = 6f;
         [Tooltip("脱战半径；须 > DetectRadius，避免在边界反复进出战")]
         public float LoseRadius = 16f;
+        [Tooltip("锁定后允许的最大绝对高度差(米)；应大于 DetectHeight，避免高度边界反复锁定/丢失")]
+        [Min(0f)] public float LoseHeight = 8f;
 
         [Header("攻击")]
         [Tooltip("玩家进入此距离且冷却就绪 → 出招")]
@@ -52,6 +56,12 @@ namespace Game.Combat
         [Header("远程走位 (仅远程敌人 RangedEnemyController 使用)")]
         [Tooltip("玩家比此距离更近时后撤；与 AttackRange 一起构成站档输出的范围带 [RetreatDistance, AttackRange]")]
         public float RetreatDistance = 4f;
+        [Tooltip("触发后撤允许的最大绝对高度差(米)；玩家明显位于高台下方时不视为贴脸威胁")]
+        [Min(0f)] public float RangedRetreatMaxHeight = 1.5f;
+        [Tooltip("远程攻击允许的最大绝对高度差(米)；高台与地面无需 NavMesh 连通，但仍受此高度限制")]
+        [Min(0f)] public float RangedAttackMaxHeight = 6f;
+        [Tooltip("阻挡直线法术的场景 Layer。默认只检查 Ground，必须排除 Enemy 自身与 Player")]
+        public LayerMask RangedLineOfSightObstacleMask = 1 << 8;
 
         [Header("CrossFade")]
         public float CrossFadeDuration = 0.1f;

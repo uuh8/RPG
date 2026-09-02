@@ -4,10 +4,10 @@ using Game.Combat;
 namespace Game.Character
 {
     /// <summary>
-    /// 远程走位：远追 / 近退 / 中间站档输出。移动时朝实际路径方向，攻击前才面向玩家。
-    ///   距离 > AttackRange      → 沿 NavMesh 接近
-    ///   距离 < RetreatDistance  → 从后方/左后/右后候选中选择完整路径后撤
-    ///   在 [RetreatDistance, AttackRange] 档内且冷却就绪 → 切施法态；冷却中 → 站定等待
+    /// 远程走位：远追 / 同层近退 / 高台或中间站档输出。移动时朝实际路径方向，攻击前才面向玩家。
+    ///   水平距离与高度差都进入贴脸范围 → 从后方/左后/右后候选中选择完整路径后撤
+    ///   射程、高差与 Line of Sight 成立      → 切施法态；冷却中站定等待
+    ///   当前站位不能有效射击                → 沿 NavMesh 接近或重新寻找通道
     /// 丢失目标 → 回待机。
     /// </summary>
     public class EnemyKiteState : EnemyStateBase
@@ -35,7 +35,11 @@ namespace Game.Character
             EnemyDefinition def = _enemy.Definition;
             float dist = p.DistanceToTarget;
 
-            if (dist < def.RetreatDistance)
+            if (EnemyPerceptionMath.ShouldRetreat(
+                    dist,
+                    p.VerticalDistanceToTarget,
+                    def.RetreatDistance,
+                    def.RangedRetreatMaxHeight))
             {
                 _enemy.PlanNavigationAwayFrom(targetPos);
                 _enemy.FaceNavigationOrTarget(targetPos);
@@ -43,11 +47,9 @@ namespace Game.Character
                 return;
             }
 
-            // 不做视野判定；路径仍在绕障碍时继续走，进入最终直达段后才允许站定施法。
-            _enemy.PlanNavigationTo(targetPos, 0.05f);
-
-            bool inAttackBand = dist >= def.RetreatDistance && dist <= def.AttackRange;
-            if (inAttackBand && _enemy.CanAttackThroughNavigation(targetPos, def.AttackRange))
+            // 远程射击资格独立于步行拓扑：独立高台即使没有通往玩家的 PathComplete，
+            // 只要射程、高差和 Line of Sight 成立，仍可站定施法。
+            if (_ranged.CanAttackTarget(targetPos))
             {
                 _enemy.FaceTarget(targetPos);
                 if (_enemy.AttackCooldownCounter <= 0f)
@@ -60,6 +62,8 @@ namespace Game.Character
                 return;
             }
 
+            // 当前站位没有有效射击通道时才请求 NavMesh 接近；无路可走则保留锁敌并周期重试。
+            _enemy.PlanNavigationTo(targetPos, 0.05f);
             _enemy.FaceNavigationOrTarget(targetPos);
             _enemy.MoveAlongNavigation();
         }
