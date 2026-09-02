@@ -1,0 +1,151 @@
+using System.Collections.Generic;
+using System.Reflection;
+using Game.Combat;
+using Game.Skills;
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.TestTools;
+using Object = UnityEngine.Object;
+
+namespace Game.Character.Tests
+{
+    public sealed class RangedEnemySpellProgramTests
+    {
+        private readonly List<Object> _createdObjects = new List<Object>();
+
+        [TearDown]
+        public void TearDown()
+        {
+            for (int i = _createdObjects.Count - 1; i >= 0; i--)
+            {
+                if (_createdObjects[i] != null)
+                {
+                    Object.DestroyImmediate(_createdObjects[i]);
+                }
+            }
+
+            _createdObjects.Clear();
+        }
+
+        [Test]
+        public void CastSelectedProgram_FiltersInvalidProgramsAndIgnoresMana()
+        {
+            WandLoadout empty = CreateWand();
+            WandLoadout valid = CreateWand(CreateEmit(10f));
+            RangedEnemyController enemy = CreateEnemy(
+                new WandLoadout[] { null, empty, valid },
+                out ManaComponent mana);
+
+            LogAssert.Expect(
+                LogType.Warning,
+                "[Skills] [SpellCaster] EmitCommand.ProjectilePrefab 为空，跳过该法术产出");
+
+            Assert.That(enemy.CastSelectedProgram(), Is.True);
+            Assert.That(mana.CurrentMana, Is.Zero,
+                "Enemy 使用 IgnoreMana 时不应修改 ManaComponent。" );
+        }
+
+        [Test]
+        public void CastSelectedProgram_NoValidProgram_ReturnsZero()
+        {
+            RangedEnemyController enemy = CreateEnemy(
+                new WandLoadout[] { null, CreateWand() },
+                out _);
+
+            LogAssert.Expect(
+                LogType.Warning,
+                "[Enemy] 远程敌人没有可执行的法术程序，已跳过本次释放");
+
+            Assert.That(enemy.CastSelectedProgram(), Is.False);
+        }
+
+        private RangedEnemyController CreateEnemy(
+            WandLoadout[] programs,
+            out ManaComponent mana)
+        {
+            GameObject enemyObject = new GameObject("Ranged Enemy Spell Test");
+            enemyObject.SetActive(false);
+            _createdObjects.Add(enemyObject);
+
+            mana = enemyObject.AddComponent<ManaComponent>();
+            SetPrivateField(mana, "_maxMana", 10f);
+            SetPrivateField(mana, "_startFull", false);
+
+            SpellCaster caster = enemyObject.AddComponent<SpellCaster>();
+            SetPrivateField(caster, "_mana", mana);
+
+            RangedEnemyController enemy = enemyObject.AddComponent<RangedEnemyController>();
+            SetPrivateField(enemy, "_definition", CreateEnemyDefinition());
+            SetPrivateField(enemy, "_health", enemyObject.GetComponent<HealthComponent>());
+            SetPrivateField(enemy, "_spellCaster", caster);
+            SetPrivateField(enemy, "_castOrigin", enemyObject.transform);
+            SetPrivateField(enemy, "_spellPrograms", programs);
+            // AddComponent 在 EditMode 测试中可能先触发 Awake；重新构建一次，模拟 Prefab 反序列化完成后的初始化结果。
+            InvokePrivateMethod(enemy, "BuildValidProgramCache");
+
+            enemyObject.SetActive(true);
+            return enemy;
+        }
+
+        private EnemyDefinition CreateEnemyDefinition()
+        {
+            AttackDefinition attack = ScriptableObject.CreateInstance<AttackDefinition>();
+            attack.AnimationStateName = "Enemy_SpellCast";
+            _createdObjects.Add(attack);
+
+            EnemyDefinition definition = ScriptableObject.CreateInstance<EnemyDefinition>();
+            definition.Attack = attack;
+            _createdObjects.Add(definition);
+            return definition;
+        }
+
+        private SpellDefinition CreateEmit(float manaCost)
+        {
+            SpellDefinition spell = ScriptableObject.CreateInstance<SpellDefinition>();
+            spell.Kind = SpellKind.Emit;
+            spell.ManaCost = manaCost;
+            _createdObjects.Add(spell);
+            return spell;
+        }
+
+        private WandLoadout CreateWand(params SpellDefinition[] spells)
+        {
+            WandLoadout wand = ScriptableObject.CreateInstance<WandLoadout>();
+            wand.Spells = spells;
+            wand.BaseDraws = 1;
+            _createdObjects.Add(wand);
+            return wand;
+        }
+
+        private static void SetPrivateField(
+            object target,
+            string fieldName,
+            object value)
+        {
+            for (System.Type type = target.GetType(); type != null; type = type.BaseType)
+            {
+                FieldInfo field = type.GetField(
+                    fieldName,
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field == null)
+                {
+                    continue;
+                }
+
+                field.SetValue(target, value);
+                return;
+            }
+
+            Assert.Fail($"找不到测试字段 {fieldName}。");
+        }
+
+        private static void InvokePrivateMethod(object target, string methodName)
+        {
+            MethodInfo method = target.GetType().GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(method, Is.Not.Null, $"找不到测试方法 {methodName}。");
+            method.Invoke(target, null);
+        }
+    }
+}

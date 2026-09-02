@@ -5,7 +5,7 @@ using Game.Core;
 namespace Game.Character
 {
     /// <summary>
-    /// 远程施法：站定播施法动画，到 Attack.ArrowSpawnTime 单点发射火球(单发去重 + 排除过渡帧 + shortNameHash 校验)。
+    /// 远程施法：站定播施法动画，到 Attack.ArrowSpawnTime 单点运行敌人的法术程序(单次释放去重 + 排除过渡帧 + shortNameHash 校验)。
     /// 结束判定与 Animator 退出连线协作(进入施法态后又离开即结束 + EndThreshold/超时兜底)，避免卡死。Exit 启动冷却。
     /// 注：施法动画名(AttackDefinition.AnimationStateName)需与 Animator 节点精确一致，否则进不去施法态、超时空放。
     /// </summary>
@@ -15,7 +15,7 @@ namespace Game.Character
         private const float MaxStateTime = 3f;
 
         private readonly RangedEnemyController _ranged;
-        private bool _fired;
+        private bool _released;
         private bool _enteredAnimState;
         private float _elapsed;
 
@@ -24,7 +24,7 @@ namespace Game.Character
         public override void Enter()
         {
             _enemy.StopNavigation(true);
-            _fired = false;
+            _released = false;
             _enteredAnimState = false;
             _elapsed = 0f;
             if (_enemy.Perception.Target != null)
@@ -48,7 +48,12 @@ namespace Game.Character
                 {
                     _enteredAnimState = true;
                     float t = info.normalizedTime % 1f;
-                    if (!_fired && t >= atk.ArrowSpawnTime) { _ranged.SpawnFireball(); _fired = true; }
+                    if (!_released && t >= atk.ArrowSpawnTime)
+                    {
+                        _ranged.CastSelectedProgram();
+                        // 即使 Authoring 配置无效，本轮动画也只尝试一次，避免之后每帧重复 Warn/施放。
+                        _released = true;
+                    }
                     if (t >= EndThreshold) Finish();
                     return;
                 }

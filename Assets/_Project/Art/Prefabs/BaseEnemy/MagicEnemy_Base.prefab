@@ -10554,6 +10554,7 @@ GameObject:
   - component: {fileID: 5127256133659184201}
   - component: {fileID: 8007896320182037090}
   - component: {fileID: 4050619892352157578}
+  - component: {fileID: 2588700078224618506}
   m_Layer: 7
   m_Name: MagicEnemy_Base
   m_TagString: Untagged
@@ -10745,7 +10746,9 @@ MonoBehaviour:
   _definition: {fileID: 11400000, guid: 9e77cd1ed6d2c5245a0e08454bb4ab5d, type: 2}
   _rotationSpeed: 10
   _gravity: -20
-  _projectileSpawnPoint: {fileID: 1277167150428506203}
+  _castOrigin: {fileID: 1277167150428506203}
+  _spellPrograms:
+  - {fileID: 11400000, guid: 55afda6be8568b447986326ad3e03756, type: 2}
   _aimHeightOffset: 1
 --- !u!114 &5127256133659184201
 MonoBehaviour:
@@ -10797,6 +10800,22 @@ NavMeshAgent:
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
+--- !u!114 &2588700078224618506
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6186421515269797264}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b71d53b750a96b14d8c0b91369309296, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Game.Character::Game.Character.SpellCaster
+  _runSpellSession: {fileID: 0}
+  _wand: {fileID: 0}
+  _mana: {fileID: 0}
+  _traceLevel: 0
 --- !u!1 &6285617985785799075
 GameObject:
   m_ObjectHideFlags: 0

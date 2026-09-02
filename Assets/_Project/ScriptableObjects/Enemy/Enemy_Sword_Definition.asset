@@ -28,6 +28,4 @@ MonoBehaviour:
   HurtDuration: 0.4
   HurtStateName: GetHit_SingleTwohandSword
   RetreatDistance: 4
-  ProjectileSpeed: 18
-  ProjectilePrefab: {fileID: 0}
   CrossFadeDuration: 0.1

@@ -67,7 +67,7 @@ namespace Game.Run.Tests
 
             LogAssert.Expect(
                 LogType.Warning,
-                "[Skills] EmitCommand.ProjectilePrefab 为空，跳过该法术产出");
+                "[Skills] [SpellCaster] EmitCommand.ProjectilePrefab 为空，跳过该法术产出");
             InvokeImpact(runtimeProjectile);
             yield return null;
         }

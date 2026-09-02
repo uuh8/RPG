@@ -28,6 +28,4 @@ MonoBehaviour:
   HurtDuration: 0.2
   HurtStateName: GetHit_MagicWand
   RetreatDistance: 5
-  ProjectileSpeed: 18
-  ProjectilePrefab: {fileID: 7581999627747165493, guid: ff24eb7da93035a4bb0c145ce29849fa, type: 3}
   CrossFadeDuration: 0.1
