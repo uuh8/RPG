@@ -1073,7 +1073,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &2294064332725753411
 Transform:
   m_ObjectHideFlags: 0
@@ -3558,7 +3558,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &8901961552549389672
 Transform:
   m_ObjectHideFlags: 0
@@ -4087,7 +4087,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1342672568330456986
 Transform:
   m_ObjectHideFlags: 0
@@ -6507,7 +6507,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &5960908295333675740
 Transform:
   m_ObjectHideFlags: 0
@@ -11638,7 +11638,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 5901050881316732648}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7932117, z: -0, w: -0.60894597}
+  m_LocalRotation: {x: 0, y: 0.79320997, z: -0, w: -0.60894823}
   m_LocalPosition: {x: 32.89, y: 1.91, z: 41.62}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -11770,7 +11770,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5d6260d1317e52b4fb9a05435c1ce13b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Game.Combat::Game.Combat.HealthComponent
-  _maxHp: 100
+  _maxHp: 70
   _teamId: 0
   _currentHp: 0
 --- !u!114 &6780057145359796691
@@ -11818,6 +11818,7 @@ MonoBehaviour:
   _spellPrograms:
   - {fileID: 11400000, guid: f9982f014266a0542b1a71bf3dff62bc, type: 2}
   _aimHeightOffset: 1
+  _aimMode: 0
 --- !u!114 &1520324595319611339
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13567,7 +13568,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &687012943274270017
 Transform:
   m_ObjectHideFlags: 0
@@ -14603,7 +14604,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &5502750501554079115
 Transform:
   m_ObjectHideFlags: 0

@@ -35,7 +35,10 @@ namespace Game.ElementField.Tests
             Assert.That(Marshal.SizeOf<FluidGpuLiquidMaterialParameters>(), Is.EqualTo(32));
             Assert.That(FluidGpuLayout.SpawnRequestStride, Is.EqualTo(64));
             Assert.That(FluidGpuLayout.LiquidMaterialParameterStride, Is.EqualTo(32));
-            Assert.That(FluidGpuLayout.LayoutVersion, Is.EqualTo(8u));
+            Assert.That(FluidGpuLayout.LayoutVersion, Is.EqualTo(9u));
+            Assert.That(FluidGpuLayout.ArchiveLockedFlag, Is.EqualTo(1u << 5));
+            Assert.That(FluidGpuLayout.RestoreLoadingFlag, Is.EqualTo(1u << 6));
+            Assert.That(FluidGpuLayout.ArchiveSampleStride, Is.EqualTo(32));
             Assert.That(
                 FluidSpawnFlags.UseLinearFalloff & FluidSpawnFlags.DensityPacked,
                 Is.Zero,
@@ -176,6 +179,30 @@ namespace Game.ElementField.Tests
 
             Assert.That(snapshot.ParticleMass, Is.EqualTo(0.0125f));
             Assert.That(snapshot.TopologyVersion, Is.EqualTo(19u));
+        }
+
+        [Test]
+        public void MaterialPresenceMaskStartsEmptyAndBecomesMonotonic()
+        {
+            uint mask = 0u;
+            Assert.That(FluidMaterialPresenceMask.MayContain(mask, 1u), Is.False);
+
+            mask = FluidMaterialPresenceMask.Include(mask, 1u);
+            Assert.That(FluidMaterialPresenceMask.MayContain(mask, 1u), Is.True);
+            Assert.That(FluidMaterialPresenceMask.MayContain(mask, 3u), Is.False);
+
+            mask = FluidMaterialPresenceMask.Include(mask, 3u);
+            Assert.That(FluidMaterialPresenceMask.MayContain(mask, 1u), Is.True,
+                "Adding Poison must never forget that Water may still be resident.");
+            Assert.That(FluidMaterialPresenceMask.MayContain(mask, 3u), Is.True);
+        }
+
+        [Test]
+        public void UnknownMaterialIdUsesConservativePresenceInsteadOfSkippingRendering()
+        {
+            uint mask = FluidMaterialPresenceMask.Include(0u, 32u);
+            Assert.That(mask, Is.EqualTo(uint.MaxValue));
+            Assert.That(FluidMaterialPresenceMask.MayContain(0u, 32u), Is.True);
         }
 
         [Test]

@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c6dba76ae4652434fbb37147b1a764c2, type: 3}
+  m_Name: P8_Boss_Velmora_Definition
+  m_EditorClassIdentifier: Game.Character::Game.Character.BossDefinition
+  DisplayName: Velmora (The Broken Norn)
+  MoveSpeed: 10
+  GravityAcceleration: 20
+  GroundedStickSpeed: 2
+  AttackEnterDistance: 25
+  AttackExitDistance: 35
+  PreferredCombatMinDistance: 10
+  PreferredCombatMaxDistance: 16
+  CombatMoveSpeedMultiplier: 0.7
+  CastMoveSpeedMultiplier: 0.6
+  OrbitDirectionInterval: 2
+  CombatNavigationStepDistance: 3
+  TurnSpeedDegrees: 540
+  DecisionInterval: 0.2
+  PathRefreshInterval: 0.2
+  DestinationMoveThreshold: 0.5
+  DestinationSampleRadius: 2
+  RetreatStepDistance: 3
+  RetreatSampleRadius: 1.5
+  StuckCheckInterval: 0.5
+  StuckProgressDistance: 0.05
+  CastTelegraphDuration: 0.35
+  CastRecoveryDuration: 0.45
+  PhaseTransitionDuration: 1.2
+  TeleportTelegraphDuration: 0.6
+  TeleportRecoveryDuration: 0.25
+  RecentHistoryCapacity: 3
+  CastAnimatorTrigger: cast
+  PhaseTransitionAnimatorTrigger: phaseTransition
+  Phase1:
+    Phase: 1
+    EnterAtOrBelowHealthRatio: 1
+    CastInterval: 1.2
+    TeleportCooldown: 0
+    TeleportWeight: 0
+  Phase2:
+    Phase: 2
+    EnterAtOrBelowHealthRatio: 0.7
+    CastInterval: 0.9
+    TeleportCooldown: 8
+    TeleportWeight: 1
+  Phase3:
+    Phase: 3
+    EnterAtOrBelowHealthRatio: 0.35
+    CastInterval: 0.65
+    TeleportCooldown: 5
+    TeleportWeight: 1.5
+  Programs:
+  - {fileID: 11400000, guid: 5fd6f9ffa1872034298847eb905a9f7a, type: 2}
+  - {fileID: 11400000, guid: 6bc1a1c7196ecfa4aa7d3a3eee412463, type: 2}
+  - {fileID: 11400000, guid: d22dc82dc2593a340bbb3d066c317d9e, type: 2}
+  - {fileID: 11400000, guid: 7fcf5d360137066458b326b3d1e367d5, type: 2}
+  - {fileID: 11400000, guid: 3f07c671870a25842a9f57ca7f576868, type: 2}
+  - {fileID: 11400000, guid: 819c62799c4c3f641b8da0bd3b9a1f3f, type: 2}
+  - {fileID: 11400000, guid: 382aea7cccaf4f64fa6f21507c6a141b, type: 2}
+  - {fileID: 11400000, guid: 6dea445eed5bf814185d5f7850deb7a0, type: 2}
+  - {fileID: 11400000, guid: 37cb2d9d6a1a51d46bdaaf57f035bb50, type: 2}
+  TeleportMinRadius: 6
+  TeleportMaxRadius: 12
+  TeleportCandidateCount: 12
+  NavMeshSampleDistance: 2
+  MaxGroundSlopeDegrees: 45
+  TeleportNavMeshAreaMask: -1
+  TeleportGroundMask:
+    serializedVersion: 2
+    m_Bits: 256
+  TeleportBlockingMask:
+    serializedVersion: 2
+    m_Bits: 1

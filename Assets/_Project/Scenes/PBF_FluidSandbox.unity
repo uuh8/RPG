@@ -348,6 +348,9 @@ GameObject:
   - component: {fileID: 421758317}
   - component: {fileID: 421758316}
   - component: {fileID: 421758321}
+  - component: {fileID: 421758322}
+  - component: {fileID: 421758324}
+  - component: {fileID: 421758323}
   m_Layer: 0
   m_Name: ElementWorldRoot
   m_TagString: Untagged
@@ -391,7 +394,27 @@ MonoBehaviour:
   _marchingCubesCompute: {fileID: 7200000, guid: 6f9c1dd0137aea548868049dd085288a, type: 3}
   _material: {fileID: 2100000, guid: 7f8679ef9df382c49a4d066692874ec7, type: 2}
   _targetMaterial: 1
+  _debugForceOpaqueFragment: 0
+  _debugStage: 0
+  _debugHasSnapshot: 0
+  _debugResourcesReady: 0
+  _debugGridResolution: {x: 0, y: 0, z: 0}
+  _debugVoxelSize: {x: 0, y: 0, z: 0}
+  _debugTriangleCount: 0
+  _debugIndirectVertexCount: 0
+  _debugIndirectInstanceCount: 0
+  _debugIndirectStartVertex: 0
+  _debugIndirectStartInstance: 0
   _debugTriangleOverflow: 0
+  _debugGeometryStage: 0
+  _debugDrawBoundsCenter: {x: 0, y: 0, z: 0}
+  _debugDrawBoundsSize: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition0: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition1: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition2: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal0: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal1: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal2: {x: 0, y: 0, z: 0}
 --- !u!114 &421758317
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -427,6 +450,8 @@ MonoBehaviour:
   _fluidColliderRoot: {fileID: 416359576}
   _simulationBoundsCenter: {fileID: 1718919566}
   _simulationBoundsSize: {x: 14, y: 10, z: 14}
+  _debugAliveParticleCount: 0
+  _debugFreeParticleCount: 0
   _debugAwakeParticleCount: 0
   _debugSleepingParticleCount: 0
   _debugInterestParticleCount: 0
@@ -449,6 +474,7 @@ MonoBehaviour:
   _profile: {fileID: 11400000, guid: d7c060df9bccb0e4ebdb267833739571, type: 2}
   _gpuPbfFluidRuntime: {fileID: 421758318}
   _fluidGameplayOccupancy: {fileID: 421758317}
+  _fluidChunkStreamingRuntime: {fileID: 421758322}
   _interestPoint: {fileID: 1718919566}
   _interestGlobalCell: {x: 0, y: 0, z: 0}
   _interestChunkKey: {x: 0, y: 0, z: 0}
@@ -502,7 +528,102 @@ MonoBehaviour:
   _marchingCubesCompute: {fileID: 7200000, guid: 6f9c1dd0137aea548868049dd085288a, type: 3}
   _material: {fileID: 2100000, guid: 95242a276213be144baabd011891e82d, type: 2}
   _targetMaterial: 3
+  _debugForceOpaqueFragment: 0
+  _debugStage: 0
+  _debugHasSnapshot: 0
+  _debugResourcesReady: 0
+  _debugGridResolution: {x: 0, y: 0, z: 0}
+  _debugVoxelSize: {x: 0, y: 0, z: 0}
+  _debugTriangleCount: 0
+  _debugIndirectVertexCount: 0
+  _debugIndirectInstanceCount: 0
+  _debugIndirectStartVertex: 0
+  _debugIndirectStartInstance: 0
   _debugTriangleOverflow: 0
+  _debugGeometryStage: 0
+  _debugDrawBoundsCenter: {x: 0, y: 0, z: 0}
+  _debugDrawBoundsSize: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition0: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition1: {x: 0, y: 0, z: 0}
+  _debugTrianglePosition2: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal0: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal1: {x: 0, y: 0, z: 0}
+  _debugTriangleNormal2: {x: 0, y: 0, z: 0}
+--- !u!114 &421758322
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 421758314}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0beaded63665ca14790cc708e4c05a19, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidChunkStreamingRuntime
+  _debugState: 0
+  _debugTransactionId: 0
+  _debugArchivedChunkCount: 0
+  _debugArchivedCellRecordCount: 0
+  _debugArchivedParticleCount: 0
+  _debugRestoredParticleCount: 0
+  _debugPendingWriteCount: 0
+  _debugRejectedPendingWriteCount: 0
+  _debugCompletedArchiveCount: 0
+  _debugArchiveRollbackCount: 0
+  _debugArchiveReadbackErrorCount: 0
+  _debugCompletedRestoreCount: 0
+  _debugRestoreRollbackCount: 0
+  _debugRestoreReadbackErrorCount: 0
+  _debugCapacityPressureCount: 0
+  _debugOversizedChunkRestoreCount: 0
+  _debugLastArchiveReadbackBytes: 0
+  _debugLastArchiveDurationMilliseconds: 0
+  _debugLastRestoreParticleCount: 0
+  _debugLastRestoreDurationMilliseconds: 0
+  _debugLocalDormancyArchiveCount: 0
+  _debugDormantWakeRequestCount: 0
+  _debugLastDormantWakeReason: 0
+  _debugRetainedAliveSamples: 0
+  _debugRetainedSpeedBelow01: 0
+  _debugRetainedSpeedBelow05: 0
+  _debugRetainedSpeedBelow10: 0
+  _debugRetainedSpeedBelow25: 0
+  _debugRetainedMaximumSpeed: 0
+--- !u!114 &421758323
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 421758314}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 714421a4d0454edba7e4b55b25b3efbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.DormantLiquidCellRenderer
+  _worldRuntime: {fileID: 421758319}
+  _sourceLiquidMaterial: {fileID: 2100000, guid: 95242a276213be144baabd011891e82d, type: 2}
+  _dormantShader: {fileID: 4800000, guid: ee7c7521f1ec44adbcf6decc292f668d, type: 3}
+  _targetMaterial: 3
+  _minimumHeightRatio: 0.08
+--- !u!114 &421758324
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 421758314}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 714421a4d0454edba7e4b55b25b3efbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.DormantLiquidCellRenderer
+  _worldRuntime: {fileID: 421758319}
+  _sourceLiquidMaterial: {fileID: 2100000, guid: 7f8679ef9df382c49a4d066692874ec7, type: 2}
+  _dormantShader: {fileID: 4800000, guid: ee7c7521f1ec44adbcf6decc292f668d, type: 3}
+  _targetMaterial: 1
+  _minimumHeightRatio: 0.08
 --- !u!1 &663048517
 GameObject:
   m_ObjectHideFlags: 0
@@ -545,6 +666,7 @@ GameObject:
   m_Component:
   - component: {fileID: 703223368}
   - component: {fileID: 703223367}
+  - component: {fileID: 703223369}
   m_Layer: 0
   m_Name: Directional Light
   m_TagString: Untagged
@@ -632,6 +754,35 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &703223369
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 703223366}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_CustomShadowLayers: 0
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
+  m_RenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_ShadowRenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_Version: 4
+  m_LightLayerMask: 1
+  m_ShadowLayerMask: 1
+  m_RenderingLayers: 1
+  m_ShadowRenderingLayers: 1
 --- !u!1 &858101116
 GameObject:
   m_ObjectHideFlags: 0

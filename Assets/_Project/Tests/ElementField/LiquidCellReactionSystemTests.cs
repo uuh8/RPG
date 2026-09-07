@@ -38,22 +38,24 @@ namespace Game.ElementField.Tests
             Assert.That(system.TryPlanAndCommit(occupancy, fires, 1, 1f, in Tuning, queue), Is.False);
         }
 
-        [Test]
-        public void Plan_LowIntensityUsesLowRateAndParticleQuantizationIsBelowOneParticle()
+        [TestCase(3, 6)]
+        [TestCase(5, 10)]
+        public void Plan_LowIntensityUsesLowRateAndParticleQuantizationIsBelowOneParticle(byte waterAmount, int expectedFireRemoved)
         {
             var occupancy = new FakeOccupancy(12u);
-            occupancy.Set(Vector3Int.zero, 3);
+            occupancy.Set(Vector3Int.zero, waterAmount);
             var fires = new[] { new LiquidCellFireSample(Vector3Int.zero, 10) };
             var queue = new FluidReactionCommandQueue(4);
             var system = new LiquidCellReactionSystem(4, ReactionCatalog());
 
             Assert.That(system.TryPlanAndCommit(occupancy, fires, 1, 1f, in Tuning, queue), Is.True);
             Assert.That(queue.TryDequeueFireDelta(out ElementCellDeltaRequest delta), Is.True);
-            Assert.That(delta.AmountToRemove, Is.EqualTo(10));
+            Assert.That(delta.AmountToRemove, Is.EqualTo(expectedFireRemoved),
+                "Water : Fire = 1 : 2，移除量同时受低强度速率和现有 Water 数量约束。");
             var commands = new FluidConsumeCommand[1];
             Assert.That(queue.CopyConsumeCommandsAndClear(commands), Is.EqualTo(1));
             Assert.That(commands[0].MaximumParticleCount, Is.EqualTo(1u),
-                "10 GMU Fire 只消费 5 GMU Water，因此量化后最多删除 1 粒 Water。");
+                "3 或 5 GMU Water 均不足每粒 8 GMU，向上量化后删除 1 粒。");
         }
 
         [Test]

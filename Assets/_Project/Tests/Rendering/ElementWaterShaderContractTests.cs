@@ -89,10 +89,12 @@ namespace Game.Rendering.Tests
             StringAssert.Contains("if (_DebugForceOpaqueFragment > 0.5f)", shaderSource);
             StringAssert.Contains("return half4(_ShallowColor.rgb, 1.0h);", shaderSource);
             StringAssert.Contains("Shader.PropertyToID(\"_DebugForceOpaqueFragment\")", rendererSource);
-            StringAssert.Contains("private bool _debugForceOpaqueFragment = true", rendererSource);
-            StringAssert.Contains(
-                "SetFloat(DebugForceOpaqueFragmentId, _debugForceOpaqueFragment ? 1f : 0f)",
-                rendererSource);
+            // 生产默认必须走真实透明 Fragment；诊断值仍通过 MPB 逐 Draw 绑定，按需在 Inspector 开启。
+            StringAssert.Contains("private bool _debugForceOpaqueFragment = false", rendererSource);
+            // 换行属于格式，不应让源码 Contract 测试失败；分别锁定 MPB、Property Id 与值表达式。
+            StringAssert.Contains("_materialPropertyBlock.SetFloat(", rendererSource);
+            StringAssert.Contains("DebugForceOpaqueFragmentId,", rendererSource);
+            StringAssert.Contains("_debugForceOpaqueFragment ? 1f : 0f);", rendererSource);
         }
 
         private static void AssertSharedProperties(string shaderName)

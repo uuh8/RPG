@@ -27,8 +27,14 @@ namespace Game.Character
         private const float MinimumStuckRecoveryDuration = 0.35f;
 
         private readonly NavMeshAgent _agent;
-        private readonly EnemyDefinition _definition;
         private readonly Transform _owner;
+        private readonly float _pathRefreshInterval;
+        private readonly float _destinationMoveThreshold;
+        private readonly float _destinationSampleRadius;
+        private readonly float _retreatStepDistance;
+        private readonly float _retreatSampleRadius;
+        private readonly float _stuckCheckInterval;
+        private readonly float _stuckProgressDistance;
         private readonly Vector3[] _retreatDirections = new Vector3[3];
         private readonly Vector3[] _targetSamplePositions = new Vector3[3];
         private readonly float[] _targetSampleRadii = new float[3];
@@ -56,17 +62,62 @@ namespace Game.Character
         private EnemyNavigationFailureSignal _failureSignal;
 
         public EnemyNavigationMotor(NavMeshAgent agent, EnemyDefinition definition, Transform owner)
+            : this(
+                agent,
+                owner,
+                definition != null ? definition.PathRefreshInterval : 0.2f,
+                definition != null ? definition.DestinationMoveThreshold : 0.5f,
+                definition != null ? definition.DestinationSampleRadius : 2f,
+                definition != null ? definition.RetreatStepDistance : 4f,
+                definition != null ? definition.RetreatSampleRadius : 1.5f,
+                definition != null ? definition.StuckCheckInterval : 0.5f,
+                definition != null ? definition.StuckProgressDistance : 0.05f)
+        {
+        }
+
+        /// <summary>
+        /// Boss 与普通 Enemy 共用同一套路径刷新、目标投影和卡住恢复机制；
+        /// 仅 Authoring 数据来源不同，避免再维护一份容易漂移的 NavMesh Adapter。
+        /// </summary>
+        public EnemyNavigationMotor(NavMeshAgent agent, BossDefinition definition, Transform owner)
+            : this(
+                agent,
+                owner,
+                definition != null ? definition.PathRefreshInterval : 0.2f,
+                definition != null ? definition.DestinationMoveThreshold : 0.5f,
+                definition != null ? definition.DestinationSampleRadius : 2f,
+                definition != null ? definition.RetreatStepDistance : 3f,
+                definition != null ? definition.RetreatSampleRadius : 1.5f,
+                definition != null ? definition.StuckCheckInterval : 0.5f,
+                definition != null ? definition.StuckProgressDistance : 0.05f)
+        {
+        }
+
+        private EnemyNavigationMotor(
+            NavMeshAgent agent,
+            Transform owner,
+            float pathRefreshInterval,
+            float destinationMoveThreshold,
+            float destinationSampleRadius,
+            float retreatStepDistance,
+            float retreatSampleRadius,
+            float stuckCheckInterval,
+            float stuckProgressDistance)
         {
             _agent = agent;
-            _definition = definition;
             _owner = owner;
+            _pathRefreshInterval = Mathf.Max(0.05f, pathRefreshInterval);
+            _destinationMoveThreshold = Mathf.Max(0f, destinationMoveThreshold);
+            _destinationSampleRadius = Mathf.Max(0.05f, destinationSampleRadius);
+            _retreatStepDistance = Mathf.Max(0.1f, retreatStepDistance);
+            _retreatSampleRadius = Mathf.Max(0.05f, retreatSampleRadius);
+            _stuckCheckInterval = Mathf.Max(0.05f, stuckCheckInterval);
+            _stuckProgressDistance = Mathf.Max(0f, stuckProgressDistance);
             _lastProgressPosition = owner != null ? owner.position : Vector3.zero;
 
             int instanceId = owner != null ? owner.gameObject.GetInstanceID() : 0;
             float normalizedOffset = Mathf.Abs(instanceId % 10) * 0.1f;
-            _initialRefreshOffset = definition != null
-                ? Mathf.Max(0f, definition.PathRefreshInterval) * normalizedOffset
-                : 0f;
+            _initialRefreshOffset = _pathRefreshInterval * normalizedOffset;
 
             if (_agent == null)
                 return;
@@ -159,8 +210,8 @@ namespace Game.Character
                 _retreatSelectionElapsed,
                 _lastRetreatThreatPosition,
                 threatPosition,
-                _definition != null ? _definition.PathRefreshInterval : 0.2f,
-                _definition != null ? _definition.DestinationMoveThreshold : 0.5f);
+                _pathRefreshInterval,
+                _destinationMoveThreshold);
 
             if (shouldRefreshSelection)
             {
@@ -223,8 +274,8 @@ namespace Game.Character
                                      _pathRefreshElapsed,
                                      _lastRequestedTarget,
                                      worldTarget,
-                                     _definition != null ? _definition.PathRefreshInterval : 0.2f,
-                                     _definition != null ? _definition.DestinationMoveThreshold : 0.5f);
+                                     _pathRefreshInterval,
+                                     _destinationMoveThreshold);
 
             if (shouldRefresh && !TryRequestPath(worldTarget) &&
                 (!_agent.hasPath || _agent.pathStatus == NavMeshPathStatus.PathInvalid))
@@ -298,7 +349,7 @@ namespace Game.Character
             _pathRefreshElapsed = !_initialOffsetConsumed ? -_initialRefreshOffset : 0f;
             _initialOffsetConsumed = true;
 
-            float sampleRadius = _definition != null ? _definition.DestinationSampleRadius : 2f;
+            float sampleRadius = _destinationSampleRadius;
             float queryRadius = Mathf.Max(0.05f, sampleRadius);
             float expandedRadius = Mathf.Max(
                 MinimumExpandedTargetSampleRadius,
@@ -382,7 +433,7 @@ namespace Game.Character
         private bool TrySelectRetreatDestination(Vector3 threatPosition, out Vector3 destination)
         {
             destination = Vector3.zero;
-            if (!IsReady || _definition == null)
+            if (!IsReady)
                 return false;
 
             Vector3 away = _owner.position - threatPosition;
@@ -394,11 +445,11 @@ namespace Game.Character
 
             for (int i = 0; i < count; i++)
             {
-                Vector3 rawCandidate = _owner.position + _retreatDirections[i] * _definition.RetreatStepDistance;
+                Vector3 rawCandidate = _owner.position + _retreatDirections[i] * _retreatStepDistance;
                 if (!NavMesh.SamplePosition(
                         rawCandidate,
                         out NavMeshHit hit,
-                        Mathf.Max(0.05f, _definition.RetreatSampleRadius),
+                        _retreatSampleRadius,
                         _agent.areaMask))
                     continue;
 
@@ -433,7 +484,7 @@ namespace Game.Character
                 true,
                 true,
                 false,
-                _definition != null ? _definition.PathRefreshInterval : 0.2f);
+                _pathRefreshInterval);
 
             if (_failureSignal == EnemyNavigationFailureSignal.Repath)
                 _forceRefresh = true;
@@ -448,7 +499,7 @@ namespace Game.Character
             if (_agent.isOnNavMesh)
                 return true;
 
-            float configuredRadius = _definition != null ? _definition.DestinationSampleRadius : 0f;
+            float configuredRadius = _destinationSampleRadius;
             float radius = Mathf.Max(MinimumAttachRadius, _agent.radius * 2f, configuredRadius);
             if (!NavMesh.SamplePosition(_owner.position, out NavMeshHit hit, radius, _agent.areaMask) ||
                 !_agent.Warp(hit.position))
@@ -464,7 +515,7 @@ namespace Game.Character
                 return;
 
             string ownerName = _owner != null ? _owner.name : "<null>";
-            float sampleRadius = _definition != null ? _definition.DestinationSampleRadius : 2f;
+            float sampleRadius = _destinationSampleRadius;
             int areaMask = _agent != null ? _agent.areaMask : 0;
             Vector3 ownerPosition = _owner != null ? _owner.position : Vector3.zero;
             // 仅在 Editor/Development Build 的首次失败记录关键查询参数，便于区分资产漏配、Area Mask 与 Bake 覆盖问题。
@@ -478,14 +529,14 @@ namespace Game.Character
         private void UpdateFailureTracking(float deltaTime, bool pathUnreachable, bool wantsToMove)
         {
             _progressCheckElapsed += Mathf.Max(0f, deltaTime);
-            float checkInterval = _definition != null ? _definition.StuckCheckInterval : 0.5f;
+            float checkInterval = _stuckCheckInterval;
             if (_progressCheckElapsed < Mathf.Max(0.05f, checkInterval))
                 return;
 
             bool madeProgress = EnemyNavigationMath.HasProgress(
                 _lastProgressPosition,
                 _owner.position,
-                _definition != null ? _definition.StuckProgressDistance : 0.05f);
+                _stuckProgressDistance);
 
             float observedDuration = _progressCheckElapsed;
             _progressCheckElapsed = 0f;
@@ -498,12 +549,12 @@ namespace Game.Character
                 observedFailure,
                 observedFailure,
                 !observedFailure,
-                _definition != null ? _definition.PathRefreshInterval : 0.2f);
+                _pathRefreshInterval);
 
             if (_failureSignal == EnemyNavigationFailureSignal.Repath)
             {
                 _forceRefresh = true;
-                float refreshInterval = _definition != null ? _definition.PathRefreshInterval : 0.2f;
+                float refreshInterval = _pathRefreshInterval;
                 _stuckRecoveryTimeRemaining = Mathf.Max(MinimumStuckRecoveryDuration, refreshInterval);
             }
         }

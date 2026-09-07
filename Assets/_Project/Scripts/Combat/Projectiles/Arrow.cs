@@ -12,10 +12,27 @@ namespace Game.Combat
     /// </summary>
     public class Arrow : ProjectileBase
     {
+        private ArrowVisibility _visibility;
+
         protected override bool FaceVelocityInFlight => true; // 抛物线：飞行中机头随速度方向俯仰
+
+        protected override void Awake()
+        {
+            base.Awake();
+            _visibility = GetComponent<ArrowVisibility>();
+        }
+
+        public override void Init(byte attackerTeam, int attackerId, float damage, DamageType type,
+                                  Vector3 velocity, Collider casterCollider, bool useGravity = true)
+        {
+            base.Init(attackerTeam, attackerId, damage, type, velocity, casterCollider, useGravity);
+            // 普通箭只启动短拖尾；元素附魔未来用独立表现组件控制模型 Emission，保持两类语义清晰。
+            _visibility?.BeginTrail();
+        }
 
         protected override void OnImpact(Collision collision, IDamageable target, Vector3 hitPoint, bool damaged)
         {
+            _visibility?.StopTrail();
             // 残留：冻结物理、关碰撞，挂到命中物体下随其移动；基类按 _impactLingerTime 延迟销毁
             if (_rb != null)
             {

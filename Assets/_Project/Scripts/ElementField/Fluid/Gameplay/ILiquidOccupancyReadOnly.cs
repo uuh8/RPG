@@ -27,4 +27,10 @@ namespace Game.ElementField
         bool TryGetAmountUnitsPerParticle(MaterialId material, out uint amountUnits);
         int CopyOccupiedCells(MaterialId material, LiquidMaterialCellSample[] destination);
     }
+
+    internal interface IFluidGameplayTopologyReadOnly
+    {
+        bool HasValidSnapshot { get; }
+        uint TopologyVersion { get; }
+    }
 }

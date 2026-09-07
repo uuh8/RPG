@@ -159,13 +159,6 @@ MonoBehaviour:
   _combo: {fileID: 11400000, guid: 1132d5698b014594ba2b8613ece95ecf, type: 2}
   _fireballSpawnPoint: {fileID: 6318963051049183416}
   _airAttackStateName: JumpAttack_MagicWand
-  _meteorData: {fileID: 11400000, guid: 2b790193bdd36554a92c004cc4c1dc5c, type: 2}
-  _meteorPrefab: {fileID: 7306172122243908268, guid: eba29ceb87e4a0448863a214536f6573, type: 3}
-  _channelRingPrefab: {fileID: 72791106268204831, guid: 12b7fadf73dea6e438f34f19557d5b1a, type: 3}
-  _targetIndicatorPrefab: {fileID: 2476999880504411048, guid: bc18f139022484644b2005095c52182c, type: 3}
-  _aimMask:
-    serializedVersion: 2
-    m_Bits: 375
   _fireballAimMask:
     serializedVersion: 2
     m_Bits: 4294967295

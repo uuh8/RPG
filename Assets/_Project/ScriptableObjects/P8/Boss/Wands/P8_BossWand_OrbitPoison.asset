@@ -13,10 +13,9 @@ MonoBehaviour:
   m_Name: P8_BossWand_OrbitPoison
   m_EditorClassIdentifier: Game.Skills::Game.Skills.WandLoadout
   Spells:
-  - {fileID: 11400000, guid: cf16f679b8314294096d73d3477c89e3, type: 2}
-  - {fileID: 11400000, guid: a2a624cd91fa8214491fe949654d5d35, type: 2}
-  - {fileID: 11400000, guid: 82e8578b61b785841b3a95e293556eaa, type: 2}
-  - {fileID: 11400000, guid: 5d2e6966f44702544904db6684e2b4d5, type: 2}
+  - {fileID: 11400000, guid: 692b33d92d65bc44e90e0d3ae5e9684a, type: 2}
+  - {fileID: 11400000, guid: 2950aa4bc4b062a438b351049e15bd0a, type: 2}
+  - {fileID: 11400000, guid: dbf73e78b52da024ba73b5ae90d8516b, type: 2}
   - {fileID: 11400000, guid: 5d2e6966f44702544904db6684e2b4d5, type: 2}
   - {fileID: 11400000, guid: 5d2e6966f44702544904db6684e2b4d5, type: 2}
   - {fileID: 11400000, guid: 5d2e6966f44702544904db6684e2b4d5, type: 2}

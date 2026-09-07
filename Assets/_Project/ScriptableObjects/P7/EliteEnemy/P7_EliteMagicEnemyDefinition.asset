@@ -21,9 +21,9 @@ MonoBehaviour:
   StuckCheckInterval: 0.5
   StuckProgressDistance: 0.05
   DetectRadius: 50
-  DetectHeight: 6
+  DetectHeight: 16
   LoseRadius: 50
-  LoseHeight: 8
+  LoseHeight: 18
   AttackRange: 50
   AttackCooldown: 0.4
   Attack: {fileID: 11400000, guid: f431cb7d1063e104cafeb10f3dc9c980, type: 2}
@@ -31,7 +31,7 @@ MonoBehaviour:
   HurtStateName: GetHit_MagicWand
   RetreatDistance: 5
   RangedRetreatMaxHeight: 1.5
-  RangedAttackMaxHeight: 6
+  RangedAttackMaxHeight: 16
   RangedLineOfSightObstacleMask:
     serializedVersion: 2
     m_Bits: 256

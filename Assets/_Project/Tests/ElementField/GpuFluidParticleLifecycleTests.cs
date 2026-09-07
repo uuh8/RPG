@@ -111,7 +111,7 @@ namespace Game.ElementField.Tests
                     worldPosition: new Vector3(2f, 3f, 4f),
                     initialVelocity: Vector3.zero,
                     radius: 0.5f,
-                    particleCount: 3u,
+                    particleCount: 6u,
                     materialId: 7u,
                     seed: 12345u,
                     flags: FluidSpawnFlags.UseLinearFalloff);
@@ -124,10 +124,10 @@ namespace Game.ElementField.Tests
                 resources.Metadata.GetData(metadata);
                 resources.Counters.GetData(counters);
 
-                Assert.That(CountActive(spawnedPositions), Is.EqualTo(3));
-                AssertActivityStateIsConsistent(spawnedPositions, metadata, expectedActiveCount: 3);
-                Assert.That(counters[FluidGpuLayout.FreeCountCounterIndex], Is.EqualTo(5u));
-                Assert.That(counters[FluidGpuLayout.ActiveCountCounterIndex], Is.EqualTo(3u));
+                Assert.That(CountActive(spawnedPositions), Is.EqualTo(6));
+                AssertActivityStateIsConsistent(spawnedPositions, metadata, expectedActiveCount: 6);
+                Assert.That(counters[FluidGpuLayout.FreeCountCounterIndex], Is.EqualTo(2u));
+                Assert.That(counters[FluidGpuLayout.ActiveCountCounterIndex], Is.EqualTo(6u));
                 Assert.That(counters[FluidGpuLayout.DroppedParticleCountCounterIndex], Is.Zero);
                 for (int i = 0; i < spawnedPositions.Length; i++)
                 {
@@ -143,7 +143,7 @@ namespace Game.ElementField.Tests
                     worldPosition: Vector3.zero,
                     initialVelocity: Vector3.zero,
                     radius: 0.25f,
-                    particleCount: 10u,
+                    particleCount: 5u,
                     materialId: 9u,
                     seed: 67890u,
                     flags: 0u);
@@ -157,7 +157,7 @@ namespace Game.ElementField.Tests
                 AssertActivityStateIsConsistent(spawnedPositions, metadata, expectedActiveCount: 8);
                 Assert.That(counters[FluidGpuLayout.FreeCountCounterIndex], Is.Zero);
                 Assert.That(counters[FluidGpuLayout.ActiveCountCounterIndex], Is.EqualTo(8u));
-                Assert.That(counters[FluidGpuLayout.DroppedParticleCountCounterIndex], Is.EqualTo(5u));
+                Assert.That(counters[FluidGpuLayout.DroppedParticleCountCounterIndex], Is.EqualTo(3u));
 
                 DispatchMinimumTick(shader, resources, deltaTime: 0.1f);
                 var committedPositions = new Vector4[8];
@@ -508,6 +508,8 @@ namespace Game.ElementField.Tests
                 BindApplyGravity(shader, gravity, resources);
                 shader.SetInt("_ParticleCapacity", 1);
                 shader.SetFloat("_DeltaTime", 1f / 60f);
+                // 独立初始化 Kernel 的限速参数，避免依赖其他测试残留的 Shader uniform。
+                shader.SetFloat("_MaxSpeed", 100f);
                 shader.SetVector("_Gravity", new Vector3(0f, -9.81f, 0f));
                 shader.Dispatch(gravity, 1, 1, 1);
 

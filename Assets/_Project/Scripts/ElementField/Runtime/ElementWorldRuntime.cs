@@ -27,6 +27,8 @@ namespace Game.ElementField
             new ProfilerMarker("ElementWorld.RebuildActivity");
         private static readonly ProfilerMarker BakeChunkSolidMarker =
             new ProfilerMarker("ElementWorld.BakeChunkSolid");
+        private static readonly ProfilerMarker LiquidReactionMarker =
+            new ProfilerMarker("ElementWorld.LiquidReaction");
 
         [Header("Gameplay Data")]
         [SerializeField] private ElementWorldProfile _profile;
@@ -36,6 +38,10 @@ namespace Game.ElementField
         [SerializeField] private GpuPbfFluidRuntime _gpuPbfFluidRuntime;
         [Tooltip("Task 10 的低频 Water Occupancy；只用于 Gameplay 反应，不参与即时 GPU Solver。")]
         [SerializeField] private FluidGameplayOccupancyBridge _fluidGameplayOccupancy;
+
+        [Header("Fluid Chunk Streaming (Optional)")]
+        [Tooltip("仅当 Profile 开启 Fluid Chunk Streaming 且有效后端为 GpuPbf 时接管流体写入。")]
+        [SerializeField] private FluidChunkStreamingRuntime _fluidChunkStreamingRuntime;
 
         [Header("Streaming Interest Point")]
         [Tooltip("只决定附近哪些 Chunk 工作，不会成为世界 Origin，也不会让 ElementWorldRoot 跟随玩家移动。")]
@@ -66,6 +72,7 @@ namespace Game.ElementField
         private float _tickInterval;
         private ElementChunkKey _interestChunk;
         private bool _hasInterestChunk;
+        private bool _fluidStreamingEnabled;
         private WaterSimulationMode _effectiveWaterSimulationMode;
         private MaterialSimulationRouteSnapshot _materialRoutes;
         private MaterialReactionCatalogSnapshot _materialReactions;
@@ -73,10 +80,15 @@ namespace Game.ElementField
         private MaterialStateQueryRouter _materialQuery;
         private IFluidDepositSink _fluidDepositSink;
         private ILiquidOccupancyReadOnly _liquidOccupancy;
+        private ILiquidOccupancyReadOnly _liquidReactionOccupancy;
         private FluidReactionCommandQueue _fluidReactionQueue;
         private LiquidCellReactionSystem _liquidCellReactionSystem;
         private LiquidCellFireSample[] _fireReactionSamples;
         private bool _hasReportedUnsupportedPbfFallback;
+        private ulong _droppedDebtFrameCount;
+        private ulong _processedWriteCount;
+        private ulong _rejectedWriteCount;
+        private ulong _reactionPairCount;
         private readonly Collider[] _reactionDamageColliders = new Collider[64];
         private readonly int[] _reactionDamageTargetIds = new int[64];
 
@@ -95,7 +107,13 @@ namespace Game.ElementField
         public WaterSimulationMode EffectiveWaterSimulationMode => _effectiveWaterSimulationMode;
         public IMaterialSimulationRouteReadOnly MaterialRoutes => _materialRoutes;
         public IMaterialAmountReadOnly MaterialAmounts => _materialQuery;
+        public IFluidDormantReadOnly DormantLiquids => _fluidChunkStreamingRuntime;
         public MaterialStatusProjectionSnapshot MaterialStatusProjection => _materialStatusProjection;
+        public int LastFrameTickCount { get; private set; }
+        public ulong DroppedDebtFrameCount => _droppedDebtFrameCount;
+        public ulong ProcessedWriteCount => _processedWriteCount;
+        public ulong RejectedWriteCount => _rejectedWriteCount;
+        public ulong ReactionPairCount => _reactionPairCount;
 
         private void Awake()
         {
@@ -127,12 +145,16 @@ namespace Game.ElementField
 
         private void Update()
         {
+            LastFrameTickCount = 0;
             if (!IsInitialized || Time.timeScale <= 0f)
                 return;
 
             RefreshInterestChunk();
 
             int ticks = _tickAccumulator.Consume(Time.deltaTime);
+            LastFrameTickCount = ticks;
+            if (_tickAccumulator.DroppedDebtLastConsume)
+                _droppedDebtFrameCount++;
             for (int i = 0; i < ticks; i++)
                 SimulateOneTick();
         }
@@ -142,11 +164,15 @@ namespace Game.ElementField
         /// </summary>
         public int TickForTests(float deltaTime)
         {
+            LastFrameTickCount = 0;
             if (!IsInitialized)
                 return 0;
 
             RefreshInterestChunk();
             int ticks = _tickAccumulator.Consume(deltaTime);
+            LastFrameTickCount = ticks;
+            if (_tickAccumulator.DroppedDebtLastConsume)
+                _droppedDebtFrameCount++;
             for (int i = 0; i < ticks; i++)
                 SimulateOneTick();
 
@@ -382,7 +408,6 @@ namespace Game.ElementField
                     _profile.MaterialSimulationRouting,
                     in waterDecision);
                 _effectiveWaterSimulationMode = waterDecision.EffectiveMode;
-                _fluidDepositSink = _gpuPbfFluidRuntime;
                 _settings = _profile.CreateSimulationSettings();
                 if (_settings.SimulateCellWater
                     != (_effectiveWaterSimulationMode == WaterSimulationMode.LegacyCell))
@@ -397,6 +422,34 @@ namespace Game.ElementField
                         _effectiveWaterSimulationMode == WaterSimulationMode.LegacyCell,
                         _settings.Extinguish);
                 }
+
+                FluidChunkStreamingSettings streamingSettings =
+                    _profile.CreateFluidChunkStreamingSettings();
+                _fluidStreamingEnabled = streamingSettings.Enabled
+                    && _effectiveWaterSimulationMode == WaterSimulationMode.GpuPbf;
+                if (_fluidStreamingEnabled)
+                {
+                    if (_fluidChunkStreamingRuntime == null
+                        || !_fluidChunkStreamingRuntime.TryInitialize(
+                            in streamingSettings,
+                            _gpuPbfFluidRuntime,
+                            _origin,
+                            _settings.CellSize,
+                            _profile.ChunkSize,
+                            _profile.ActiveRadiusXZChunks,
+                            _profile.ActiveRadiusYChunks,
+                            _fluidGameplayOccupancy))
+                    {
+                        throw new InvalidOperationException(
+                            "Fluid Chunk Streaming is enabled, but FluidChunkStreamingRuntime is missing or failed initialization.");
+                    }
+                    // 所有液体写入先经过 Streaming Authority，才能在 Archive 窗口保持单写者语义。
+                    _fluidDepositSink = _fluidChunkStreamingRuntime;
+                }
+                else
+                {
+                    _fluidDepositSink = _gpuPbfFluidRuntime;
+                }
                 _store = new ElementWorldStore(
                     _profile.ChunkSize,
                     _profile.MaximumResidentChunks,
@@ -408,6 +461,7 @@ namespace Game.ElementField
                 {
                     // Queue/Planner/Scratch 都在初始化边界创建；后续 10Hz Tick 只覆盖已有数组。
                     _liquidOccupancy = _fluidGameplayOccupancy;
+                    _liquidReactionOccupancy = _fluidGameplayOccupancy;
                     _fluidReactionQueue = new FluidReactionCommandQueue(_profile.MaxPendingWrites);
             _liquidCellReactionSystem = new LiquidCellReactionSystem(
                         _profile.MaxPendingWrites,
@@ -419,11 +473,14 @@ namespace Game.ElementField
                             _settings.CellSize))
                     {
                         _liquidOccupancy = null;
+                        _liquidReactionOccupancy = null;
                         _fluidReactionQueue = null;
             _liquidCellReactionSystem = null;
                         _fireReactionSamples = null;
                     }
                 }
+                if (_fluidStreamingEnabled)
+                    _liquidOccupancy = _fluidChunkStreamingRuntime;
                 _simulator = new ElementWorldSimulator(
                     _profile.MaximumResidentChunks,
                     reactions,
@@ -524,6 +581,9 @@ namespace Game.ElementField
             simulationStats.ProcessedWrites = writeStats.ProcessedWrites;
             simulationStats.RejectedWrites = writeStats.RejectedWrites;
             _lastStats = simulationStats;
+            _processedWriteCount += (uint)simulationStats.ProcessedWrites;
+            _rejectedWriteCount += (uint)simulationStats.RejectedWrites;
+            _reactionPairCount += (uint)simulationStats.ReactionPairs;
 
             // Solver 可能按需创建边界接收 Chunk；再次分类使 Inspector 与下一 Tick 立即看到真实生命周期。
             RebuildActivitySets();
@@ -531,9 +591,10 @@ namespace Game.ElementField
 
         private void PlanAndApplyGpuWaterFireReactions()
         {
+            using var marker = LiquidReactionMarker.Auto();
             if (_effectiveWaterSimulationMode != WaterSimulationMode.GpuPbf
-                || _liquidOccupancy == null
-                || !_liquidOccupancy.HasValidSnapshot
+                || _liquidReactionOccupancy == null
+                || !_liquidReactionOccupancy.HasValidSnapshot
                 || _fluidReactionQueue == null
                 || _liquidCellReactionSystem == null)
             {
@@ -542,11 +603,27 @@ namespace Game.ElementField
 
             SortActiveChunksForReaction();
             int fireCount = CollectFireReactionSamples();
+            if (_fluidChunkStreamingRuntime != null)
+            {
+                for (int i = 0; i < fireCount; i++)
+                {
+                    Vector3Int cell = _fireReactionSamples[i].GlobalCell;
+                    // Reaction 使用同格与六轴邻格；先请求相关 Dormant Chunk 恢复，随后仍由 GPU-only
+                    // Snapshot 规划 Consume/Convert，避免命令打向尚未存在的粒子。
+                    _fluidChunkStreamingRuntime.RequestWake(cell, FluidDormantWakeReason.Reaction);
+                    _fluidChunkStreamingRuntime.RequestWake(cell + Vector3Int.right, FluidDormantWakeReason.Reaction);
+                    _fluidChunkStreamingRuntime.RequestWake(cell + Vector3Int.left, FluidDormantWakeReason.Reaction);
+                    _fluidChunkStreamingRuntime.RequestWake(cell + Vector3Int.up, FluidDormantWakeReason.Reaction);
+                    _fluidChunkStreamingRuntime.RequestWake(cell + Vector3Int.down, FluidDormantWakeReason.Reaction);
+                    _fluidChunkStreamingRuntime.RequestWake(cell + Vector3Int.forward, FluidDormantWakeReason.Reaction);
+                    _fluidChunkStreamingRuntime.RequestWake(cell + Vector3Int.back, FluidDormantWakeReason.Reaction);
+                }
+            }
             ToxicCombustionTuning toxicTuning = _profile.ToxicCombustion;
             IgniteGooTuning igniteGooTuning = _profile.IgniteGoo;
             AbsorbWaterTuning absorbWaterTuning = _profile.AbsorbWater;
             _liquidCellReactionSystem.TryPlanAndCommit(
-                _liquidOccupancy,
+                _liquidReactionOccupancy,
                 _fireReactionSamples,
                 fireCount,
                 Mathf.Max(_tickInterval, _fluidGameplayOccupancy.SnapshotIntervalSeconds),
@@ -719,6 +796,9 @@ namespace Game.ElementField
                 _interestChunk.X,
                 _interestChunk.Y,
                 _interestChunk.Z);
+
+            if (_fluidStreamingEnabled)
+                _fluidChunkStreamingRuntime.SetInterestChunk(_interestChunk);
 
             // 跨 Chunk 时立即刷新，不必等待下一个 Simulation Tick 才更新调度窗口。
             RebuildActivitySets();

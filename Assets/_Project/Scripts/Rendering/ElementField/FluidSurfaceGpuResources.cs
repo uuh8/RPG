@@ -74,9 +74,9 @@ namespace Game.Rendering
                 TriangleCounter = CreateUIntBuffer();
                 OverflowCounter = CreateUIntBuffer();
                 IndirectArguments = new GraphicsBuffer(
-                    // Compute 通过 RWByteAddressBuffer.Store 写入 16-byte Draw Args，
-                    // 因此必须同时声明 Raw；IndirectArguments 只声明“可用于 Draw”，不提供 Byte Address UAV。
-                    GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Raw,
+                    // Unity 6.3 会把 IndirectArguments 暴露给 Compute 的 RWByteAddressBuffer；
+                    // 再叠加 Raw 属于无效 Flag 组合，D3D11 会忽略 Raw 并逐帧报警。
+                    GraphicsBuffer.Target.IndirectArguments,
                     1,
                     GraphicsBuffer.IndirectDrawArgs.size);
                 AnisotropyBuffer = new GraphicsBuffer(

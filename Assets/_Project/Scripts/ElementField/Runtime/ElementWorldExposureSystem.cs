@@ -56,6 +56,7 @@ namespace Game.ElementField
         [SerializeField] private int _lastMaximumFireAmount;
         [SerializeField] private int _lastMaximumPoisonAmount;
         [SerializeField] private int _lastMaximumStickyAmount;
+        [SerializeField] private bool _lastQueryMayBeSaturated;
 
         // 容量在 Component 构造时固定；Exposure 热路径只覆盖数组，不创建临时集合或 LINQ Enumerator。
         // _targetIds/_targets 以 targetIndex 对齐，保证同一角色拥有多个 Collider 时仍只提交一次状态。
@@ -78,6 +79,14 @@ namespace Game.ElementField
         private ILiquidOccupancyReadOnly _liquidOccupancy;
         // 初始化期冻结的“材料 -> 状态”规则数组；热路径按索引读取，避免逐格查询 ScriptableObject 或 Dictionary。
         private MaterialStatusProjectionSnapshot _statusProjection;
+
+        public int LastColliderCount => _lastColliderCount;
+        public int LastStatusTargetCount => _lastStatusTargetCount;
+        public int LastWetApplicationCount => _lastWetApplicationCount;
+        public int LastBurningApplicationCount => _lastBurningApplicationCount;
+        public int LastPoisonedApplicationCount => _lastPoisonedApplicationCount;
+        public int LastStickyApplicationCount => _lastStickyApplicationCount;
+        public bool LastQueryMayBeSaturated => _lastQueryMayBeSaturated;
 
         private void Awake()
         {
@@ -257,6 +266,8 @@ namespace Game.ElementField
                 Quaternion.identity,
                 _targetLayers,
                 QueryTriggerInteraction.Collide);
+            if (colliderCount >= MaxTargetsPerQuery)
+                _lastQueryMayBeSaturated = true;
             _lastColliderCount += colliderCount;
 
             for (int i = 0; i < colliderCount; i++)
@@ -292,7 +303,10 @@ namespace Game.ElementField
 
             // 容量耗尽时拒绝新目标；调用方仍可继续处理已缓存目标，下一轮再尝试，而不是破坏数组边界。
             if (_targetCount >= MaxTargetsPerQuery)
+            {
+                _lastQueryMayBeSaturated = true;
                 return -1;
+            }
 
             int index = _targetCount++;
             _targetIds[index] = targetId;
@@ -359,6 +373,12 @@ namespace Game.ElementField
                     MaterialStatusProjection binding = _statusProjection.Get(bindingIndex);
                     byte amount = 0;
                     query?.TryGetAmount(globalCell, binding.Material, out amount);
+                    if (amount > 0 && _runtime.DormantLiquids is IFluidDormantWakeSink wakeSink)
+                    {
+                        // 角色真正接触 Dormant Cell 时请求恢复，使后续物理扰动重新交给 PBF。
+                        // 当前 Tick 仍使用 Archive Amount，因此 Wet/Poisoned/Sticky 不会出现空窗。
+                        wakeSink.RequestWake(globalCell, FluidDormantWakeReason.Exposure);
+                    }
                     // 每个 target/material 只保留最大量，多个 Collider、多个 Broadphase 或多个格子均会汇聚到同一槽。
                     int workspaceIndex = targetIndex * _statusProjection.Count + bindingIndex;
                     if (amount > _maximumAmounts[workspaceIndex])
@@ -389,6 +409,7 @@ namespace Game.ElementField
             _lastBurningApplicationCount = 0;
             _lastPoisonedApplicationCount = 0;
             _lastStickyApplicationCount = 0;
+            _lastQueryMayBeSaturated = false;
             _lastMaximumWaterAmount = 0;
             _lastMaximumFireAmount = 0;
             _lastMaximumPoisonAmount = 0;

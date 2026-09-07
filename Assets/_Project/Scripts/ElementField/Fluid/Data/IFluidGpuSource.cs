@@ -9,6 +9,19 @@ using UnityEngine.Rendering;
 namespace Game.ElementField
 {
     /// <summary>
+    /// CPU 侧只增不减的“本次运行可能出现过哪些液体”提示。它允许 Presentation 跳过确定为空的材质，
+    /// 但出现未知编号时必须保守地认为全部可能存在，避免未来扩展被旧 Renderer 错误裁掉。
+    /// </summary>
+    public static class FluidMaterialPresenceMask
+    {
+        public static uint Include(uint mask, uint materialId) =>
+            materialId < 32u ? mask | (1u << (int)materialId) : uint.MaxValue;
+
+        public static bool MayContain(uint mask, uint materialId) =>
+            materialId >= 32u || (mask & (1u << (int)materialId)) != 0u;
+    }
+
+    /// <summary>
     /// 提供给 Rendering 的只读 GPU 流体快照。它只暴露已经创建的 Buffer，
     /// 不提供写入入口，避免 Presentation 反向依赖或改写 Gameplay Simulation。
     /// </summary>
@@ -31,6 +44,10 @@ namespace Game.ElementField
         public readonly uint LayoutVersion;
         // 只描述粒子 slot 的 spawn/reuse 拓扑，不替代 LayoutVersion；Rendering 用不等比较即可安全跨 uint wrap。
         public readonly uint TopologyVersion;
+        // 每个完成提交的 Fixed Tick 增长一次；Renderer 可复用上一份 Mesh，避免同一模拟状态重复重建。
+        public readonly uint SimulationVersion;
+        // 单调提示而非精确计数：false 一定为空，true 表示本次运行曾提交过该材质。
+        public readonly uint MaterialPresenceMask;
 
         public FluidGpuSnapshot(
             GraphicsBuffer positions,
@@ -63,7 +80,9 @@ namespace Game.ElementField
                 activeBounds,
                 activeBounds,
                 layoutVersion,
-                topologyVersion)
+                topologyVersion,
+                0u,
+                uint.MaxValue)
         {
         }
 
@@ -99,7 +118,9 @@ namespace Game.ElementField
                 activeBounds,
                 activeBounds,
                 layoutVersion,
-                topologyVersion)
+                topologyVersion,
+                0u,
+                uint.MaxValue)
         {
         }
 
@@ -119,7 +140,9 @@ namespace Game.ElementField
             Bounds activeBounds,
             Bounds residentRenderBounds,
             uint layoutVersion,
-            uint topologyVersion)
+            uint topologyVersion,
+            uint simulationVersion = 0u,
+            uint materialPresenceMask = uint.MaxValue)
         {
             Positions = positions;
             PredictedPositions = predictedPositions;
@@ -137,6 +160,8 @@ namespace Game.ElementField
             ResidentRenderBounds = residentRenderBounds;
             LayoutVersion = layoutVersion;
             TopologyVersion = topologyVersion;
+            SimulationVersion = simulationVersion;
+            MaterialPresenceMask = materialPresenceMask;
         }
     }
 
@@ -268,10 +293,13 @@ namespace Game.ElementField
         public const uint RequiresSimulationFlag = FluidActivityFlags.RequiresSimulation;
         public const uint SleepingFlag = FluidActivityFlags.Sleeping;
         public const uint RemoteSpawnActiveFlag = FluidActivityFlags.RemoteSpawnActive;
+        public const uint ArchiveLockedFlag = FluidActivityFlags.ArchiveLocked;
+        public const uint RestoreLoadingFlag = FluidActivityFlags.RestoreLoading;
+        public const int ArchiveSampleStride = FluidGpuArchiveSample.Stride;
         // 兼容既有 Test/工具构造“默认 awake 粒子”；新 Production 必须使用四个精确命名。
         public const uint ActiveFlag = AliveFlag | InterestActiveFlag | RequiresSimulationFlag;
-        // v8 增加 RemoteSpawnActive Metadata 位；Buffer Stride 不变，但消费者必须理解新活动语义。
-        public const uint LayoutVersion = 8u;
+        // v9 增加 ArchiveLocked/RestoreLoading；Metadata Stride 不变，所有消费者必须同步 flag 语义。
+        public const uint LayoutVersion = 9u;
     }
 
     /// <summary>

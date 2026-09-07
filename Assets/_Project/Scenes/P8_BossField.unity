@@ -79756,6 +79756,7 @@ GameObject:
   - component: {fileID: 369319010}
   - component: {fileID: 369319012}
   - component: {fileID: 369319011}
+  - component: {fileID: 369319013}
   m_Layer: 0
   m_Name: ElementWorldRoot
   m_TagString: Untagged
@@ -79799,6 +79800,7 @@ MonoBehaviour:
   _profile: {fileID: 11400000, guid: a63742929c32da44197deb7bcc9a9534, type: 2}
   _gpuPbfFluidRuntime: {fileID: 1083842244}
   _fluidGameplayOccupancy: {fileID: 1083842240}
+  _fluidChunkStreamingRuntime: {fileID: 369319013}
   _interestPoint: {fileID: 1648883608}
   _interestGlobalCell: {x: 0, y: 0, z: 0}
   _interestChunkKey: {x: 0, y: 0, z: 0}
@@ -79850,7 +79852,7 @@ MonoBehaviour:
   _exposureInterval: 0.25
   _naturalDecayHoldGraceSeconds: 0.1
   _groundContactProbeDepth: 0.15
-  _liquidOccupancyComponent: {fileID: 1083842240}
+  _liquidOccupancyComponent: {fileID: 369319013}
   _lastColliderCount: 0
   _lastStatusTargetCount: 0
   _lastWetApplicationCount: 0
@@ -79861,6 +79863,48 @@ MonoBehaviour:
   _lastMaximumFireAmount: 0
   _lastMaximumPoisonAmount: 0
   _lastMaximumStickyAmount: 0
+  _lastQueryMayBeSaturated: 0
+--- !u!114 &369319013
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 369319008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0beaded63665ca14790cc708e4c05a19, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.ElementField::Game.ElementField.FluidChunkStreamingRuntime
+  _debugState: 0
+  _debugTransactionId: 0
+  _debugArchivedChunkCount: 0
+  _debugArchivedCellRecordCount: 0
+  _debugArchivedParticleCount: 0
+  _debugRestoredParticleCount: 0
+  _debugPendingWriteCount: 0
+  _debugRejectedPendingWriteCount: 0
+  _debugCompletedArchiveCount: 0
+  _debugArchiveRollbackCount: 0
+  _debugArchiveReadbackErrorCount: 0
+  _debugCompletedRestoreCount: 0
+  _debugRestoreRollbackCount: 0
+  _debugRestoreReadbackErrorCount: 0
+  _debugCapacityPressureCount: 0
+  _debugOversizedChunkRestoreCount: 0
+  _debugLastArchiveReadbackBytes: 0
+  _debugLastArchiveDurationMilliseconds: 0
+  _debugLastRestoreParticleCount: 0
+  _debugLastRestoreDurationMilliseconds: 0
+  _debugLocalDormancyArchiveCount: 0
+  _debugDormantWakeRequestCount: 0
+  _debugLastDormantWakeReason: 0
+  _debugRetainedAliveSamples: 0
+  _debugRetainedSpeedBelow01: 0
+  _debugRetainedSpeedBelow05: 0
+  _debugRetainedSpeedBelow10: 0
+  _debugRetainedSpeedBelow25: 0
+  _debugRetainedMaximumSpeed: 0
 --- !u!1001 &370140666
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -225067,6 +225111,9 @@ GameObject:
   - component: {fileID: 1083842243}
   - component: {fileID: 1083842242}
   - component: {fileID: 1083842241}
+  - component: {fileID: 1083842248}
+  - component: {fileID: 1083842247}
+  - component: {fileID: 1083842246}
   m_Layer: 0
   m_Name: GPU_PBF_Fluid
   m_TagString: Untagged
@@ -225232,6 +225279,8 @@ MonoBehaviour:
   _fluidColliderRoot: {fileID: 242473775}
   _simulationBoundsCenter: {fileID: 1648883608}
   _simulationBoundsSize: {x: 24, y: 12, z: 24}
+  _debugAliveParticleCount: 0
+  _debugFreeParticleCount: 0
   _debugAwakeParticleCount: 0
   _debugSleepingParticleCount: 0
   _debugInterestParticleCount: 0
@@ -225254,6 +225303,57 @@ Transform:
   m_Children: []
   m_Father: {fileID: 369319009}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1083842246
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1083842239}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 714421a4d0454edba7e4b55b25b3efbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.DormantLiquidCellRenderer
+  _worldRuntime: {fileID: 369319010}
+  _sourceLiquidMaterial: {fileID: 2100000, guid: 38fbe696b847c3548aca45b054739b7c, type: 2}
+  _dormantShader: {fileID: 4800000, guid: ee7c7521f1ec44adbcf6decc292f668d, type: 3}
+  _targetMaterial: 4
+  _minimumHeightRatio: 0.08
+--- !u!114 &1083842247
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1083842239}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 714421a4d0454edba7e4b55b25b3efbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.DormantLiquidCellRenderer
+  _worldRuntime: {fileID: 369319010}
+  _sourceLiquidMaterial: {fileID: 2100000, guid: 95242a276213be144baabd011891e82d, type: 2}
+  _dormantShader: {fileID: 4800000, guid: ee7c7521f1ec44adbcf6decc292f668d, type: 3}
+  _targetMaterial: 3
+  _minimumHeightRatio: 0.08
+--- !u!114 &1083842248
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1083842239}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 714421a4d0454edba7e4b55b25b3efbb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Game.Rendering::Game.Rendering.DormantLiquidCellRenderer
+  _worldRuntime: {fileID: 369319010}
+  _sourceLiquidMaterial: {fileID: 2100000, guid: 7f8679ef9df382c49a4d066692874ec7, type: 2}
+  _dormantShader: {fileID: 4800000, guid: ee7c7521f1ec44adbcf6decc292f668d, type: 3}
+  _targetMaterial: 1
+  _minimumHeightRatio: 0.08
 --- !u!1001 &1084002423
 PrefabInstance:
   m_ObjectHideFlags: 0

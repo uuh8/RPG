@@ -151,12 +151,14 @@ Three playable archetypes share locomotion but **not animations** — each has i
 PlayerControllerBase (abstract MonoBehaviour)   ← move / jump / dash / camera / state machine + Grounded/Airborne/Sliding/Dash
 ├── WarriorController   — melee: MeleeHitDetector, ComboDefinition, BladeTrail, PlayerAttackState
 ├── ArcherController    — ranged: arrow prefab/spawn, ComboDefinition, ChargeAttackDefinition, PlayerBowAttackState + PlayerChargeAttackState
-└── WizardController    — ranged caster: left click runs the current WandLoadout through SpellCaster/CastEvaluator; old Meteor heavy fields/state are dormant until rebuilt as spells
+└── WizardController    — ranged caster: left click runs the current WandLoadout through SpellCaster/CastEvaluator; meteor is ordinary spell data
 ```
+
+- **Future polymorph contract**: `WarriorController` and `ArcherController` are intentionally retained player-control implementations. A future transformation spell will temporarily turn the Wizard player into these weaker forms, so cleanup work must not remove or weaken their controllers, states, attack data, Animator integration, or prefabs merely because the current main avatar is Wizard.
 
 - **`PlayerControllerBase`** owns everything shared (components, input timers, state machine, the four shared states, the screen-center `ResolveAimTargetPoint` aim helper) and exposes data to states via properties. Subclasses add only attack specifics.
 - **Attack seams (two)**: the shared states never name a concrete attack state. `PlayerGroundedState` calls virtual `bool TryStartAttack()` (ground); `PlayerAirborneState` calls virtual `bool TryStartAirAttack()` (air, before the landing check). Base returns `false`; `WarriorController` enters its combo, `ArcherController` routes tap→normal / hold→charge, and `WizardController` consumes a queued cast to run the current `WandLoadout`. This keeps the `Dash → Attack → Jump` priority in one shared place while attack semantics vary per character.
-- **State typing**: `PlayerStateBase._player` is typed `PlayerControllerBase`; shared states use only base members. Character-specific states (`PlayerAttackState`, `PlayerBowAttackState`, `PlayerChargeAttackState`, `PlayerWizardAttackState`, `PlayerWizardHeavyState`) take the concrete controller in their constructor and stash a typed field (`_warrior` / `_archer` / `_wizard`) for subclass-only members. **No generics.**
+- **State typing**: `PlayerStateBase._player` is typed `PlayerControllerBase`; shared states use only base members. Character-specific states (`PlayerAttackState`, `PlayerBowAttackState`, `PlayerChargeAttackState`, `PlayerWizardAttackState`) take the concrete controller in their constructor and stash a typed field (`_warrior` / `_archer` / `_wizard`) for subclass-only members. **No generics.**
 - **`Awake` is `protected virtual`** (template method): the subclass override calls `base.Awake()`, then builds its attack state(s) and pre-hashes its animation state names.
 
 ### Files (`Game.Character`)
@@ -176,17 +178,14 @@ PlayerControllerBase (abstract MonoBehaviour)   ← move / jump / dash / camera 
 | `States/PlayerAttackState.cs` | Warrior melee combo: per-segment hit + blade-trail windows, `ComboResolver`-driven |
 | `States/PlayerBowAttackState.cs` | Archer normal shot: 1-segment combo, spawns an `Arrow` at `ArrowSpawnTime` |
 | `States/PlayerChargeAttackState.cs` | Archer charge heavy: draw→hold→release, charge-scaled straight aimed shot, crosshair events |
-| `Controllers/WizardController.cs` | Caster subclass: controller-level `UpdateAttackInput()` captures press-instant `ClickAimPoint`, queues a cast through cooldown, then enters `PlayerWizardAttackState` to run the current `WandLoadout` via `SpellCaster`; old meteor refs are intentionally dormant |
+| `Controllers/WizardController.cs` | Caster subclass: controller-level `UpdateAttackInput()` captures press-instant `ClickAimPoint`, queues a cast through cooldown, then enters `PlayerWizardAttackState` to run the current `WandLoadout` via `SpellCaster`; it contains no hardcoded meteor branch |
 | `Spells/SpellCaster.cs` | Bridge from pure spell evaluation to Unity runtime: evaluates a `WandLoadout`, instantiates projectile prefabs, applies damage/speed/spread snapshots, and handles trigger payload recursion on projectile impact |
 | `States/PlayerWizardAttackState.cs` | Wizard cast state (ground + air): uses combo segment 0 for animation/timing, then calls `SpellCaster.CastWand(...)` at `ArrowSpawnTime` |
-| `States/PlayerWizardHeavyState.cs` | Dormant wizard meteor heavy state kept for serialized-field/compile safety; meteor is no longer routed and should return later as a spell |
-
-> `PlayerLocomotion.cs` is an empty leftover stub (no namespace) — ignore/remove, not part of the system.
 
 ### Animator integration (read before touching combat/dash animations)
 
 - **Continuous params** (`speed`, `isGrounded`) are synced every frame in `PlayerControllerBase.Update()`. **Event triggers** (`jump`) are fired once by the initiating state — never synced per-frame.
-- **Code-driven entry**: attack/dash/charge states are entered with `Animator.CrossFadeInFixedTime(stateHash, …)` — code names the target state directly, so **no incoming transition line is needed** in the Controller. The target **state-name string is data-driven** and pre-hashed once via `Animator.StringToHash` in `Awake` (never per-frame): `_dashStateName` (base), `AttackDefinition.AnimationStateName` (per combo segment), the three names in `ChargeAttackDefinition`. A wrong/empty name fails **silently** (CrossFade to a nonexistent state = no anim change) — empty names log `GameLog.Warn`; a wrong name is a common bug when adding a new character.
+- **Code-driven entry**: attack/dash/charge states are entered with `Animator.CrossFadeInFixedTime(stateHash, …)` — code names the target state directly, so **no incoming transition line is needed** in the Controller. The target **state-name string is data-driven** and pre-hashed once via `Animator.StringToHash` in `Awake` (never per-frame): `_dashStateName` (base), `AttackDefinition.AnimationStateName` (per combo segment), and the draw/release names in `ChargeAttackDefinition`. A wrong/empty name fails **silently** (CrossFade to a nonexistent state = no anim change) — empty names log `GameLog.Warn`; a wrong name is a common bug when adding a new character.
 - **Gotcha — CrossFade-entered states still need EXIT transitions.** Entry is code-driven, but *leaving* is not: when a dash/attack ends, the code only swaps the FSM state — it does **not** CrossFade back. Each such Animator state must carry its own outgoing transitions (e.g. `Dash_Bow → Idle` with Has Exit Time) or the character freezes in that pose. The per-character Controllers (`SingleTwoHandSwordHero`, `BowHero`) wire these; C# only data-drives the *entry* name. Pure locomotion states (Idle/Run/Jump*) are driven the normal way — by `speed`/`isGrounded`/`jump` transitions in the Controller.
 
 ### State transitions (shared)
@@ -218,13 +217,13 @@ Enemies mirror the player's hand-rolled FSM but with a **separate** machine and 
 - `MeleeEnemyController` — chases into melee range, `EnemyAttackState` (OverlapBox via `MeleeHitDetector`).
 - `RangedEnemyController` — kites within a range band, `EnemyRangedAttackState` (spawns a `Fireball`).
 
-All tunables are data-driven via `EnemyDefinition` (SO): move speed, detection/lose radii (hysteresis), attack range/cooldown, hurt-stun duration, ranged retreat band + projectile. `EnemyPerception` does radius-based player detection (the player registers itself in `PlayerControllerBase.Current`, so no per-frame `FindObjectOfType`). States: `Idle / Chase / Attack / RangedAttack / Kite / Hurt`. HP/team stay on `HealthComponent` (not duplicated in the SO).
+All tunables are data-driven via `EnemyDefinition` (SO): move speed, detection/lose radii (hysteresis), attack range/cooldown, hurt-stun duration, ranged retreat band + projectile. `EnemyPerception` does radius-based player detection (the player registers itself in `PlayerControllerBase.Current`, so no per-frame `FindObjectOfType`). States: `Idle / Chase / Attack / RangedAttack / Kite / Hurt`. HP/team stay on `HealthComponent` (not duplicated in the SO). The ranged-enemy path is also the retained foundation for a future ordinary archer enemy; cleanup must not remove it because current encounters mainly use mage/melee enemies.
 
 ---
 
 ## Combat System
 
-`Game.Combat` is data-driven and shared by all characters (players and enemies). Damage reaches a target through one funnel — `IDamageable.ReceiveHit(in DamageRequest)` — from four sources: melee OverlapBox windows, flying projectiles (`ProjectileBase` subclasses), radius bursts/fields (`AreaDamage`), and damage-over-time (`BurnStatus`). Design doc: `Assets/_Project/Docs/M3_Combat_Design.md`.
+`Game.Combat` is data-driven and shared by all characters (players and enemies). Damage reaches a target through one funnel — `IDamageable.ReceiveHit(in DamageRequest)` — from four sources: melee OverlapBox windows, flying projectiles (`ProjectileBase` subclasses), radius bursts/fields (`AreaDamage`), and status damage-over-time (`StatusController`). Design doc: `Assets/_Project/Docs/M3_Combat_Design.md`.
 
 The damage flow is deliberately split so the math is testable without Unity:
 
@@ -232,8 +231,8 @@ The damage flow is deliberately split so the math is testable without Unity:
 MeleeHitDetector (OverlapBox, per-frame while window open)  ─┐
 ProjectileBase   (OnCollisionEnter in flight)              ─┤
 AreaDamage       (OverlapSphere, one-shot or ticking)      ─┼─► DamageRequest (value snapshot) ─► target.ReceiveHit()
-BurnStatus       (DoT tick on the target)                  ─┘     └─ HealthComponent.ReceiveHit()
-                                                                       ├─ DamagePipeline.Resolve(req, defense)  ← pure, no MonoBehaviour
+StatusController (DoT tick on the target)                  ─┘     └─ HealthComponent.ReceiveHit()
+                                                                       ├─ DamagePipeline.Resolve(req)  ← pure, no MonoBehaviour
                                                                        ├─ subtract HP (clamped ≥ 0)
                                                                        ├─ Publish DamageReceivedEvent  (same frame)
                                                                        └─ Publish DeathEvent           (same frame, if HP ≤ 0)
@@ -248,8 +247,8 @@ BurnStatus       (DoT tick on the target)                  ─┘     └─ Hea
 | File | Purpose |
 |------|---------|
 | `IDamageable.cs` | Contract for "anything hittable": `TeamId`, `IsAlive`, `ReceiveHit(in DamageRequest)` |
-| `HealthComponent.cs` | `MonoBehaviour` + `IDamageable`. HP/team/defense, resolves & applies damage, publishes events |
-| `DamagePipeline.cs` | `static` pure `Resolve(in DamageRequest, in DefenseProfile) → DamageResult`. Unit-tested |
+| `HealthComponent.cs` | `MonoBehaviour` + `IDamageable`. Owns HP/team/invulnerability, resolves & applies damage, publishes events |
+| `DamagePipeline.cs` | `static` pure `Resolve(in DamageRequest) → DamageResult`. Unit-tested |
 | `DamageRequest.cs` / `DamageResult.cs` | `readonly struct` value snapshots (request in, result out) |
 | `DamageType.cs` / `DefenseProfile.cs` | `enum : byte` (`Physical`/`Magical`/`True`); defense struct (mitigation **reserved**, passthrough) |
 | `AttackDefinition.cs` | `ScriptableObject` for one attack/segment: base amount, type, `HalfExtents`, the normalized windows above, `ArrowSpawnTime`, `AnimationStateName` |
@@ -257,16 +256,15 @@ BurnStatus       (DoT tick on the target)                  ─┘     └─ Hea
 | `ComboResolver.cs` | `static` pure function → `ComboDecision` (Continue / Advance / End) from index/count, anim progress, buffered input + window |
 | `MeleeHitDetector.cs` | Weapon `MonoBehaviour`. While window open, `OverlapBoxNonAlloc` each frame, filters self/ally/dead/already-hit, submits `DamageRequest` |
 | `Projectiles/ProjectileBase.cs` | Abstract projectile: `Rigidbody` flight, `Init(...)` snapshots damage/team/velocity/gravity, `OnCollisionEnter` → same-team pass-through / enemy `ReceiveHit` / destroy; virtual `OnImpact` hook plus `Impacted(hitPoint, hitDir)` notification for spell triggers. **Static registry makes same-team projectiles `IgnoreCollision` each other** (no self-deflection on rapid fire; only cross-team projectiles collide & explode). Ignores the caster collider |
-| `Projectiles/Arrow.cs`, `Fireball.cs`, `NovaFireball.cs` | `ProjectileBase` subclasses: arrow (parabolic, faces velocity), fireball (straight, explosion + applies `BurnStatus`), meteor (sky→ground) |
+| `Projectiles/Arrow.cs`, `Fireball.cs`, `NovaFireball.cs` | `ProjectileBase` subclasses: arrow (parabolic, faces velocity), fireball (straight, explosion + applies `StatusKind.Burning` through `StatusController`), meteor projectile (sky→ground) |
 | `Status/AreaDamage.cs` | Reusable radius damage on any VFX prefab: `Init(attackerId, team)`, `OverlapSphereNonAlloc` (zero-GC), one-shot (`TickInterval ≤ 0`, explosion) or ticking (field). Team-filtered |
-| `Status/BurnStatus.cs` | DoT status `MonoBehaviour` added to the target: ticks `ReceiveHit` each interval for a duration, refreshes on re-apply, one OnFire VFX. The current (only) status-effect example |
+| `Status/StatusController.cs` | Unified status runtime owner for Burning/Wet/Poisoned/Sticky: intensity, decay/hold, DoT, reactions, VFX, movement multiplier and events |
 | `Status/CharacterCombatFeedback.cs` | Hit feedback (flash etc.) by consuming `DamageReceivedEvent` |
-| `ChargeAttackDefinition.cs` | `ScriptableObject` — charge tunables: 3 anim state names, tap threshold, max charge time, min/max damage & speed (linear by ratio), `ArrowSpawnTime`, `AimMaxDistance` |
-| `MeteorAttackDefinition.cs` | `ScriptableObject` — wizard meteor: channel/release anim names, tap threshold, ground-aim distance, release timing, meteor speed/spawn geometry, damage |
+| `ChargeAttackDefinition.cs` | `ScriptableObject` — charge tunables: code-entered draw/release state names, tap threshold, max charge time, min/max damage & speed (linear by ratio), `ArrowSpawnTime`, `AimMaxDistance`; maintain remains an Animator transition |
 | `EnemyDefinition.cs` | `ScriptableObject` — enemy move/perception/attack/hurt/ranged tunables + an `AttackDefinition` |
 | `CombatDamage.cs` | **Reserved seam** — future `Game.Skills` direct-damage entry (`Deal(in DamageRequest, IDamageable)`). Not wired |
 | `Events/DamageReceivedEvent.cs`, `Events/DeathEvent.cs` | `IGameEvent` published every hit / on death |
-| `_Debug/*` | **Temporary** scaffolds (`MeleeSwingTestDriver`, `CombatDebugLogger`) — remove when no longer needed |
+| `_Debug/CombatDebugLogger.cs` | Debug-scene event logger; retained because `SampleScene` still references it |
 
 ### Key Decisions
 
@@ -362,23 +360,23 @@ Presentation is **read-only on gameplay**: it never references `Game.Character`;
 **Phase**: Three playable archetypes (Warrior / Archer / Wizard) + enemy AI + status effects + health-bar UI + Noita-like spell programming system through trigger recursion. Editor compilation/Animator wiring/Play-mode verification are still performed manually by the developer.
 
 Implemented:
-- 6 asmdef modules (Core / Rendering / Combat / Skills / Character / UI)
+- 9 first-party asmdef modules (Core / Rendering / Combat / Skills / Character / UI / ElementField / Materials / Run)
 - `GameLog`, `IGameEvent`, `EventBus<T>`
 - `PlayerControllerBase` + `WarriorController` / `ArcherController` / `WizardController`; shared FSM (Grounded / Airborne / Sliding / Dash) + per-character attack states; ground + air attack seams
 - Locomotion: camera-relative move, orbit camera, jump (coyote/buffer/split-gravity), slope sliding, dash (locked-direction CrossFade, cooldown + buffer)
-- Combat funnel: `IDamageable`/`HealthComponent`, pure `DamagePipeline`, melee `MeleeHitDetector` + `ComboDefinition`/`ComboResolver` combos + blade-trail VFX, projectile hierarchy (`ProjectileBase` → `Arrow`/`Fireball`/`NovaFireball`) with same-team collision registry and `Impacted` trigger seam, reusable `AreaDamage`, `BurnStatus` DoT
-- Archer aimed charge + Wizard spell-cast path (press-instant aim, ground + air); old wizard meteor channel is dormant and reserved to return as a spell
+- Combat funnel: `IDamageable`/`HealthComponent`, pure `DamagePipeline`, melee `MeleeHitDetector` + `ComboDefinition`/`ComboResolver` combos + blade-trail VFX, projectile hierarchy (`ProjectileBase` → `Arrow`/`Fireball`/`NovaFireball`) with same-team collision registry and `Impacted` trigger seam, reusable `AreaDamage`, unified `StatusController` DoT/reactions
+- Archer aimed charge + Wizard spell-cast path (press-instant aim, ground + air); meteor is produced by the same spell-data/interpreter/runtime path as other spells
 - Enemy AI: `EnemyControllerBase` (+ Melee/Ranged), `EnemyStateMachine`, `EnemyPerception`, `EnemyDefinition`
 - Health-bar UI (`Game.UI`): world-space enemy bars + screen-space player HUD, event-driven
 - Spell programming system (`Game.Skills` + `SpellCaster`): data-driven `SpellDefinition`/`WandLoadout`, pure `CastEvaluator`, modifiers/multicast/mana fizzle, deterministic spread, trigger payload recursion on impact, drag-drop wand editor UI
 - EditMode tests for `DamagePipeline`, `ComboResolver`, and spell-system pure logic
 
 Next (not yet built):
-- Real mitigation formulas in `DamagePipeline` (currently passthrough); generalize `BurnStatus` into a status/buff framework
+- Real mitigation formulas in `DamagePipeline` (currently passthrough); expand the existing `StatusController` data/rules when more buffs, debuffs or crowd-control effects are added
 - Real mana/resource pool + recovery + UI (the evaluator has fizzle semantics, but runtime currently uses a large placeholder mana value)
-- More spell content: ground-target meteor as a spell, timed triggers, tracking/bounce/pierce modifiers, tooltip/loot/save support for the wand UI
+- More spell content: timed triggers, tracking/bounce/pierce modifiers, tooltip/loot/save support for the wand UI
 - Scene lifecycle manager calling `EventBus<T>.Clear()` on unload
-- Remove `_Debug/` combat scaffolds once unused
+- Remove the remaining `CombatDebugLogger` only after its debug scene is retired
 
 ---
 

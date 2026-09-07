@@ -22,6 +22,14 @@ namespace Game.Character
         [SerializeField] private WandLoadout[] _spellPrograms;
         [Tooltip("瞄准玩家时的目标高度偏移(打向胸口而非脚下)")]
         [SerializeField] private float _aimHeightOffset = 1.0f;
+        [Tooltip("Direct 保持直线投射；BallisticToPoint 仅为重力投射物反解命中当前目标点的初速度。")]
+        [SerializeField] private SpellAimMode _aimMode = SpellAimMode.Direct;
+
+        [Header("远程视线")]
+        [Tooltip("AI 判断遮挡时的观察点。建议绑定到角色眼睛附近的独立子物体；为空时使用 Root 上方的眼睛高度。不要绑定武器或动画骨骼。")]
+        [SerializeField] private Transform _lineOfSightOrigin;
+        [Tooltip("未配置 Sight Origin 时，从角色 Root 向上偏移的眼睛高度(米)。")]
+        [Min(0f)] [SerializeField] private float _lineOfSightOriginHeight = 1.6f;
 
         private HealthComponent _health;
         private SpellCaster _spellCaster;
@@ -64,11 +72,14 @@ namespace Game.Character
             }
 
             Vector3 aimPoint = ResolveAimPoint(targetPosition);
+            Vector3 sightOrigin = ResolveLineOfSightOrigin();
             int obstacleMask = _definition.RangedLineOfSightObstacleMask.value;
-            // Mask 为 0 可显式关闭遮挡检查；生产配置默认只查询 Ground，避免射线命中施法者自身。
+            // 视觉 Line of Sight 必须从眼睛到目标胸口；投射物仍从 _castOrigin 生成。
+            // 两者分离后，脚下高台不会因为武器节点过低而被误判成挡住视线。
+            // Mask 为 0 可显式关闭遮挡检查；生产配置默认只查询 Ground，避免射线命中角色自身。
             return obstacleMask == 0 ||
                    !Physics.Linecast(
-                       _castOrigin.position,
+                       sightOrigin,
                        aimPoint,
                        obstacleMask,
                        QueryTriggerInteraction.Ignore);
@@ -118,13 +129,23 @@ namespace Game.Character
                 team,
                 attackerId,
                 _cc,
-                SpellManaPolicy.IgnoreMana);
+                SpellManaPolicy.IgnoreMana,
+                _aimMode);
             return true;
         }
 
         private Vector3 ResolveAimPoint(Vector3 targetPosition)
         {
             return targetPosition + Vector3.up * _aimHeightOffset;
+        }
+
+        private Vector3 ResolveLineOfSightOrigin()
+        {
+            // 独立 Transform 适合不同体型精确 Authoring；固定高度是旧 Prefab 的安全降级，
+            // 避免新增字段为空时重新退回脚底或武器释放点。
+            return _lineOfSightOrigin != null
+                ? _lineOfSightOrigin.position
+                : transform.position + Vector3.up * Mathf.Max(0f, _lineOfSightOriginHeight);
         }
 
         /// <summary>

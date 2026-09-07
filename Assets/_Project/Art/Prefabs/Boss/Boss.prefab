@@ -10602,6 +10602,7 @@ GameObject:
   - component: {fileID: 8007896320182037090}
   - component: {fileID: 4069060611364059097}
   - component: {fileID: 4401410831807308045}
+  - component: {fileID: 918273645012345678}
   m_Layer: 7
   m_Name: Boss
   m_TagString: Untagged
@@ -10619,7 +10620,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 2, y: 2, z: 2}
+  m_LocalScale: {x: 1.5, y: 1.5, z: 1.5}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 7062935998844531640}
@@ -10639,7 +10640,7 @@ Animator:
   m_Controller: {fileID: 9100000, guid: 9ca66093f6fd7184686139c2c4bc5e76, type: 2}
   m_CullingMode: 1
   m_UpdateMode: 0
-  m_ApplyRootMotion: 1
+  m_ApplyRootMotion: 0
   m_LinearVelocityBlending: 0
   m_StabilizeFeet: 0
   m_AnimatePhysics: 0
@@ -10789,6 +10790,28 @@ MonoBehaviour:
   _phaseOneVfxRoot: {fileID: 0}
   _phaseTwoVfxRoot: {fileID: 5566963163242357415}
   _phaseThreeVfxRoot: {fileID: 5061410010200218982}
+--- !u!195 &918273645012345678
+NavMeshAgent:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6186421515269797264}
+  m_Enabled: 1
+  m_AgentTypeID: 0
+  m_Radius: 0.4
+  m_Speed: 14
+  m_Acceleration: 24
+  avoidancePriority: 50
+  m_AngularSpeed: 540
+  m_StoppingDistance: 0
+  m_AutoTraverseOffMeshLink: 0
+  m_AutoBraking: 0
+  m_AutoRepath: 1
+  m_Height: 1.8
+  m_BaseOffset: 0
+  m_WalkableMask: 4294967295
+  m_ObstacleAvoidanceType: 4
 --- !u!1 &6285617985785799075
 GameObject:
   m_ObjectHideFlags: 0

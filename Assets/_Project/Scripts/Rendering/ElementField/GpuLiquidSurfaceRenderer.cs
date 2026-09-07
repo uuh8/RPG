@@ -125,6 +125,34 @@ namespace Game.Rendering
         }
     }
 
+    /// <summary>把多材质 Surface 的昂贵重建稳定错开；Draw 仍可每帧复用上一份 Triangle Buffer。</summary>
+    internal static class LiquidSurfaceRefreshPlanner
+    {
+        private const uint RenderableMask = (1u << (int)MaterialId.Water)
+            | (1u << (int)MaterialId.Poison)
+            | (1u << (int)MaterialId.Sticky);
+
+        internal static bool ShouldRebuild(bool hasBuilt, uint lastVersion, uint currentVersion,
+            MaterialId material, uint presenceMask, int frame)
+        {
+            uint materialBit = 1u << (int)material;
+            uint active = presenceMask & RenderableMask;
+            if ((active & materialBit) == 0u) return false;
+            if (!hasBuilt) return true;
+            if (lastVersion == currentVersion) return false;
+            int count = CountBits(active);
+            int rank = CountBits(active & (materialBit - 1u));
+            return count <= 1 || (uint)frame % (uint)count == (uint)rank;
+        }
+
+        private static int CountBits(uint value)
+        {
+            int count = 0;
+            while (value != 0u) { value &= value - 1u; count++; }
+            return count;
+        }
+    }
+
     /// <summary>
     /// Presentation-only GPU 编排器：读取 IFluidGpuSource 的 committed particle snapshot，依次提交
     /// Density Field、Marching Cubes、Indirect Args 和 Procedural Draw。它绝不写回 Simulation Truth。
@@ -200,6 +228,9 @@ namespace Game.Rendering
         [SerializeField] private Material _material;
         [Tooltip("这个 Presentation Component 只重建一种 Material；多个组件可读取同一个 GPU Pool。")]
         [SerializeField] private MaterialId _targetMaterial = MaterialId.Water;
+        private bool _hasBuiltSurface;
+        private uint _lastBuiltSimulationVersion;
+        private Bounds _lastBuiltBounds;
 
         [Header("Development Fragment Isolation")]
         [Tooltip("临时跳过复杂 Fragment 光照、深度和波纹，只输出材质浅色且完全不透明；用于定位不可见发生在 Rasterization 前还是 Fragment 内。")]
@@ -392,6 +423,16 @@ namespace Game.Rendering
             }
             _debugHasSnapshot = true;
 
+            // 生产写入和转换在 CPU 提交时发布单调 Presence Mask。确定从未出现过的材质没有任何
+            // Density/Anisotropy/Marching Cubes 结果，提前返回可省掉整套全 Bounds GPU 工作。
+            if (!FluidMaterialPresenceMask.MayContain(snapshot.MaterialPresenceMask, (uint)_targetMaterial))
+            {
+                _debugTriangleCount = 0u;
+                _debugIndirectVertexCount = 0u;
+                _debugStage = LiquidSurfaceDiagnosticStage.NoSurfaceTriangles;
+                return;
+            }
+
             if (_resources == null)
             {
                 _debugResourcesReady = false;
@@ -432,13 +473,23 @@ namespace Game.Rendering
                 return;
             }
 
-            if ((_settings.UseAnisotropy || _settings.UseStylizedCrown)
+            bool boundsChanged = !_hasBuiltSurface || _lastBuiltBounds != grid.WorldBounds;
+            bool rebuild = boundsChanged || LiquidSurfaceRefreshPlanner.ShouldRebuild(
+                _hasBuiltSurface, _lastBuiltSimulationVersion, snapshot.SimulationVersion,
+                _targetMaterial, snapshot.MaterialPresenceMask, Time.frameCount);
+            if (rebuild && (_settings.UseAnisotropy || _settings.UseStylizedCrown)
                 && _anisotropySchedule.ShouldUpdateAndAdvance(snapshot.TopologyVersion))
             {
                 DispatchSurfaceNeighborhood(in snapshot);
             }
-            DispatchDensity(in snapshot, in grid, _resources);
-            DispatchMarchingCubes(in grid, _resources);
+            if (rebuild)
+            {
+                DispatchDensity(in snapshot, in grid, _resources);
+                DispatchMarchingCubes(in grid, _resources);
+                _hasBuiltSurface = true;
+                _lastBuiltSimulationVersion = snapshot.SimulationVersion;
+                _lastBuiltBounds = grid.WorldBounds;
+            }
             DrawSurface(in grid, _resources);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             ScheduleDebugCounterReadback(Time.unscaledDeltaTime);

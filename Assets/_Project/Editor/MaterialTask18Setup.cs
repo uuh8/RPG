@@ -41,6 +41,10 @@ namespace Game.EditorTools
                 RootFolder + "/Material_Poison.asset",
                 MaterialId.Poison,
                 MaterialBehaviorKind.Liquid);
+            MaterialDefinition sticky = CreateOrUpdateDefinition(
+                RootFolder + "/Material_Sticky.asset",
+                MaterialId.Sticky,
+                MaterialBehaviorKind.Liquid);
 
             MaterialCatalog catalog = AssetDatabase.LoadAssetAtPath<MaterialCatalog>(CatalogPath);
             if (catalog == null)
@@ -51,10 +55,13 @@ namespace Game.EditorTools
 
             var serialized = new SerializedObject(catalog);
             SerializedProperty definitions = serialized.FindProperty("_definitions");
-            definitions.arraySize = 3;
+            // 该迁移器会在每个 Editor Session 自动执行，因此必须覆盖当前完整 Catalog。
+            // 若仍停留在 Task 18 的三项版本，重启 Unity 会悄悄删除后续 Task 加入的 Sticky。
+            definitions.arraySize = 4;
             definitions.GetArrayElementAtIndex(0).objectReferenceValue = water;
             definitions.GetArrayElementAtIndex(1).objectReferenceValue = fire;
             definitions.GetArrayElementAtIndex(2).objectReferenceValue = poison;
+            definitions.GetArrayElementAtIndex(3).objectReferenceValue = sticky;
             serialized.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(catalog);

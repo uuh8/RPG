@@ -8,7 +8,7 @@ namespace Game.Character
     /// 法术角色控制器：在共享移动能力之上负责“输入意图”这一段攻击链。
     /// 按下攻击键 -> 锁存准心与缓存请求 -> FSM 允许后进入 PlayerWizardAttackState；
     /// 真正的法术求值与投射物生成分别交给 CastEvaluator 和 SpellCaster，本类不实现组合规则。
-    /// 取代旧的"点按火球 / 长按陨石"硬编码攻击。陨石相关字段/状态暂保留为休眠（不再路由），后续作为法术重做。
+    /// 当前陨石与其他投射物一样都是法术数据，不再由角色控制器保存专用重击状态。
     /// </summary>
     public class WizardController : PlayerControllerBase
     {
@@ -41,13 +41,6 @@ namespace Game.Character
         [Tooltip("空中普攻动画状态名（Animator 节点 JumpAttack_MagicWand）；空 → 0 → 空中攻击退回地面普攻动画")]
         [SerializeField] private string _airAttackStateName = "JumpAttack_MagicWand";
 
-        [Header("Wizard Heavy (陨石重击 — 暂休眠，后续作为法术重做)")]
-        [SerializeField] private MeteorAttackDefinition _meteorData;
-        [SerializeField] private GameObject _meteorPrefab;
-        [SerializeField] private GameObject _channelRingPrefab;
-        [SerializeField] private GameObject _targetIndicatorPrefab;
-        [SerializeField] private LayerMask _aimMask = ~0;
-
         [Header("Aim")]
         [Tooltip("屏幕中心瞄准的可命中层（排除 Player 层，免瞄到自己）")]
         [SerializeField] private LayerMask _fireballAimMask = ~0;
@@ -56,7 +49,6 @@ namespace Game.Character
 
         // State 是普通 C# 对象，在 Awake 只创建一次；运行中只切换引用，避免每次攻击 new 状态造成 GC Alloc。
         private PlayerWizardAttackState _wizardAttackState;
-        private PlayerWizardHeavyState _heavyState;   // 休眠：构造但不再进入
         private SpellCaster _spellCaster;             // 同物体上的法术施放器（运行法杖 → 生成投射物）
         private int[] _comboStateHashes;
         private HealthComponent _health;
@@ -70,28 +62,16 @@ namespace Game.Character
         private bool _hasClickAim;
         private readonly RaycastHit[] _aimHits = new RaycastHit[16]; // 点按锁存瞄准用射线缓冲（预分配，零每帧 GC）
 
-        private int _meteorChannelHash;          // 休眠
-        private int _meteorReleaseHash;          // 休眠
         private int _airAttackStateHash;
 
         public ComboDefinition Combo => _combo;
         public Transform FireballSpawnPoint => _fireballSpawnPoint;
         public HealthComponent Health => _health;
         public SpellCaster SpellCaster => _spellCaster;
-        public PlayerWizardAttackState WizardAttackState => _wizardAttackState;
         public Vector3 ClickAimPoint => _clickAimPoint; // 施法态释放时读取：按下那一刻锁存的准心
         public bool HasClickAim => _hasClickAim;
 
-        public MeteorAttackDefinition MeteorData => _meteorData;
-        public GameObject MeteorPrefab => _meteorPrefab;
-        public GameObject ChannelRingPrefab => _channelRingPrefab;
-        public GameObject TargetIndicatorPrefab => _targetIndicatorPrefab;
-        public LayerMask AimMask => _aimMask;
-        public LayerMask FireballAimMask => _fireballAimMask;
         public float AimMaxDistance => _aimMaxDistance;
-        public PlayerWizardHeavyState HeavyState => _heavyState;
-        public int MeteorChannelHash => _meteorChannelHash;
-        public int MeteorReleaseHash => _meteorReleaseHash;
         public int AirAttackStateHash => _airAttackStateHash;
 
         protected override void Awake()
@@ -104,9 +84,7 @@ namespace Game.Character
             _health = GetComponent<HealthComponent>();
             _spellCaster = GetComponent<SpellCaster>();
             _wizardAttackState = new PlayerWizardAttackState(this);
-            _heavyState = new PlayerWizardHeavyState(this);
             BuildComboStateHashes();
-            BuildMeteorHashes();
 
             _airAttackStateHash = string.IsNullOrEmpty(_airAttackStateName)
                 ? 0 : Animator.StringToHash(_airAttackStateName);
@@ -337,15 +315,6 @@ namespace Game.Character
             }
         }
 
-        // 休眠：陨石动画名预 hash（陨石暂不路由，后续作为法术重做时再启用）。
-        private void BuildMeteorHashes()
-        {
-            if (_meteorData == null) return;
-            _meteorChannelHash = string.IsNullOrEmpty(_meteorData.ChannelStateName)
-                ? 0 : Animator.StringToHash(_meteorData.ChannelStateName);
-            _meteorReleaseHash = string.IsNullOrEmpty(_meteorData.ReleaseStateName)
-                ? 0 : Animator.StringToHash(_meteorData.ReleaseStateName);
-        }
     }
 
     /// <summary>把 CharacterController 的世界 Bounds 转换为脚底 VFX 生成点。</summary>

@@ -76,6 +76,42 @@ namespace Game.Rendering.Tests
             }
         }
 
+        [Test]
+        public void SurfaceRefreshBuildsImmediatelyThenOnlyForANewSimulationVersion()
+        {
+            uint waterOnly = 1u << (int)MaterialId.Water;
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(false, 0u, 0u,
+                MaterialId.Water, waterOnly, 10), Is.True);
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(true, 7u, 7u,
+                MaterialId.Water, waterOnly, 11), Is.False);
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(true, 7u, 8u,
+                MaterialId.Water, waterOnly, 11), Is.True);
+        }
+
+        [Test]
+        public void ThreePresentMaterialsReceiveDifferentStableFrameRanks()
+        {
+            uint all = (1u << (int)MaterialId.Water)
+                | (1u << (int)MaterialId.Poison)
+                | (1u << (int)MaterialId.Sticky);
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(true, 1u, 2u,
+                MaterialId.Water, all, 30), Is.True);
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(true, 1u, 2u,
+                MaterialId.Poison, all, 30), Is.False);
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(true, 1u, 2u,
+                MaterialId.Poison, all, 31), Is.True);
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(true, 1u, 2u,
+                MaterialId.Sticky, all, 32), Is.True);
+        }
+
+        [Test]
+        public void AbsentMaterialNeverConsumesARefreshSlot()
+        {
+            uint waterOnly = 1u << (int)MaterialId.Water;
+            Assert.That(LiquidSurfaceRefreshPlanner.ShouldRebuild(false, 0u, 1u,
+                MaterialId.Poison, waterOnly, 0), Is.False);
+        }
+
         private sealed class FakeRoutes : IMaterialSimulationRouteReadOnly
         {
             private readonly MaterialSimulationBackendKind _backend;

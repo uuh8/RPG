@@ -12,6 +12,10 @@ PrefabInstance:
       propertyPath: _maxHp
       value: 175
       objectReference: {fileID: 0}
+    - target: {fileID: 3459414776841057456, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: _definition
+      value: 
+      objectReference: {fileID: 11400000, guid: dadf2fa4f4c3acc41bd22dc2bf1f98c5, type: 2}
     - target: {fileID: 4563113065739830452, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: _getHitStateName
       value: GetHit_SingleTwohandSword
@@ -32,6 +36,14 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 8444702560124770789, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8444702560151807896, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8444702560192864551, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_IsActive
       value: 0
@@ -42,7 +54,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8444702560261363464, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8444702560279435403, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_IsActive
@@ -57,6 +69,14 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8444702560486150185, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8444702560568834467, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8444702560572931416, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
@@ -114,7 +134,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561198123193, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_Name
-      value: P7_EliteSwordEnemy
+      value: Enemy_02_EliteSword
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561198123195, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_LocalScale.x
@@ -130,7 +150,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561198123195, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_LocalPosition.x
-      value: -3.94
+      value: -5.71
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561198123195, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_LocalPosition.y
@@ -138,7 +158,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561198123195, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 49.78
+      value: 46.74
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561198123195, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_LocalRotation.w
@@ -174,6 +194,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561284844246, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8444702561288037746, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561441686195, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
@@ -189,6 +213,10 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8444702561623079218, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8444702561630657614, guid: 7e02dc34cb61d9742a6729ef8efae272, type: 3}
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}

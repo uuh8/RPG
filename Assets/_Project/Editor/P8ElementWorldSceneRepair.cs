@@ -50,7 +50,8 @@ namespace Game.EditorTools
             // Profile 的旧 Water Mode 是一次性迁移标记。成功保存后条件自然失效，
             // 不需要留下一个会在每次 Domain Reload 改场景的后台工具。
             EditorApplication.delayCall += TryRunApprovedMigration;
-            EditorApplication.delayCall += TryRunFocusedGateOnce;
+            // Scene Contract 由显式菜单或统一 Gate 运行；Domain Reload 自动启动 TestRunner
+            // 会与外部全量回归争用场景和 callback，产生与产品代码无关的顺序依赖失败。
         }
 
         [MenuItem("Tools/Game/Element/Repair P8 ElementWorld Scene")]

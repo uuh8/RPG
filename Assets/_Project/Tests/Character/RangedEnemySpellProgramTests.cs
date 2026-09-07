@@ -76,6 +76,32 @@ namespace Game.Character.Tests
         }
 
         [Test]
+        public void CanAttackTarget_WhenFootLineHitsOwnPlatformButEyeLineIsClear_ReturnsTrue()
+        {
+            RangedEnemyController enemy = CreateEnemy(
+                new[] { CreateWand(CreateEmit(0f)) },
+                out _);
+            enemy.transform.position = new Vector3(0f, 2f, 0f);
+            enemy.Definition.AttackRange = 12f;
+            enemy.Definition.RangedAttackMaxHeight = 6f;
+            enemy.Definition.RangedLineOfSightObstacleMask = 1 << 8;
+
+            GameObject platform = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            platform.name = "Ranged Enemy High Platform";
+            platform.layer = 8;
+            platform.transform.position = new Vector3(0f, 1.5f, 0f);
+            platform.transform.localScale = new Vector3(2f, 1f, 2f);
+            _createdObjects.Add(platform);
+            Physics.SyncTransforms();
+
+            // 敌人脚底到玩家胸口的斜线会立刻穿过脚下平台；眼睛高度到胸口则无遮挡。
+            // 这个测试防止未来再次把视觉检测错误地绑定到 Root 或投射物出生点。
+            bool canAttack = enemy.CanAttackTarget(new Vector3(5f, 0f, 0f));
+
+            Assert.That(canAttack, Is.True);
+        }
+
+        [Test]
         public void CanAttackTarget_WhenGroundLayerWallBlocksShot_ReturnsFalse()
         {
             RangedEnemyController enemy = CreateEnemy(

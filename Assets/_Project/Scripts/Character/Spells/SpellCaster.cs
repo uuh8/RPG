@@ -101,7 +101,8 @@ namespace Game.Character
 
             int castId = _diagnostics.AllocateCastId();
             return RunCast(activeWand.Spells, activeWand.BaseDraws, CastModifierState.Default,
-                           spawnPos, baseDir, team, attackerId, casterCollider, castId, 0,
+                           spawnPos, aimPoint, baseDir, SpellAimMode.Direct,
+                           team, attackerId, casterCollider, castId, 0,
                            SpellManaPolicy.SpendCasterMana);
         }
 
@@ -117,7 +118,9 @@ namespace Game.Character
             int baseDraws,
             CastModifierState incomingMods,
             Vector3 spawnPos,
+            Vector3 aimPoint,
             Vector3 baseDir,
+            SpellAimMode aimMode,
             byte team,
             int attackerId,
             Collider casterCollider,
@@ -211,7 +214,7 @@ namespace Game.Character
 
                         default:
                             SpawnForwardProjectile(
-                                cmd, spawnPos, baseDir, i, count, team, attackerId,
+                                cmd, spawnPos, aimPoint, baseDir, aimMode, i, count, team, attackerId,
                                 casterCollider, castId, depth, manaPolicy);
                             break;
                     }
@@ -236,7 +239,8 @@ namespace Game.Character
             byte team,
             int attackerId,
             Collider casterCollider,
-            SpellManaPolicy manaPolicy)
+            SpellManaPolicy manaPolicy,
+            SpellAimMode aimMode = SpellAimMode.Direct)
         {
             if (program == null ||
                 program.Spells == null ||
@@ -260,7 +264,9 @@ namespace Game.Character
                 program.BaseDraws,
                 CastModifierState.Default,
                 spawnPos,
+                aimPoint,
                 baseDir,
+                aimMode,
                 team,
                 attackerId,
                 casterCollider,
@@ -343,7 +349,9 @@ namespace Game.Character
         private void SpawnForwardProjectile(
             EmitCommand cmd,
             Vector3 spawnPos,
+            Vector3 aimPoint,
             Vector3 baseDir,
+            SpellAimMode aimMode,
             int index,
             int count,
             byte team,
@@ -357,8 +365,36 @@ namespace Game.Character
             float yaw = SpellAiming.SpreadOffsetDegrees(index, count, cmd.SpreadDegrees);
             Vector3 dir = Quaternion.AngleAxis(yaw, Vector3.up) * baseDir;  // 将基准方向向量 baseDir 绕世界空间的 Y 轴（Vector3.up）旋转 yaw 度，得到一个新的方向向量 dir
 
+            // 默认保持既有直线语义。只有显式 BallisticToPoint 且本条 Emit 打开重力时才改为反解初速度，
+            // 所以 Fireball、玩家法术和不受重力的特殊 Projectile 都不会被 Arrow 的规则意外影响。
+            Vector3 launchVelocity = dir * cmd.Speed;
+            if (aimMode == SpellAimMode.BallisticToPoint && cmd.UseGravity)
+            {
+                float targetDistance = (aimPoint - spawnPos).magnitude;
+                Vector3 spreadAimPoint = spawnPos + dir * targetDistance;
+                if (!BallisticTrajectory.TrySolveVelocity(
+                        spawnPos,
+                        spreadAimPoint,
+                        cmd.Speed,
+                        Physics.gravity,
+                        0.1f,
+                        out Vector3 ballisticVelocity,
+                        out _))
+                {
+                    GameLog.Warn("弹道投射物无法求得有效初速度，已降级为直线发射", "Skills");
+                }
+                else
+                {
+                    launchVelocity = ballisticVelocity;
+                }
+            }
+
+            Vector3 launchForward = launchVelocity.sqrMagnitude > 1e-6f
+                ? launchVelocity.normalized
+                : dir;
+
             // Instantiate 根据 Prefab 在运行时创建一个独立 GameObject；LookRotation 让其 forward 朝向发射方向。
-            GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, Quaternion.LookRotation(dir));
+            GameObject go = Object.Instantiate(cmd.ProjectilePrefab, spawnPos, Quaternion.LookRotation(launchForward));
             ProjectileBase proj = go.GetComponent<ProjectileBase>();
             if (proj == null)
             {
@@ -385,8 +421,8 @@ namespace Game.Character
                 shieldProjectile.ConfigureShield(cmd.ShieldReflectCount);
 
             // Init 是投射物生命周期的统一启动点：保存伤害/阵营，忽略施法者碰撞，并写入 Rigidbody.linearVelocity。
-            // dir 是单位方向，乘以 cmd.Speed 后才得到带“米/秒”量纲的速度向量。
-            proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, dir * cmd.Speed, casterCollider, useGravity: cmd.UseGravity);
+            // BallisticToPoint 已把目标点与重力换算成 launchVelocity；Direct 仍是 dir * cmd.Speed。
+            proj.Init(team, attackerId, cmd.Damage, cmd.DamageType, launchVelocity, casterCollider, useGravity: cmd.UseGravity);
         }
 
         /// <summary>
@@ -503,7 +539,9 @@ namespace Game.Character
                             1,
                             payloadMods,
                             hitPoint,
+                            hitPoint + hitDir,
                             hitDir,
+                            SpellAimMode.Direct,
                             team,
                             attackerId,
                             casterCollider,
@@ -521,7 +559,9 @@ namespace Game.Character
                             1,
                             payloadMods,
                             position,
+                            position + direction,
                             direction,
+                            SpellAimMode.Direct,
                             team,
                             attackerId,
                             casterCollider,

@@ -17,10 +17,60 @@ namespace Game.Rendering.Tests
     public sealed class P8ElementWorldSceneContractTests
     {
         private const string ScenePath = "Assets/_Project/Scenes/P8_BossField.unity";
+        private const string P7ScenePath = "Assets/_Project/Scenes/P7_DemoRun.unity";
         private const string P8ProfilePath =
             "Assets/_Project/ScriptableObjects/P8/ElementField/ElementWorldProfile_P8BossField.asset";
         private const string CanonicalProfilePath =
             "Assets/_Project/ScriptableObjects/ElementField/Fluid/ElementWorldProfile_P7_PBF.asset";
+
+        [TestCase(P7ScenePath, CanonicalProfilePath)]
+        [TestCase(ScenePath, P8ProfilePath)]
+        public void ProductionSceneOwnsStreamingRuntimeAndUsesValidatedSettings(
+            string scenePath, string profilePath)
+        {
+            SceneSetup[] previousSetup = EditorSceneManager.GetSceneManagerSetup();
+            try
+            {
+                EditorSceneManager.OpenScene(scenePath, OpenSceneMode.Single);
+                ElementWorldRuntime world = Object.FindFirstObjectByType<ElementWorldRuntime>(
+                    FindObjectsInactive.Include);
+                ElementWorldExposureSystem exposure =
+                    Object.FindFirstObjectByType<ElementWorldExposureSystem>(FindObjectsInactive.Include);
+                GpuPbfFluidRuntime fluid = Object.FindFirstObjectByType<GpuPbfFluidRuntime>(
+                    FindObjectsInactive.Include);
+                FluidGameplayOccupancyBridge bridge =
+                    Object.FindFirstObjectByType<FluidGameplayOccupancyBridge>(FindObjectsInactive.Include);
+                FluidChunkStreamingRuntime streaming =
+                    Object.FindFirstObjectByType<FluidChunkStreamingRuntime>(FindObjectsInactive.Include);
+
+                Assert.That(world, Is.Not.Null, $"{scenePath} 缺少 ElementWorldRuntime。");
+                Assert.That(exposure, Is.Not.Null, $"{scenePath} 缺少 ElementWorldExposureSystem。");
+                Assert.That(fluid, Is.Not.Null, $"{scenePath} 缺少 GpuPbfFluidRuntime。");
+                Assert.That(bridge, Is.Not.Null, $"{scenePath} 缺少 FluidGameplayOccupancyBridge。");
+                Assert.That(streaming, Is.Not.Null, $"{scenePath} 缺少 FluidChunkStreamingRuntime。");
+                Assert.That(streaming.gameObject, Is.SameAs(world.gameObject),
+                    "Streaming Runtime 必须与 ElementWorldRuntime 同 Root，生命周期才能同步销毁。");
+
+                var worldData = new SerializedObject(world);
+                Assert.That(worldData.FindProperty("_fluidChunkStreamingRuntime").objectReferenceValue,
+                    Is.SameAs(streaming));
+                var exposureData = new SerializedObject(exposure);
+                Assert.That(exposureData.FindProperty("_liquidOccupancyComponent").objectReferenceValue,
+                    Is.SameAs(streaming), "Gameplay Exposure 必须读取 GPU+Archive 的统一权威视图。");
+
+                ElementWorldProfile profile = AssetDatabase.LoadAssetAtPath<ElementWorldProfile>(profilePath);
+                Assert.That(profile, Is.Not.Null);
+                AssertStreamingSettings(profile);
+                Assert.That(worldData.FindProperty("_profile").objectReferenceValue, Is.SameAs(profile));
+            }
+            finally
+            {
+                if (previousSetup.Length > 0)
+                    EditorSceneManager.RestoreSceneManagerSetup(previousSetup);
+                else
+                    EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            }
+        }
 
         [Test]
         public void P8UsesCanonicalMaterialRulesAndOwnsACompleteGpuRuntimeChain()
@@ -100,6 +150,21 @@ namespace Game.Rendering.Tests
             Assert.That(worldData.FindProperty("_profile").objectReferenceValue, Is.SameAs(p8));
         }
 
+        private static void AssertStreamingSettings(ElementWorldProfile profile)
+        {
+            var data = new SerializedObject(profile);
+            Assert.That(data.FindProperty("_fluidWarmPaddingChunks").intValue, Is.EqualTo(1));
+            Assert.That(data.FindProperty("_fluidArchiveGraceSeconds").floatValue, Is.EqualTo(2f));
+            Assert.That(data.FindProperty("_maximumArchivedFluidChunks").intValue, Is.EqualTo(512));
+            Assert.That(data.FindProperty("_maximumArchivedFluidCellRecords").intValue,
+                Is.EqualTo(65536));
+            Assert.That(data.FindProperty("_maximumPendingFluidWrites").intValue, Is.EqualTo(256));
+            Assert.That(data.FindProperty("_gameplaySpawnReserveParticles").intValue, Is.EqualTo(512));
+            Assert.That(data.FindProperty("_enableLocalFluidDormancy").boolValue, Is.True);
+            Assert.That(data.FindProperty("_maximumRestoreParticlesPerFrame").intValue,
+                Is.EqualTo(128));
+        }
+
         private static void AssertRuntimeReferences(
             ElementWorldRuntime world,
             ElementWorldExposureSystem exposure,
@@ -119,8 +184,12 @@ namespace Game.Rendering.Tests
                 Is.SameAs(world));
 
             var exposureData = new SerializedObject(exposure);
+            FluidChunkStreamingRuntime streaming = world.GetComponent<FluidChunkStreamingRuntime>();
+            Assert.That(streaming, Is.Not.Null);
+            Assert.That(worldData.FindProperty("_fluidChunkStreamingRuntime").objectReferenceValue,
+                Is.SameAs(streaming));
             Assert.That(exposureData.FindProperty("_liquidOccupancyComponent").objectReferenceValue,
-                Is.SameAs(bridge));
+                Is.SameAs(streaming));
 
             var fluidData = new SerializedObject(fluid);
             Assert.That(fluidData.FindProperty("_simulationBoundsCenter").objectReferenceValue,
@@ -149,6 +218,27 @@ namespace Game.Rendering.Tests
             CollectionAssert.AreEquivalent(
                 new[] { MaterialId.Water, MaterialId.Poison, MaterialId.Sticky },
                 targets);
+
+            DormantLiquidCellRenderer[] dormant =
+                Object.FindObjectsByType<DormantLiquidCellRenderer>(
+                    FindObjectsInactive.Include, FindObjectsSortMode.None);
+            Assert.That(dormant, Has.Length.EqualTo(3),
+                "Water、Poison、Sticky 都需要 Dormant Cell 低成本表现。");
+            targets.Clear();
+            for (int i = 0; i < dormant.Length; i++)
+            {
+                var data = new SerializedObject(dormant[i]);
+                Assert.That(dormant[i].gameObject, Is.SameAs(fluid.gameObject));
+                Assert.That(data.FindProperty("_worldRuntime").objectReferenceValue,
+                    Is.SameAs(world));
+                Assert.That(data.FindProperty("_sourceLiquidMaterial").objectReferenceValue,
+                    Is.Not.Null);
+                Assert.That(data.FindProperty("_dormantShader").objectReferenceValue,
+                    Is.Not.Null, "序列化 Shader 引用用于防止 Player Build stripping。");
+                targets.Add((MaterialId)data.FindProperty("_targetMaterial").intValue);
+            }
+            CollectionAssert.AreEquivalent(
+                new[] { MaterialId.Water, MaterialId.Poison, MaterialId.Sticky }, targets);
         }
 
         private static void AssertTerrainProxyGrid(GpuPbfFluidRuntime fluid)

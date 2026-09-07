@@ -247,7 +247,7 @@ public void ShouldStartArchive_PressureBypassesGraceButNeverRunsDuringTransfer()
 
 在 Unity Test Runner 只运行 `FluidChunkStreamingPlannerTests`。预期因 `FluidChunkStreamingPlanner`、`FluidChunkRegion`、`FluidChunkStreamingSettings` 尚不存在而编译失败；其他既有测试失败不算本 Task 的有效 RED。
 
-- [ ] **Step 3: 实现不可变 Settings 与 Pure Planner**
+- [x] **Step 3: 实现不可变 Settings 与 Pure Planner**
 
 ```csharp
 public enum FluidChunkLifecycleState : byte
@@ -274,7 +274,7 @@ public readonly struct FluidChunkStreamingSettings
 
 `FluidChunkRegion.ToWorldBounds(origin, cellSize, chunkSize)` 必须使用 Chunk 的闭区间 Key 转成世界 AABB；Max Key 要加一整个 Chunk 才能得到 exclusive max。所有轴差值先转 `long`，避免极端坐标溢出。
 
-- [ ] **Step 4: 运行 GREEN Gate 与既有坐标回归**
+- [x] **Step 4: 运行 GREEN Gate 与既有坐标回归**
 
 Unity Test Runner 运行：
 
@@ -347,7 +347,7 @@ public void Rebuild_SameCellKeepsMaterialsSeparateAndPreservesAmountUnits()
 
 Unity Test Runner 运行 `FluidChunkArchiveBuilderTests`，预期只因新类型不存在而失败。
 
-- [ ] **Step 3: 实现 32-byte Sample 与预分配 Builder**
+- [x] **Step 3: 实现 32-byte Sample 与预分配 Builder**
 
 ```csharp
 [StructLayout(LayoutKind.Sequential)]
@@ -392,7 +392,7 @@ public void RemoveChunk_TombstoneDoesNotBreakLaterProbeChain()
 }
 ```
 
-- [ ] **Step 5: 实现固定容量 Archive Store**
+- [x] **Step 5: 实现固定容量 Archive Store**
 
 Store 构造期一次性创建 Chunk header table 与 Cell record table。`TryCommit` 先计算新增 Chunk/Record 数并检查容量，再写 staging generation，全部完成后统一发布 version；不能边遍历边让 Query 看见新数据。提供以下精确入口：
 
@@ -473,7 +473,7 @@ public void LayoutV9_DefinesArchiveAndRestoreFlagsWithoutChangingMetadataStride(
 
 运行 `FluidGpuLayoutContractTests + FluidActivityPlannerTests`，预期因 v9 常量和状态规则尚未实现而失败。
 
-- [ ] **Step 3: 同步 C#/HLSL flag 与布局**
+- [x] **Step 3: 同步 C#/HLSL flag 与布局**
 
 ```csharp
 public const uint ArchiveLocked = 1u << 5;
@@ -503,7 +503,7 @@ public void ArchiveCancel_RestoresRemoteSimulationLeaseAndDoesNotTouchFreeStack(
 }
 ```
 
-- [ ] **Step 5: 增加一次性 GPU Transfer Buffers**
+- [x] **Step 5: 增加一次性 GPU Transfer Buffers**
 
 `FluidGpuResourceSet` 初始化创建并在 `Dispose` 释放：
 
@@ -516,7 +516,7 @@ TransferStatus          Structured, 1 record × 16 bytes
 
 Buffer 创建失败必须沿用 ResourceSet 构造异常回滚，不能留下部分 GraphicsBuffer。
 
-- [ ] **Step 6: 实现 Archive Kernels 并控制 UAV 上限**
+- [x] **Step 6: 实现 Archive Kernels 并控制 UAV 上限**
 
 新增：
 
@@ -595,7 +595,7 @@ git commit -m "feat(element-field): archive remote gpu fluid particles"
 - Consumes: Task 1 Planner、Task 2 Builder/Store、Task 3 Archive Backend。
 - Produces: 自动 `GpuResident -> Archiving -> Cold`、固定 pending write queue、Archive counters 与 Debug state。
 
-- [ ] **Step 1: 写失败的 FIFO、Overflow 与原值快照 tests**
+- [x] **Step 1: 写失败的 FIFO、Overflow 与原值快照 tests**
 
 ```csharp
 [Test]
@@ -614,15 +614,15 @@ public void Queue_PreservesFullWriteRequestAndRejectsWithoutOverwritingOldest()
 }
 ```
 
-- [ ] **Step 2: 实现固定 Ring Buffer**
+- [x] **Step 2: 实现固定 Ring Buffer**
 
 构造期分配 `ElementWriteRequest[]`，运行时只移动 head/count；RejectedCount 饱和到 `uint.MaxValue`。提供 `TryEnqueue`、`TryPeek`、`TryDequeue`，不得使用 `Queue<T>` 扩容。
 
-- [ ] **Step 3: 用 Fake Backend 写 Archive Runtime RED tests**
+- [x] **Step 3: 用 Fake Backend 写 Archive Runtime RED tests**
 
 覆盖：Grace 到期才 begin、Capacity Pressure 立即 begin、in-flight 时不重复 begin、callback 只记录状态、下一个 Update 聚合并 commit、Store 容量不足调用 cancel、Readback error 调用 cancel、lease exactly once、Archive 期间相交写入延后、Warm 内写入立即下发。
 
-- [ ] **Step 4: 实现 `FluidChunkStreamingRuntime` Archive 半链**
+- [x] **Step 4: 实现 `FluidChunkStreamingRuntime` Archive 半链**
 
 组件使用 `[DefaultExecutionOrder(50)]`，确保普通 GPU Simulation `Update` 已提交、Gameplay Bridge 的 `LateUpdate` 尚未打包。初始化时：
 
@@ -637,11 +637,11 @@ public void Queue_PreservesFullWriteRequestAndRejectsWithoutOverwritingOldest()
 
 正常 Update 只做状态推进。`AsyncGPUReadback.RequestIntoNativeArray` 读取 Task 3 lease 的 ArchiveSamples；callback 只调用 `RecordCompletion(request.hasError)`。`OnDestroy` 可对唯一 outstanding request `WaitForCompletion()` 一次，然后 release lease 和 Dispose NativeArray。
 
-- [ ] **Step 5: 接入 ElementWorldRuntime，但暂不启用 Restore Query**
+- [x] **Step 5: 接入 ElementWorldRuntime，但暂不启用 Restore Query**
 
 `ElementWorldRuntime` 增加 serialized `_fluidChunkStreamingRuntime`。只有 `EnableFluidChunkStreaming=true` 时才验证它存在并成功初始化；Toggle 关闭时完整保留原 `GpuPbfFluidRuntime + FluidGameplayOccupancyBridge` 路径。启用后 Deposit Sink 由 Streaming Runtime 包装并转发到 GPU，反应继续显式使用 `_fluidGameplayOccupancy`。启用状态下组件缺失属于配置失败，不能静默回写 Legacy Cell。
 
-- [ ] **Step 6: 运行 GREEN Gate**
+- [x] **Step 6: 运行 GREEN Gate**
 
 运行：
 
@@ -654,6 +654,8 @@ ElementWorldSimulatorTests
 ```
 
 - [ ] **Step 7: 更新文档并 Commit**
+
+文档已更新；当前工作区还包含用户并行修改，本批未自动创建 Commit。
 
 ```bash
 git add Assets/_Project/Scripts/ElementField/Fluid/Streaming/FluidPendingWriteQueue.cs Assets/_Project/Scripts/ElementField/Fluid/Streaming/FluidChunkStreamingRuntime.cs Assets/_Project/Tests/ElementField/FluidPendingWriteQueueTests.cs Assets/_Project/Tests/ElementField/FluidChunkStreamingRuntimeTests.cs Assets/_Project/Scripts/ElementField/Runtime/ElementWorldRuntime.cs "Assets/_Project/Docs/2026-08-09 GPU PBF流体模拟完整解析.md"
@@ -683,7 +685,7 @@ git commit -m "feat(element-field): stream remote fluid into ram archives"
 - Consumes: Archive Store Cell Records、Liquid Material Amount Scale、FreeIndices/Counters、Task 3 Transfer state。
 - Produces: `FluidGpuRestoreParticle`, `FluidGpuTransferStatus`, `TryAcquireRestoreStatusLease(...)`, `CommitRestore(...)`, `RollbackRestore(...)`。
 
-- [ ] **Step 1: 写失败的确定性重建与整数守恒 tests**
+- [x] **Step 1: 写失败的确定性重建与整数守恒 tests**
 
 ```csharp
 [Test]
@@ -705,7 +707,7 @@ public void ExpandArchiveRecord_PreservesParticleCountAndIsDeterministic()
 
 若 `Amount % AmountUnitsPerParticle != 0`，Planner 必须拒绝损坏记录，不能 Ceiling 后静默制造物质量。
 
-- [ ] **Step 2: 实现 Restore Planner 与 32-byte upload contract**
+- [x] **Step 2: 实现 Restore Planner 与 32-byte upload contract**
 
 ```csharp
 [StructLayout(LayoutKind.Sequential)]
@@ -729,11 +731,11 @@ public readonly struct FluidGpuTransferStatus
 
 Cell 内位置使用固定 lattice/jitter 函数，Seed 只由 ChunkKey、LocalCellIndex、MaterialId、SnapshotVersion 和 local particle index 组成，不能读取 `UnityEngine.Random`。
 
-- [ ] **Step 3: 写失败的 GPU Reservation、Activate 与 Rollback tests**
+- [x] **Step 3: 写失败的 GPU Reservation、Activate 与 Rollback tests**
 
 覆盖：FreeCount 足够时一次扣减 required；`free-required < 512` 时整批失败且 buffer/counter 不变；Stage 后 slot 只有 RestoreLoading 不含 Alive；Activate 后 inside ActiveBounds 成为 Interest Active，外部成为 RemoteSpawnActive；Rollback 将所有 reserved index 各归还一次；错误 TransactionId 不改变任何 slot。
 
-- [ ] **Step 4: 实现四段 Restore Kernels**
+- [x] **Step 4: 实现四段 Restore Kernels**
 
 ```hlsl
 #pragma kernel ReserveRestoreSlots
@@ -745,7 +747,7 @@ Cell 内位置使用固定 lattice/jitter 函数，Seed 只由 ChunkKey、LocalC
 
 Reserve 由单线程读取 FreeCount，检查 `required + gameplayReserve` 后一次写回 ReservedBase 和 TransferStatus。Stage 以 `_FreeIndices[ReservedBase + localIndex]` 取得唯一 slot，并写 `RestoreReservedIndices[localIndex]`；Core/Auxiliary 拆分以满足 D3D11 8-UAV 上限。Activate 校验 TransactionId，设置 Alive/activity flags 并增加 ActiveCount。Rollback 只处理仍为 RestoreLoading 的 reserved slot，通过 `InterlockedAdd(FreeCount, 1)` 归还。
 
-- [ ] **Step 5: 扩展 Backend Restore Lease**
+- [x] **Step 5: 扩展 Backend Restore Lease**
 
 ```csharp
 bool TryAcquireRestoreStatusLease(
@@ -760,13 +762,13 @@ void RollbackRestore(uint transactionId, int particleCount);
 
 Status 使用 `AsyncGPUReadback.RequestIntoNativeArray` 读取一个预分配长度 1 的 `NativeArray<FluidGpuTransferStatus>`。Backend 在 Stage dispatch 后返回 lease；CPU 收到 `Succeeded=1` 且 TransactionId/ParticleCount 全部匹配后才允许 Commit。
 
-- [ ] **Step 6: 实现 `Cold -> Restoring` 调度**
+- [x] **Step 6: 实现 `Cold -> Restoring` 调度**
 
 每次只选择距离 Interest Chunk 最近的一个 Cold Chunk。先 `CopyChunkRecords` 到预分配 Cell staging，再扩展到长度 ParticleCapacity 的预分配 RestoreParticle staging；required 超过 ParticleCapacity 时拒绝并记录 `OversizedChunkRestoreCount`。进入 Restoring 后 Archive Store 仍保留记录。
 
 Commit 后保存 `publishedTopologyVersion`，等待 Gameplay Bridge 覆盖该版本；在等待期间 GPU particles 已可见，但组合 Gameplay Query 仍读取 Archive。Status error/mismatch/timeout 执行 Rollback，状态退回 Cold。
 
-- [ ] **Step 7: 运行 GPU 与 Runtime GREEN Gate**
+- [x] **Step 7: 运行 GPU 与 Runtime GREEN Gate**
 
 运行：
 
@@ -781,6 +783,8 @@ GpuPbfSolverTests
 ```
 
 - [ ] **Step 8: 更新文档并 Commit**
+
+文档已更新；当前工作区仍包含用户并行修改，本批未自动创建 Commit。
 
 ```bash
 git add Assets/_Project/Scripts/ElementField/Fluid/Streaming/IFluidChunkTransferBackend.cs Assets/_Project/Scripts/ElementField/Fluid/Streaming/FluidChunkRestorePlanner.cs Assets/_Project/Scripts/ElementField/Fluid/Streaming/FluidChunkStreamingRuntime.cs Assets/_Project/Scripts/ElementField/Fluid/Streaming/FluidChunkTransferState.cs Assets/_Project/Scripts/ElementField/Fluid/Runtime/FluidGpuResourceSet.cs Assets/_Project/Scripts/ElementField/Fluid/Runtime/GpuPbfFluidRuntime.cs Assets/_Project/Art/Elemental/Compute/PbfParticleLifecycle.compute Assets/_Project/Tests/ElementField/FluidChunkRestorePlannerTests.cs Assets/_Project/Tests/ElementField/GpuFluidChunkRestoreTests.cs Assets/_Project/Tests/ElementField/FluidChunkStreamingRuntimeTests.cs "Assets/_Project/Docs/2026-08-09 GPU PBF流体模拟完整解析.md"
@@ -808,7 +812,7 @@ git commit -m "feat(element-field): restore archived fluid chunks"
 - Consumes: GPU published Snapshot、Archive Store、Restore Topology gate、ElementWorld Write Router。
 - Produces: `FluidChunkStreamingRuntime : IFluidDepositSink, ILiquidOccupancyReadOnly` 完整权威路由。
 
-- [ ] **Step 1: 写失败的 Topology Gate 和单写者 tests**
+- [x] **Step 1: 写失败的 Topology Gate 和单写者 tests**
 
 ```csharp
 [Test]
@@ -826,7 +830,7 @@ public void WriteIntersectingColdChunk_IsQueuedAndReplayedExactlyOnceAfterRestor
 }
 ```
 
-- [ ] **Step 2: 暴露冻结的 Gameplay Topology Version**
+- [x] **Step 2: 暴露冻结的 Gameplay Topology Version**
 
 `FluidGameplayOccupancyBridge` 增加只读：
 
@@ -837,19 +841,19 @@ internal uint PublishedTopologyVersion =>
 
 属性只读取完整 published snapshot，不能读取 staging metadata。
 
-- [ ] **Step 3: 实现组合 Gameplay Query**
+- [x] **Step 3: 实现组合 Gameplay Query**
 
 `TryGetAmount` 先把 Global Cell 转 Chunk：Restoring 且位于当前 Warm Region时从 Archive Store 读取 `uint` 并饱和到 byte；其余状态读取 GPU Gameplay Bridge。Cold Region 外返回 false，避免远处角色和反应继续运行。
 
 `SnapshotBounds` 使用 Warm Region world bounds 与有效 GPU bounds 的有界交/并规划结果，不得使用所有历史 Cold Chunk 的总 Bounds。`CopyOccupiedCells` 使用 caller-provided destination：先复制 GPU cells，再扫描 Restoring Archive；根据 Chunk Authority 跳过重复条目，无新建集合。
 
-- [ ] **Step 4: 实现写入相交范围和 replay gate**
+- [x] **Step 4: 实现写入相交范围和 replay gate**
 
 用 `WorldPosition ± Radius` 转 Global Cell min/max，再转 Chunk min/max，以三重 for 循环检查请求覆盖的 Chunk。任一目标为 Cold/Restoring 时，整条原始 request 入 Pending Queue并触发最近目标恢复；Archive in-flight 时，任何不完全包含在 frozen retained bounds 内的 request 入队。
 
 Replay 每帧最多处理初始化时固定的 `MaximumPendingWrites`，但一旦队首仍覆盖 Cold/Restoring Chunk就停止，保持 FIFO。GPU sink 拒绝时保留队首并在下一帧重试；不得 dequeue 后丢弃。
 
-- [ ] **Step 5: 分离 Material Query 与 GPU Reaction Query**
+- [x] **Step 5: 分离 Material Query 与 GPU Reaction Query**
 
 `ElementWorldRuntime`：
 
@@ -861,7 +865,7 @@ _liquidReactionOccupancy = _fluidGameplayOccupancy    // GPU-only Reaction
 
 `PlanAndApplyGpuWaterFireReactions` 只消费 `_liquidReactionOccupancy`。这样 Restoring Archive 不会生成无法命中 GPU 粒子的 Consume/Convert Command；发布恢复后的 GPU Snapshot 后，既有反应链自然恢复。
 
-- [ ] **Step 6: 执行完整 Gameplay 回归**
+- [x] **Step 6: 执行完整 Gameplay 回归**
 
 运行：
 
@@ -878,6 +882,8 @@ ElementWorldExposureSystemTests
 额外零 GC 测试覆盖 steady-state `Update`、Warm query、GPU query 和 pending queue idle path。
 
 - [ ] **Step 7: 更新文档并 Commit**
+
+文档已更新；当前工作区仍包含用户并行修改，本批未自动创建 Commit。
 
 文档必须画出 `Projectile -> ElementWorldWriteRouter -> Streaming Deposit -> GPU/Pending -> Archive/Restore -> Gameplay Query -> Reaction/Exposure`，并解释为什么 Reaction 与 Exposure 使用不同的读视图。
 
@@ -906,7 +912,7 @@ git commit -m "feat(element-field): route gameplay through fluid chunk authority
 - Consumes: Tasks 1-6 完整链路。
 - Produces: Inspector diagnostics、Profiler markers、Scene contract、玩家验收证据和明确剩余边界。
 
-- [ ] **Step 1: 添加无分配 Debug Counter 与 ProfilerMarker**
+- [x] **Step 1: 添加无分配 Debug Counter 与 ProfilerMarker**
 
 Streaming Runtime 暴露只读 serialized counters：
 
@@ -934,11 +940,11 @@ GpuFluid.Streaming.PendingReplay
 
 禁止在 marker scope 内做字符串插值或 boxing。
 
-- [ ] **Step 2: 更新 Scene Contract tests**
+- [x] **Step 2: 更新 Scene Contract tests**
 
 `P8ElementWorldSceneContractTests` 验证 P7/P8 保存的 `ElementWorldRuntime` 都引用同 GameObject 上的 `FluidChunkStreamingRuntime`，Streaming Runtime 引用对应 GPU Runtime 与 Gameplay Bridge，Profile 的 WarmPadding=1、Grace=2、Reserve=512。只验证 YAML contract，不把它冒充 Play Mode。
 
-- [ ] **Step 3: 用户在 Unity Editor 完成 Wiring**
+- [x] **Step 3: 用户在 Unity Editor 完成 Wiring**
 
 对 Sandbox、P7、P8：
 
@@ -949,7 +955,7 @@ GpuFluid.Streaming.PendingReplay
 5. 完成其余 Gate 前保持 `EnableFluidChunkStreaming=false`；准备执行本 Task Playthrough 时再开启。
 6. 保存 Scene；不要改动当前 Enemy、Boss、Spell、NavMesh 和 Projectile Prefab 的用户工作。
 
-- [ ] **Step 4: Unity Test Runner 总回归**
+- [x] **Step 4: Unity Test Runner 总回归**
 
 运行 `Game.ElementField.Tests` 与 `Game.Rendering.Tests` 全量 EditMode。记录总 Passed/Failed/Skipped，并单列以下 focused fixtures：
 
@@ -969,7 +975,7 @@ GpuPbfCollisionTests
 P8ElementWorldSceneContractTests
 ```
 
-- [ ] **Step 5: Sandbox 数量守恒与失败注入**
+- [x] **Step 5: Sandbox 数量守恒与失败注入**
 
 执行以下矩阵并逐项记录：
 
@@ -983,11 +989,11 @@ P8ElementWorldSceneContractTests
 | Transfer 期间命中液体球 | Pending request 恢复后只执行一次 |
 | 玩家在 Chunk 边缘来回移动 | Grace 内不反复 Archive/Restore |
 
-- [ ] **Step 6: P7/P8 玩家体验 Playthrough**
+- [x] **Step 6: P7/P8 玩家体验 Playthrough**
 
 每张 Scene 至少完成：连续释放 3 个 Water、3 个 Poison、3 个 Sticky；离开两个以上 Warm Region；等待归档；继续施放一次三种液体；返回旧区域；触发 Wet/Poisoned/Sticky 与三类 Fire reaction。验收重点是新法术仍可生成、旧物质量恢复、无明显瞬移爆炸和无重复反应。
 
-- [ ] **Step 7: Profiler、Frame Debugger 与 Build Gate**
+- [x] **Step 7: Profiler、Frame Debugger 与 Build Gate**
 
 Profiler 分别记录静止、跨 Chunk、Archive callback、Restore 和连续施法：
 
@@ -1000,10 +1006,11 @@ Profiler 分别记录静止、跨 Chunk、Archive callback、Restore 和连续�
 
 不能预填毫秒收益；只记录实际机器、Graphics API、分辨率、复现步骤和测量值。
 
-- [ ] **Step 8: 完成 Living Explainer 收口**
+- [x] **Step 8: 完成 Living Explainer 收口**
 
 追加完整 Debug 表：症状 → 假设 → Counter/Profiler 证据 → GPU/CPU 分层 → 根因 → 被拒方案 → 最终方案 → Regression → Remaining Boundary。明确：磁盘保存、Cold 离屏演化、局部无限生成仍未实现；本功能只声称“历史流体可归档并释放 GPU 容量”。
 
+> **2026-09-07 Phase C Gate：** 完整 EditMode、DX12 Sandbox、D3D11 Development Player、P7/P8 自动生产 Smoke 与保存场景 Contract 已完成。Sandbox 目标 24 粒子恢复 24；Player 4096 粒子归档并恢复 4096；P7/P8 SubmittedDelta 分别为 2302/24，Dropped=0。Player Target 60 的 interval P99=17.946 ms，稳定 60 FPS 与 Restore 摊销进入 Phase D。Frame Debugger 没有保存人工 Capture；Scene Contract 与 Renderer 源码确认仍使用原 `GpuLiquidSurfaceRenderer`，因此不把它写成已取得的 Frame Debugger 证据。
 - [ ] **Step 9: Final Commit**
 
 ```bash

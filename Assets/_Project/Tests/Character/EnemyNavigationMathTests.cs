@@ -1,10 +1,135 @@
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.AI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 namespace Game.Character.Tests
 {
     public sealed class EnemyNavigationMathTests
     {
+        [Test]
+        public void ResolveCombatEngagement_OutsideCombat_OnlyEntersAtAttackDistance()
+        {
+            Assert.That(
+                BossCombatMovementMath.ResolveCombatEngagement(
+                    isEngaged: false,
+                    horizontalDistance: 16f,
+                    attackEnterDistance: 15f,
+                    attackExitDistance: 22f),
+                Is.False);
+            Assert.That(
+                BossCombatMovementMath.ResolveCombatEngagement(
+                    isEngaged: false,
+                    horizontalDistance: 15f,
+                    attackEnterDistance: 15f,
+                    attackExitDistance: 22f),
+                Is.True);
+        }
+
+        [Test]
+        public void ResolveCombatEngagement_AlreadyEngaged_StaysUntilChaseBoundaryIsExceeded()
+        {
+            Assert.That(
+                BossCombatMovementMath.ResolveCombatEngagement(
+                    isEngaged: true,
+                    horizontalDistance: 21.9f,
+                    attackEnterDistance: 15f,
+                    attackExitDistance: 22f),
+                Is.True);
+            Assert.That(
+                BossCombatMovementMath.ResolveCombatEngagement(
+                    isEngaged: true,
+                    horizontalDistance: 22.1f,
+                    attackEnterDistance: 15f,
+                    attackExitDistance: 22f),
+                Is.False);
+        }
+
+        [TestCase(8f, BossCombatMoveMode.Retreat)]
+        [TestCase(12f, BossCombatMoveMode.Orbit)]
+        [TestCase(18f, BossCombatMoveMode.Approach)]
+        public void ResolveMoveMode_UsesPreferredCombatBand(
+            float distance,
+            BossCombatMoveMode expected)
+        {
+            Assert.That(
+                BossCombatMovementMath.ResolveMoveMode(
+                    distance,
+                    preferredMinDistance: 10f,
+                    preferredMaxDistance: 16f),
+                Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void ResolveCombatDirection_InsideBand_OrbitsUsingRequestedSide()
+        {
+            Vector3 clockwise = BossCombatMovementMath.ResolveCombatDirection(
+                ownerPosition: Vector3.zero,
+                targetPosition: Vector3.forward * 12f,
+                preferredMinDistance: 10f,
+                preferredMaxDistance: 16f,
+                orbitSign: 1);
+            Vector3 counterClockwise = BossCombatMovementMath.ResolveCombatDirection(
+                ownerPosition: Vector3.zero,
+                targetPosition: Vector3.forward * 12f,
+                preferredMinDistance: 10f,
+                preferredMaxDistance: 16f,
+                orbitSign: -1);
+
+            AssertVector(clockwise, 1f, 0f, 0f);
+            AssertVector(counterClockwise, -1f, 0f, 0f);
+        }
+
+        [Test]
+        public void ResolveCombatDirection_OutsideBand_AddsRadialDistanceCorrection()
+        {
+            Vector3 tooFar = BossCombatMovementMath.ResolveCombatDirection(
+                Vector3.zero,
+                Vector3.forward * 18f,
+                10f,
+                16f,
+                1);
+            Vector3 tooClose = BossCombatMovementMath.ResolveCombatDirection(
+                Vector3.zero,
+                Vector3.forward * 8f,
+                10f,
+                16f,
+                1);
+
+            Assert.That(tooFar.z, Is.GreaterThan(0f));
+            Assert.That(tooClose.z, Is.LessThan(0f));
+            Assert.That(tooFar.x, Is.GreaterThan(0f));
+            Assert.That(tooClose.x, Is.GreaterThan(0f));
+        }
+
+#if UNITY_EDITOR
+        [Test]
+        public void P8BossAssets_UseNavMeshAndValidCombatDistanceOrdering()
+        {
+            const string definitionPath =
+                "Assets/_Project/ScriptableObjects/P8/Boss/P8_ArcaneArchmageDefinition.asset";
+            const string prefabPath =
+                "Assets/_Project/Art/Prefabs/Boss/Boss.prefab";
+            BossDefinition definition =
+                AssetDatabase.LoadAssetAtPath<BossDefinition>(definitionPath);
+            GameObject prefab =
+                AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+
+            Assert.That(definition, Is.Not.Null);
+            Assert.That(prefab, Is.Not.Null);
+            Assert.That(
+                definition.AttackExitDistance,
+                Is.GreaterThan(definition.AttackEnterDistance));
+            Assert.That(
+                definition.PreferredCombatMinDistance,
+                Is.LessThan(definition.PreferredCombatMaxDistance));
+            Assert.That(prefab.GetComponent<NavMeshAgent>(), Is.Not.Null);
+            Assert.That(prefab.GetComponent<Animator>().applyRootMotion, Is.False);
+        }
+#endif
+
         [Test]
         public void ShouldRefreshPath_WhenIntervalAndMovementAreBelowThreshold_ReturnsFalse()
         {

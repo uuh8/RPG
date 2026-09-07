@@ -1,8 +1,7 @@
 namespace Game.Character
 {
     /// <summary>
-    /// 只做 MoveTo：距离过远时逼近，进入 StopDistance 后停下。
-    /// 没有 MoveAway 分支，因此永久索敌不等于普通 Ranged Enemy 的 Kite/Retreat。
+    /// 使用 NavMesh 逼近；进入较小的攻击阈值后锁入战斗，避免边界附近反复切换。
     /// </summary>
     internal sealed class BossApproachState : BossStateBase
     {
@@ -21,7 +20,7 @@ namespace Game.Character
                 return;
             }
 
-            if (Boss.IsWithinStopDistance)
+            if (Boss.IsCombatEngaged)
             {
                 Boss.EnterDecision();
                 return;

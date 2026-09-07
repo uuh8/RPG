@@ -21,7 +21,6 @@ namespace Game.UI
         private ScrollRect _bodyScrollRect;
         [SerializeField] private Text _pageIndicatorText;
         [SerializeField] private Button _previousButton;
-        [SerializeField] private Button _nextButton;
         [SerializeField] private Text _nextButtonLabel;
         [SerializeField] private RunPauseCoordinator _pauseCoordinator;
 

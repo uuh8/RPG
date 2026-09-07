@@ -10,6 +10,16 @@
 #pragma kernel ApplyGravity
 #pragma kernel PredictPositions
 #pragma kernel CommitPositions
+#pragma kernel LockArchiveCandidates
+#pragma kernel PackArchiveSamples
+#pragma kernel CancelArchiveLock
+#pragma kernel ReleaseArchiveLockedParticles
+#pragma kernel ClearReleasedArchiveAuxiliary
+#pragma kernel ReserveRestoreSlots
+#pragma kernel StageRestoreParticlesCore
+#pragma kernel StageRestoreParticlesAuxiliary
+#pragma kernel ActivateRestoredParticles
+#pragma kernel RollbackRestoredParticles
 #pragma kernel PackGameplaySamples
 
 #include "FluidGpuCommon.hlsl"
@@ -29,6 +39,31 @@ RWStructuredBuffer<float4> _Velocities;
 RWStructuredBuffer<float2> _DensityLambda;
 RWStructuredBuffer<uint2> _ParticleMetadata;
 RWStructuredBuffer<float4> _DeltaPositions;
+struct FluidGpuArchiveSample
+{
+    float3 position;
+    uint materialId;
+    float3 velocity;
+    uint flags;
+};
+RWStructuredBuffer<FluidGpuArchiveSample> _ArchiveSamples;
+struct FluidGpuRestoreParticle
+{
+    float3 position;
+    uint materialId;
+    float3 velocity;
+    uint transactionId;
+};
+struct FluidGpuTransferStatus
+{
+    uint succeeded;
+    uint reservedBase;
+    uint particleCount;
+    uint transactionId;
+};
+StructuredBuffer<FluidGpuRestoreParticle> _RestoreParticles;
+RWStructuredBuffer<uint> _RestoreReservedIndices;
+RWStructuredBuffer<FluidGpuTransferStatus> _TransferStatus;
 RWStructuredBuffer<uint2> _SpatialEntries;
 RWStructuredBuffer<uint2> _CellRanges;
 RWStructuredBuffer<uint> _FreeIndices;
@@ -66,13 +101,19 @@ float _CellSize;
 float _SpawnRestSpacing;
 float4 _ActiveBoundsMin;
 float4 _ActiveBoundsMax;
+float4 _ArchiveRetainedBoundsMin;
+float4 _ArchiveRetainedBoundsMax;
 float _SleepVelocityThreshold;
 float _SleepDensityErrorThreshold;
 float _RestDensity;
 int _SleepAfterStableTicks;
 int _ParticleGroupCount;
 int _HashTableGroupCount;
+int _RestoreParticleCount;
+int _GameplayReserveParticles;
+int _TransferTransactionId;
 int _WakeAllInterestParticles;
+int _ArchiveIncludeSleepingRetained;
 float _DeltaTime;
 float _MaxSpeed;
 float4 _Gravity;
@@ -424,6 +465,9 @@ void UpdateParticleActivity(uint3 dispatchThreadId : SV_DispatchThreadID)
         return;
     }
 
+    if ((flags & FLUID_ARCHIVE_LOCKED_FLAG) != 0u)
+        return;
+
     float3 position = _Positions[index].xyz;
     bool inside = all(position >= _ActiveBoundsMin.xyz)
         && all(position < _ActiveBoundsMax.xyz);
@@ -526,6 +570,194 @@ void UpdateParticleActivity(uint3 dispatchThreadId : SV_DispatchThreadID)
         InterlockedAdd(_ActivityCounters[FLUID_AWAKE_ACTIVITY_COUNTER], 1u, ignored);
     else if ((flags & FLUID_SLEEPING_FLAG) != 0u)
         InterlockedAdd(_ActivityCounters[FLUID_SLEEPING_ACTIVITY_COUNTER], 1u, ignored);
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void LockArchiveCandidates(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity) return;
+    uint2 metadata = _ParticleMetadata[index];
+    if (!FluidIsAlive(metadata.y) || (metadata.y & FLUID_ARCHIVE_LOCKED_FLAG) != 0u) return;
+    float3 position = _Positions[index].xyz;
+    bool retained = all(position >= _ArchiveRetainedBoundsMin.xyz)
+        && all(position < _ArchiveRetainedBoundsMax.xyz);
+    bool retainedSleeping = retained
+        && _ArchiveIncludeSleepingRetained != 0
+        && (metadata.y & FLUID_SLEEPING_FLAG) != 0u;
+    if (!retained || retainedSleeping)
+    {
+        // 保留锁前 Activity bits，使失败 Cancel 能精确回到 Sleeping/Remote/Active 状态。
+        _ParticleMetadata[index].y = metadata.y | FLUID_ARCHIVE_LOCKED_FLAG;
+    }
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void PackArchiveSamples(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity) return;
+    uint2 metadata = _ParticleMetadata[index];
+    FluidGpuArchiveSample sample;
+    sample.position = 0.0f; sample.materialId = 0u; sample.velocity = 0.0f; sample.flags = 0u;
+    // Readback 同时携带所有 Alive 粒子。CPU 会只聚合 ArchiveLocked 样本，并在本地休眠事务中
+    // 验证 Retained Chunk 没有未锁定粒子；这道提交前校验封住 Activity Counter 的异步竞态。
+    if (FluidIsAlive(metadata.y))
+    {
+        sample.position = _Positions[index].xyz;
+        sample.materialId = metadata.x;
+        sample.velocity = _Velocities[index].xyz;
+        sample.flags = metadata.y;
+    }
+    _ArchiveSamples[index] = sample;
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void CancelArchiveLock(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity) return;
+    uint2 metadata = _ParticleMetadata[index];
+    if ((metadata.y & (FLUID_ALIVE_FLAG | FLUID_ARCHIVE_LOCKED_FLAG))
+        == (FLUID_ALIVE_FLAG | FLUID_ARCHIVE_LOCKED_FLAG))
+    {
+        _ParticleMetadata[index].y = metadata.y & ~FLUID_ARCHIVE_LOCKED_FLAG;
+    }
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void ReleaseArchiveLockedParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity) return;
+    uint original;
+    InterlockedExchange(_ParticleMetadata[index].y, 0u, original);
+    if ((original & (FLUID_ALIVE_FLAG | FLUID_ARCHIVE_LOCKED_FLAG))
+        != (FLUID_ALIVE_FLAG | FLUID_ARCHIVE_LOCKED_FLAG))
+    {
+        _ParticleMetadata[index].y = original;
+        return;
+    }
+
+    uint freeIndex;
+    InterlockedAdd(_Counters[FLUID_FREE_COUNT_COUNTER], 1u, freeIndex);
+    if (freeIndex < (uint)_ParticleCapacity) _FreeIndices[freeIndex] = index;
+    uint ignored;
+    InterlockedAdd(_Counters[FLUID_ACTIVE_COUNT_COUNTER], 0xffffffffu, ignored);
+    _Positions[index] = 0.0f;
+    _PredictedPositions[index] = 0.0f;
+    _Velocities[index] = 0.0f;
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void ClearReleasedArchiveAuxiliary(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint index = dispatchThreadId.x;
+    if (index >= (uint)_ParticleCapacity || FluidIsAlive(_ParticleMetadata[index].y)) return;
+    // 与 Release 分 Kernel 控制 D3D11 的 UAV 数量；同一 Graphics Queue 保证这里在释放之后执行。
+    _DensityLambda[index] = 0.0f;
+    _DeltaPositions[index] = 0.0f;
+    _StableTickCounters[index] = 0u;
+    _WakeRequests[index] = 0u;
+}
+
+[numthreads(1, 1, 1)]
+void ReserveRestoreSlots(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint required = (uint)max(0, _RestoreParticleCount);
+    uint reserve = (uint)max(0, _GameplayReserveParticles);
+    uint transactionId = (uint)_TransferTransactionId;
+    FluidGpuTransferStatus status;
+    status.succeeded = 0u;
+    status.reservedBase = 0u;
+    status.particleCount = required;
+    status.transactionId = transactionId;
+
+    uint freeCount = _Counters[FLUID_FREE_COUNT_COUNTER];
+    // 加法改写为两次比较，避免 required + reserve 在恶意输入下 uint 回绕。
+    if (transactionId != 0u && required > 0u && required <= freeCount
+        && reserve <= freeCount - required)
+    {
+        uint newFreeCount = freeCount - required;
+        _Counters[FLUID_FREE_COUNT_COUNTER] = newFreeCount;
+        status.succeeded = 1u;
+        status.reservedBase = newFreeCount;
+    }
+    _TransferStatus[0] = status;
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void StageRestoreParticlesCore(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint localIndex = dispatchThreadId.x;
+    FluidGpuTransferStatus status = _TransferStatus[0];
+    if (status.succeeded == 0u || status.transactionId != (uint)_TransferTransactionId
+        || localIndex >= status.particleCount) return;
+    FluidGpuRestoreParticle particle = _RestoreParticles[localIndex];
+    if (particle.transactionId != status.transactionId) return;
+    uint slot = _FreeIndices[status.reservedBase + localIndex];
+    if (slot >= (uint)_ParticleCapacity) return;
+    _RestoreReservedIndices[localIndex] = slot;
+    _Positions[slot] = float4(particle.position, 0.0f);
+    _PredictedPositions[slot] = float4(particle.position, 0.0f);
+    _Velocities[slot] = float4(particle.velocity, 0.0f);
+    _ParticleMetadata[slot] = uint2(particle.materialId, FLUID_RESTORE_LOADING_FLAG);
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void StageRestoreParticlesAuxiliary(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint localIndex = dispatchThreadId.x;
+    FluidGpuTransferStatus status = _TransferStatus[0];
+    if (status.succeeded == 0u || status.transactionId != (uint)_TransferTransactionId
+        || localIndex >= status.particleCount) return;
+    uint slot = _RestoreReservedIndices[localIndex];
+    if (slot >= (uint)_ParticleCapacity) return;
+    _DensityLambda[slot] = 0.0f;
+    _DeltaPositions[slot] = 0.0f;
+    _StableTickCounters[slot] = 0u;
+    _WakeRequests[slot] = 0u;
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void ActivateRestoredParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint localIndex = dispatchThreadId.x;
+    FluidGpuTransferStatus status = _TransferStatus[0];
+    if (status.succeeded == 0u || status.transactionId != (uint)_TransferTransactionId
+        || localIndex >= status.particleCount) return;
+    uint slot = _RestoreReservedIndices[localIndex];
+    if (slot >= (uint)_ParticleCapacity || _ParticleMetadata[slot].y != FLUID_RESTORE_LOADING_FLAG)
+        return;
+    float3 position = _Positions[slot].xyz;
+    bool inside = all(position >= _ActiveBoundsMin.xyz) && all(position < _ActiveBoundsMax.xyz);
+    uint flags = inside
+        ? FLUID_ALIVE_FLAG | FLUID_INTEREST_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG
+        : FLUID_ALIVE_FLAG | FLUID_REMOTE_SPAWN_ACTIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG;
+    _ParticleMetadata[slot].y = flags;
+    _Positions[slot].w = 1.0f;
+    _PredictedPositions[slot].w = 1.0f;
+    uint ignored;
+    InterlockedAdd(_Counters[FLUID_ACTIVE_COUNT_COUNTER], 1u, ignored);
+}
+
+[numthreads(THREADS_PER_GROUP, 1, 1)]
+void RollbackRestoredParticles(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint localIndex = dispatchThreadId.x;
+    FluidGpuTransferStatus status = _TransferStatus[0];
+    if (status.succeeded == 0u || status.transactionId != (uint)_TransferTransactionId
+        || localIndex >= status.particleCount) return;
+    uint slot = _RestoreReservedIndices[localIndex];
+    if (slot >= (uint)_ParticleCapacity || _ParticleMetadata[slot].y != FLUID_RESTORE_LOADING_FLAG)
+        return;
+    _ParticleMetadata[slot] = uint2(0u, 0u);
+    _Positions[slot] = 0.0f;
+    _PredictedPositions[slot] = 0.0f;
+    _Velocities[slot] = 0.0f;
+    uint freeIndex;
+    InterlockedAdd(_Counters[FLUID_FREE_COUNT_COUNTER], 1u, freeIndex);
+    if (freeIndex < (uint)_ParticleCapacity) _FreeIndices[freeIndex] = slot;
 }
 
 [numthreads(1, 1, 1)]

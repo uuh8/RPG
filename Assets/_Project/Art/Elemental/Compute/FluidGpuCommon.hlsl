@@ -22,6 +22,8 @@ static const uint FLUID_INTEREST_ACTIVE_FLAG = 1u << 1;
 static const uint FLUID_REQUIRES_SIMULATION_FLAG = 1u << 2;
 static const uint FLUID_SLEEPING_FLAG = 1u << 3;
 static const uint FLUID_REMOTE_SPAWN_ACTIVE_FLAG = 1u << 4;
+static const uint FLUID_ARCHIVE_LOCKED_FLAG = 1u << 5;
+static const uint FLUID_RESTORE_LOADING_FLAG = 1u << 6;
 // 旧名字仅供旧 fixture 构造默认 awake 状态；新 Kernel 必须选择精确 predicate。
 static const uint FLUID_ACTIVE_FLAG = FLUID_ALIVE_FLAG
     | FLUID_INTEREST_ACTIVE_FLAG
@@ -52,7 +54,7 @@ bool FluidRequiresSimulation(uint flags)
     return (flags & (FLUID_ALIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG))
         == (FLUID_ALIVE_FLAG | FLUID_REQUIRES_SIMULATION_FLAG)
         && (flags & (FLUID_INTEREST_ACTIVE_FLAG | FLUID_REMOTE_SPAWN_ACTIVE_FLAG)) != 0u
-        && (flags & FLUID_SLEEPING_FLAG) == 0u;
+        && (flags & (FLUID_SLEEPING_FLAG | FLUID_ARCHIVE_LOCKED_FLAG | FLUID_RESTORE_LOADING_FLAG)) == 0u;
 }
 
 uint FluidHash(uint value)

@@ -5,6 +5,24 @@ namespace Game.ElementField.Tests
     public sealed class FluidActivityPlannerTests
     {
         [Test]
+        public void ArchiveLocked_RemainsAliveButNeverRequiresSolver()
+        {
+            uint flags = FluidActivityFlags.Alive | FluidActivityFlags.ArchiveLocked;
+            FluidActivityTransition result = FluidActivityPlanner.Evaluate(flags, 7u, true, false, true, 2u);
+            Assert.That(result.Flags, Is.EqualTo(flags));
+            Assert.That(result.StableTicks, Is.EqualTo(7u));
+            Assert.That(FluidActivityFlags.RequiresSolver(flags), Is.False);
+            Assert.That(FluidActivityFlags.ContributesToSurface(flags), Is.True);
+        }
+
+        [Test]
+        public void RestoreLoading_DoesNotContributeToSurfaceOrSolver()
+        {
+            uint flags = FluidActivityFlags.RestoreLoading;
+            Assert.That(FluidActivityFlags.RequiresSolver(flags), Is.False);
+            Assert.That(FluidActivityFlags.ContributesToSurface(flags), Is.False);
+        }
+        [Test]
         public void StableParticleSleepsOnlyAfterRequiredConsecutiveTicks()
         {
             uint flags = FluidActivityFlags.Alive

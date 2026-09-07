@@ -13,7 +13,6 @@ MonoBehaviour:
   m_Name: BowChargeAttackDefinition
   m_EditorClassIdentifier: Game.Combat::Game.Combat.ChargeAttackDefinition
   DrawStateName: Attack01Start_Bow
-  MaintainStateName: Attack01Maintain_Bow
   LooseStateName: Attack01RepeatFire_Bow
   TapThreshold: 0.2
   MaxChargeTime: 1.5

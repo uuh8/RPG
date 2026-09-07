@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Game.Character
 {
@@ -15,9 +16,37 @@ namespace Game.Character
 
         [Header("Movement / Decision")]
         [Min(0f)] public float MoveSpeed = 3.5f;
-        [Min(0f)] public float StopDistance = 8f;
+        [Tooltip("CharacterController 的向下加速度；它不会像 Rigidbody 一样自动受 Gravity 影响。")]
+        [Min(0f)] public float GravityAcceleration = 20f;
+        [Tooltip("落地后保留的轻微向下速度，用于稳定 isGrounded，避免沿坡移动时短暂悬空。")]
+        [Min(0f)] public float GroundedStickSpeed = 2f;
+        [FormerlySerializedAs("StopDistance")]
+        [Min(0f)] public float AttackEnterDistance = 15f;
+        [Min(0f)] public float AttackExitDistance = 22f;
+        [Min(0f)] public float PreferredCombatMinDistance = 10f;
+        [Min(0f)] public float PreferredCombatMaxDistance = 16f;
+        [Range(0f, 1f)] public float CombatMoveSpeedMultiplier = 0.7f;
+        [Range(0f, 1f)] public float CastMoveSpeedMultiplier = 0.6f;
+        [Min(0.1f)] public float OrbitDirectionInterval = 2f;
+        [Min(0.1f)] public float CombatNavigationStepDistance = 3f;
         [Min(0f)] public float TurnSpeedDegrees = 540f;
         [Min(0.05f)] public float DecisionInterval = 0.2f;
+
+        [Header("NavMesh Navigation")]
+        [Min(0.05f)] public float PathRefreshInterval = 0.2f;
+        [Min(0f)] public float DestinationMoveThreshold = 0.5f;
+        [Min(0.05f)] public float DestinationSampleRadius = 2f;
+        [Min(0.1f)] public float RetreatStepDistance = 3f;
+        [Min(0.05f)] public float RetreatSampleRadius = 1.5f;
+        [Min(0.05f)] public float StuckCheckInterval = 0.5f;
+        [Min(0f)] public float StuckProgressDistance = 0.05f;
+
+        // 兼容旧测试与少量 Editor 工具；Scene/Prefab 序列化由 FormerlySerializedAs 迁移到新字段。
+        public float StopDistance
+        {
+            get => AttackEnterDistance;
+            set => AttackEnterDistance = value;
+        }
 
         [Header("Cast / Phase Timing")]
         [Min(0f)] public float CastTelegraphDuration = 0.35f;

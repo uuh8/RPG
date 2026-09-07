@@ -13,7 +13,6 @@ MonoBehaviour:
   m_Name: P8_BossWand_OrbitFireball
   m_EditorClassIdentifier: Game.Skills::Game.Skills.WandLoadout
   Spells:
-  - {fileID: 11400000, guid: cf16f679b8314294096d73d3477c89e3, type: 2}
   - {fileID: 11400000, guid: 692b33d92d65bc44e90e0d3ae5e9684a, type: 2}
   - {fileID: 11400000, guid: dbf73e78b52da024ba73b5ae90d8516b, type: 2}
   - {fileID: 11400000, guid: dbf73e78b52da024ba73b5ae90d8516b, type: 2}

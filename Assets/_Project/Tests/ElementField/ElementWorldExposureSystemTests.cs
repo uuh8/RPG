@@ -273,6 +273,8 @@ namespace Game.ElementField.Tests
                 CreateDefinition(MaterialId.Water, MaterialBehaviorKind.Liquid),
                 CreateDefinition(MaterialId.Fire, MaterialBehaviorKind.ReactiveField),
                 CreateDefinition(MaterialId.Poison, MaterialBehaviorKind.Liquid),
+                // 默认反应表也包含 Sticky；独立测试 Catalog 必须满足其依赖。
+                CreateDefinition(MaterialId.Sticky, MaterialBehaviorKind.Liquid),
             };
             _materialCatalog = ScriptableObject.CreateInstance<MaterialCatalog>();
             SetPrivateField(_materialCatalog, "_definitions", _materialDefinitions);
@@ -280,9 +282,10 @@ namespace Game.ElementField.Tests
             _routingProfile = ScriptableObject.CreateInstance<MaterialSimulationRoutingProfile>();
             var serialized = new SerializedObject(_routingProfile);
             SerializedProperty routes = serialized.FindProperty("_routes");
-            routes.arraySize = 2;
+            routes.arraySize = 3;
             SetRoute(routes.GetArrayElementAtIndex(0), MaterialId.Fire, MaterialSimulationBackendKind.ElementCell);
             SetRoute(routes.GetArrayElementAtIndex(1), MaterialId.Poison, MaterialSimulationBackendKind.Unsupported);
+            SetRoute(routes.GetArrayElementAtIndex(2), MaterialId.Sticky, MaterialSimulationBackendKind.Unsupported);
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
 

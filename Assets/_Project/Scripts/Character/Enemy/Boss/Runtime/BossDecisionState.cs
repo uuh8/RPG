@@ -28,12 +28,14 @@ namespace Game.Character
                 return;
             }
 
-            Boss.FaceTarget(deltaTime);
-            if (!Boss.IsWithinStopDistance)
+            if (!Boss.IsCombatEngaged)
             {
                 Boss.EnterApproach();
                 return;
             }
+
+            Boss.MoveInCombat(deltaTime, isCasting: false);
+            Boss.FaceTarget(deltaTime);
 
             if (Boss.GlobalCastIntervalRemaining > 0f)
             {

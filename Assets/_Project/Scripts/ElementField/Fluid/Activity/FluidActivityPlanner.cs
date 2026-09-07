@@ -14,14 +14,16 @@ namespace Game.ElementField
         public const uint RequiresSimulation = 1u << 2;
         public const uint Sleeping = 1u << 3;
         public const uint RemoteSpawnActive = 1u << 4;
+        public const uint ArchiveLocked = 1u << 5;
+        public const uint RestoreLoading = 1u << 6;
 
         public static bool IsAlive(uint flags) => (flags & Alive) != 0u;
         public static bool RequiresSolver(uint flags) =>
             (flags & (Alive | RequiresSimulation)) == (Alive | RequiresSimulation)
             && (flags & (InterestActive | RemoteSpawnActive)) != 0u
-            && (flags & Sleeping) == 0u;
+            && (flags & (Sleeping | ArchiveLocked | RestoreLoading)) == 0u;
         public static bool ContributesToSurface(uint flags) =>
-            (flags & Alive) != 0u;
+            (flags & Alive) != 0u && (flags & RestoreLoading) == 0u;
         public static bool IsSleeping(uint flags) =>
             (flags & (Alive | InterestActive | Sleeping))
             == (Alive | InterestActive | Sleeping);
@@ -52,6 +54,10 @@ namespace Game.ElementField
         {
             if (!FluidActivityFlags.IsAlive(currentFlags))
                 return default;
+            // Archive 事务锁定后，普通 Activity Tick 不得覆盖 Metadata；否则失败回滚和成功释放
+            // 都失去对同一批 slot 的明确所有权。
+            if ((currentFlags & FluidActivityFlags.ArchiveLocked) != 0u)
+                return new FluidActivityTransition(currentFlags, currentStableTicks);
             if (!insideInterest)
             {
                 // 普通 Resident 只保留 Alive；只有刚在远处出生、仍持有 Lease 的粒子才继续模拟。

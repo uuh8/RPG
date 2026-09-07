@@ -25,8 +25,9 @@ namespace Game.ElementField.Tests
             tracker.IncludeSpawn(new Vector3(3f, 2f, -4f), 1.25f, 0.3f);
 
             Bounds resident = tracker.Bounds;
-            Assert.That(resident.min, Is.EqualTo(new Vector3(1.45f, 0.45f, -5.55f)));
-            Assert.That(resident.max, Is.EqualTo(new Vector3(4.55f, 3.55f, -2.45f)));
+            // Bounds 的 center +/- extent 有浮点舍入；验证空间误差，不能要求二进制逐位相等。
+            Assert.That(Vector3.Distance(resident.min, new Vector3(1.45f, 0.45f, -5.55f)), Is.LessThan(0.00001f));
+            Assert.That(Vector3.Distance(resident.max, new Vector3(4.55f, 3.55f, -2.45f)), Is.LessThan(0.00001f));
         }
     }
 }

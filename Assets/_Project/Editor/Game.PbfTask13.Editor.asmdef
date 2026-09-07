@@ -4,6 +4,7 @@
   "references": [
     "Game.Core",
     "Game.Combat",
+    "Game.Character",
     "Game.ElementField",
     "Game.Materials",
     "Game.Rendering",

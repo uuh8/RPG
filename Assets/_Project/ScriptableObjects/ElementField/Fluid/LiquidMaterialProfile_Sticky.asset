@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: LiquidMaterialProfile_Sticky
   m_EditorClassIdentifier: Game.ElementField::Game.ElementField.LiquidMaterialProfile
   _material: 4
-  _amountUnitsPerParticle: 4
+  _amountUnitsPerParticle: 8
   _particleMass: 1.2
   _restDensity: 1100
   _viscosity: 0.649

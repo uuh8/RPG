@@ -39,6 +39,10 @@ namespace Game.ElementField
         public GraphicsBuffer SolverDispatchArgs { get; private set; }
         public GraphicsBuffer HashDispatchArgs { get; private set; }
         public GraphicsBuffer LiquidMaterialParameters { get; private set; }
+        public GraphicsBuffer ArchiveSamples { get; private set; }
+        public GraphicsBuffer RestoreParticles { get; private set; }
+        public GraphicsBuffer RestoreReservedIndices { get; private set; }
+        public GraphicsBuffer TransferStatus { get; private set; }
 
         public FluidGpuResourceSet(
             int particleCapacity,
@@ -106,6 +110,10 @@ namespace Game.ElementField
                 // GraphicsBuffer 初始显存未定义；显式上传 zero rows，测试/Debug 绕过 Production Table 时
                 // 才能可靠进入 Shader 的 legacy-fixture fallback，而不是读取上一块 VRAM 残值。
                 LiquidMaterialParameters.SetData(materialRows);
+                ArchiveSamples = CreateStructured(particleCapacity, FluidGpuLayout.ArchiveSampleStride);
+                RestoreParticles = CreateStructured(particleCapacity, FluidGpuRestoreParticle.Stride);
+                RestoreReservedIndices = CreateStructured(particleCapacity, sizeof(uint));
+                TransferStatus = CreateStructured(1, FluidGpuTransferStatus.Stride);
             }
             catch
             {
@@ -145,6 +153,10 @@ namespace Game.ElementField
             SolverDispatchArgs = DisposeBuffer(SolverDispatchArgs);
             HashDispatchArgs = DisposeBuffer(HashDispatchArgs);
             LiquidMaterialParameters = DisposeBuffer(LiquidMaterialParameters);
+            ArchiveSamples = DisposeBuffer(ArchiveSamples);
+            RestoreParticles = DisposeBuffer(RestoreParticles);
+            RestoreReservedIndices = DisposeBuffer(RestoreReservedIndices);
+            TransferStatus = DisposeBuffer(TransferStatus);
         }
 
         private static GraphicsBuffer CreateStructured(int count, int stride)

@@ -43,12 +43,10 @@ namespace Game.Rendering.Tests
                 Assert.That(resources.OverflowCounter.stride, Is.EqualTo(sizeof(uint)));
                 Assert.That(resources.IndirectArguments.stride,
                     Is.EqualTo(GraphicsBuffer.IndirectDrawArgs.size));
-                GraphicsBuffer.Target requiredDrawArgsTargets =
-                    GraphicsBuffer.Target.IndirectArguments | GraphicsBuffer.Target.Raw;
                 Assert.That(
-                    resources.IndirectArguments.target & requiredDrawArgsTargets,
-                    Is.EqualTo(requiredDrawArgsTargets),
-                    "RWByteAddressBuffer 写入 Indirect Args 时必须同时声明 Raw 与 IndirectArguments。");
+                    resources.IndirectArguments.target,
+                    Is.EqualTo(GraphicsBuffer.Target.IndirectArguments),
+                    "Unity 6.3 的 IndirectArguments 已可绑定 RWByteAddressBuffer；Raw 组合会被 D3D11 拒绝。");
                 Assert.That(resources.AnisotropyBuffer.stride, Is.EqualTo(64));
                 Assert.That(resources.AnisotropyBuffer.count, Is.EqualTo(ParticleCapacity));
 

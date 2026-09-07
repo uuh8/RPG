@@ -1,15 +1,14 @@
 namespace Game.Combat
 {
     /// <summary>
-    /// 纯函数伤害计算管道：相同 DamageRequest 与 DefenseProfile 必定得到相同 DamageResult，
+    /// 纯函数伤害计算管道：相同 DamageRequest 必定得到相同 DamageResult，
     /// 不读取场景、不修改生命值、也不发送事件，因此可以脱离 PlayMode 在 EditMode 单测。
-    /// 本轮：True 无视防御；Physical/Magical 读取防御档案但暂用 passthrough，
-    /// 具体减伤公式留待后续（见 DefenseProfile）。
+    /// 当前三种伤害类型都按基础值 passthrough；`DefenseProfile` 仅作为未来减伤系统的数据契约保留。
     /// </summary>
     public static class DamagePipeline
     {
         /// <summary>
-        /// 把攻击快照和目标防御快照解析为最终伤害。两个参数都以 in 只读引用传递，Pipeline 无权修改输入。
+        /// 把攻击快照解析为最终伤害。参数以 in 只读引用传递，Pipeline 无权修改输入。
         /// </summary>
         public static DamageResult Resolve(in DamageRequest req)
         {

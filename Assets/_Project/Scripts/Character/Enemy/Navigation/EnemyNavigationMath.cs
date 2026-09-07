@@ -3,6 +3,84 @@ using UnityEngine;
 
 namespace Game.Character
 {
+    public enum BossCombatMoveMode : byte
+    {
+        Approach = 0,
+        Orbit = 1,
+        Retreat = 2
+    }
+
+    /// <summary>
+    /// Boss 战斗走位的纯规则。状态记忆只由 isEngaged 传入，既能形成进入/退出双阈值，
+    /// 也不依赖 MonoBehaviour 或 NavMesh，便于 EditMode 精确验证边界行为。
+    /// </summary>
+    public static class BossCombatMovementMath
+    {
+        private const float DirectionEpsilon = 1e-6f;
+        private const float OrbitWeightDuringCorrection = 0.45f;
+
+        public static bool ResolveCombatEngagement(
+            bool isEngaged,
+            float horizontalDistance,
+            float attackEnterDistance,
+            float attackExitDistance)
+        {
+            float enterDistance = Mathf.Max(0f, attackEnterDistance);
+            float exitDistance = Mathf.Max(enterDistance, attackExitDistance);
+            return isEngaged
+                ? horizontalDistance <= exitDistance
+                : horizontalDistance <= enterDistance;
+        }
+
+        public static BossCombatMoveMode ResolveMoveMode(
+            float horizontalDistance,
+            float preferredMinDistance,
+            float preferredMaxDistance)
+        {
+            float minDistance = Mathf.Max(0f, preferredMinDistance);
+            float maxDistance = Mathf.Max(minDistance, preferredMaxDistance);
+            if (horizontalDistance < minDistance)
+                return BossCombatMoveMode.Retreat;
+            if (horizontalDistance > maxDistance)
+                return BossCombatMoveMode.Approach;
+            return BossCombatMoveMode.Orbit;
+        }
+
+        /// <summary>
+        /// 理想距离内使用切线环绕；过远或过近时混入径向修正。
+        /// orbitSign 只取正负号，使运行时切换方向时不会改变速度大小。
+        /// </summary>
+        public static Vector3 ResolveCombatDirection(
+            Vector3 ownerPosition,
+            Vector3 targetPosition,
+            float preferredMinDistance,
+            float preferredMaxDistance,
+            int orbitSign)
+        {
+            Vector3 toTarget = targetPosition - ownerPosition;
+            toTarget.y = 0f;
+            float distance = toTarget.magnitude;
+            Vector3 radial = distance > DirectionEpsilon
+                ? toTarget / distance
+                : Vector3.forward;
+            float side = orbitSign < 0 ? -1f : 1f;
+            Vector3 tangent = new Vector3(radial.z, 0f, -radial.x) * side;
+
+            BossCombatMoveMode mode = ResolveMoveMode(
+                distance,
+                preferredMinDistance,
+                preferredMaxDistance);
+            if (mode == BossCombatMoveMode.Orbit)
+                return tangent;
+
+            Vector3 correction = mode == BossCombatMoveMode.Approach
+                ? radial
+                : -radial;
+            Vector3 combined = correction + tangent * OrbitWeightDuringCorrection;
+            return combined.normalized;
+        }
+    }
+
     /// <summary>
     /// Enemy 寻路中的纯数学规则。这里不查询 Scene/NavMesh，因此阈值和候选方向可以在 EditMode 中稳定验证。
     /// 调用方提供并复用输出数组，避免远程敌人每次后撤时产生 GC Alloc。

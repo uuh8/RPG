@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Game.Combat
 {
     /// <summary>
-    /// 数据驱动的蓄力重击定义。三段动画状态名 + 输入/蓄力参数 + 蓄力比例(0~1)到伤害/箭速的线性端点。
+    /// 数据驱动的蓄力重击定义。代码进入的两个动画状态名 + 输入/蓄力参数 + 蓄力比例(0~1)到伤害/箭速的线性端点。
     /// 仿 AttackDefinition/ComboDefinition：纯数据，不引用 Animator/Character。
     /// </summary>
     [CreateAssetMenu(menuName = "Game/Combat/Charge Attack Definition", fileName = "ChargeAttackDefinition")]
@@ -11,7 +11,6 @@ namespace Game.Combat
     {
         [Header("动画状态名 (须与 Animator Controller 节点名精确一致)")]
         public string DrawStateName = "Attack01Start_Bow";        // 拉弓（代码 CrossFade 进入）
-        public string MaintainStateName = "Attack01Maintain_Bow"; // 满弓保持（循环；由 Animator HasExitTime 过渡进入，代码不 hash 它）
         public string LooseStateName = "Attack01RepeatFire_Bow";  // 松开放箭（代码 CrossFade 进入）
 
         [Header("输入 / 蓄力")]

@@ -36,6 +36,20 @@ namespace Game.ElementField
         [Tooltip("Legacy Cell 为序列化默认值 0；Gpu PBF 只在退出并重新进入 Play Mode 后生效。")]
         [SerializeField] private WaterSimulationMode _waterSimulationMode = WaterSimulationMode.LegacyCell;
 
+        [Header("Fluid Chunk Streaming")]
+        [Tooltip("完成 Archive/Restore 全链验证前默认关闭；开启后远处流体可转为 RAM Cell 快照并释放 GPU slot。")]
+        [SerializeField] private bool _enableFluidChunkStreaming;
+        [SerializeField, Min(0)] private int _fluidWarmPaddingChunks = 1;
+        [SerializeField, Min(0f)] private float _fluidArchiveGraceSeconds = 2f;
+        [SerializeField, Min(1)] private int _maximumArchivedFluidChunks = 512;
+        [SerializeField, Min(1)] private int _maximumArchivedFluidCellRecords = 65536;
+        [SerializeField, Min(1)] private int _maximumPendingFluidWrites = 256;
+        [SerializeField, Min(0)] private int _gameplaySpawnReserveParticles = 512;
+        [Tooltip("容量进入预留区时，把 Warm Region 内已 Sleeping 的液体聚合为 Dormant Cell，释放 GPU slot。")]
+        [SerializeField] private bool _enableLocalFluidDormancy = true;
+        [Tooltip("单帧最多把多少个归档粒子展开到 Restore staging；限制 CPU 主线程尖峰。")]
+        [SerializeField, Min(1)] private int _maximumRestoreParticlesPerFrame = 128;
+
         [Header("Material Semantic And Routing")]
         [Tooltip("Canonical Material 定义目录；Runtime 初始化时复制为不可变 Snapshot。")]
         [SerializeField] private MaterialCatalog _materialCatalog;
@@ -63,6 +77,7 @@ namespace Game.ElementField
         public byte MaxLateralFlowPerTick => (byte)_maxLateralFlowPerTick;
         public byte FireDecayPerTick => (byte)_fireDecayPerTick;
         public WaterSimulationMode WaterSimulationMode => _waterSimulationMode;
+        public bool EnableFluidChunkStreaming => _enableFluidChunkStreaming;
         public MaterialCatalog MaterialCatalog => _materialCatalog;
         public MaterialSimulationRoutingProfile MaterialSimulationRouting => _materialSimulationRouting;
         public MaterialStatusProjectionProfile MaterialStatusProjection => _materialStatusProjection;
@@ -99,6 +114,21 @@ namespace Game.ElementField
                 _reactionProfile.Extinguish);
         }
 
+        public FluidChunkStreamingSettings CreateFluidChunkStreamingSettings()
+        {
+            // 构造函数再次验证，保证手改 YAML 或旧资产中的非法值不能绕过 OnValidate。
+            return new FluidChunkStreamingSettings(
+                _enableFluidChunkStreaming,
+                _fluidWarmPaddingChunks,
+                _fluidArchiveGraceSeconds,
+                _maximumArchivedFluidChunks,
+                _maximumArchivedFluidCellRecords,
+                _maximumPendingFluidWrites,
+                _gameplaySpawnReserveParticles,
+                _enableLocalFluidDormancy,
+                _maximumRestoreParticlesPerFrame);
+        }
+
         private void OnValidate()
         {
             _cellSize = Mathf.Max(0.01f, _cellSize);
@@ -114,6 +144,13 @@ namespace Game.ElementField
             _maxDownFlowPerTick = Mathf.Clamp(_maxDownFlowPerTick, 0, byte.MaxValue);
             _maxLateralFlowPerTick = Mathf.Clamp(_maxLateralFlowPerTick, 0, byte.MaxValue);
             _fireDecayPerTick = Mathf.Clamp(_fireDecayPerTick, 0, byte.MaxValue);
+            _fluidWarmPaddingChunks = Mathf.Max(0, _fluidWarmPaddingChunks);
+            _fluidArchiveGraceSeconds = Mathf.Max(0f, _fluidArchiveGraceSeconds);
+            _maximumArchivedFluidChunks = Mathf.Max(1, _maximumArchivedFluidChunks);
+            _maximumArchivedFluidCellRecords = Mathf.Max(1, _maximumArchivedFluidCellRecords);
+            _maximumPendingFluidWrites = Mathf.Max(1, _maximumPendingFluidWrites);
+            _gameplaySpawnReserveParticles = Mathf.Max(0, _gameplaySpawnReserveParticles);
+            _maximumRestoreParticlesPerFrame = Mathf.Max(1, _maximumRestoreParticlesPerFrame);
         }
     }
 }

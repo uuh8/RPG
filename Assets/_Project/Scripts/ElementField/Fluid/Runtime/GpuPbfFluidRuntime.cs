@@ -4,6 +4,7 @@ using Game.Materials;
 using UnityEngine;
 using Unity.Profiling;
 using UnityEngine.Rendering;
+using Unity.Collections;
 
 namespace Game.ElementField
 {
@@ -13,7 +14,7 @@ namespace Game.ElementField
     /// </summary>
     [DefaultExecutionOrder(-200)]
     public sealed class GpuPbfFluidRuntime : MonoBehaviour, IFluidGpuSource, IFluidDepositSink,
-        IFluidSpawnSink, IFluidGameplayReadbackSource
+        IFluidSpawnSink, IFluidGameplayReadbackSource, IFluidChunkTransferBackend
     {
         private const int ThreadsPerGroup = 64;
         private const string SpatialHashBuildSampleName = "GpuFluid.SpatialHash.Build";
@@ -86,6 +87,17 @@ namespace Game.ElementField
         private static readonly int CollisionContactsReadOnlyId =
             Shader.PropertyToID("_CollisionContactsReadOnly");
         private static readonly int GameplaySamplesId = Shader.PropertyToID("_GameplaySamples");
+        private static readonly int ArchiveSamplesId = Shader.PropertyToID("_ArchiveSamples");
+        private static readonly int ArchiveRetainedBoundsMinId = Shader.PropertyToID("_ArchiveRetainedBoundsMin");
+        private static readonly int ArchiveRetainedBoundsMaxId = Shader.PropertyToID("_ArchiveRetainedBoundsMax");
+        private static readonly int ArchiveIncludeSleepingRetainedId =
+            Shader.PropertyToID("_ArchiveIncludeSleepingRetained");
+        private static readonly int RestoreParticlesId = Shader.PropertyToID("_RestoreParticles");
+        private static readonly int RestoreReservedIndicesId = Shader.PropertyToID("_RestoreReservedIndices");
+        private static readonly int TransferStatusId = Shader.PropertyToID("_TransferStatus");
+        private static readonly int RestoreParticleCountId = Shader.PropertyToID("_RestoreParticleCount");
+        private static readonly int GameplayReserveParticlesId = Shader.PropertyToID("_GameplayReserveParticles");
+        private static readonly int TransferTransactionIdId = Shader.PropertyToID("_TransferTransactionId");
         private static readonly ProfilerMarker SpatialHashBuildMarker =
             new ProfilerMarker(SpatialHashBuildSampleName);
         private static readonly ProfilerMarker SpatialHashSortMarker =
@@ -94,6 +106,8 @@ namespace Game.ElementField
             new ProfilerMarker(SpatialHashRangesSampleName);
         private static readonly ProfilerMarker SpatialHashPublishMarker =
             new ProfilerMarker(SpatialHashPublishSampleName);
+        private static readonly ProfilerMarker SubmitTickMarker =
+            new ProfilerMarker("GpuFluid.SubmitTick");
 
         [Header("GPU PBF Phase A")]
         [SerializeField] private LiquidSimulationProfile _profile;
@@ -112,6 +126,8 @@ namespace Game.ElementField
         [SerializeField] private Vector3 _simulationBoundsSize = new Vector3(12f, 8f, 12f);
 
         [Header("Development Counters (Async <= 2Hz)")]
+        [SerializeField] private uint _debugAliveParticleCount;
+        [SerializeField] private uint _debugFreeParticleCount;
         [SerializeField] private uint _debugAwakeParticleCount;
         [SerializeField] private uint _debugSleepingParticleCount;
         [SerializeField] private uint _debugInterestParticleCount;
@@ -129,6 +145,8 @@ namespace Game.ElementField
         private FluidGpuSpawnRequest[] _spawnUploadBuffer;
         private FluidConsumeCommand[] _consumeUploadBuffer;
         private FluidConvertCommand[] _convertUploadBuffer;
+        private uint _knownMaterialPresenceMask;
+        private uint _simulationVersion;
         private FluidReactionCommandQueue _reactionQueue;
         private Vector3 _reactionWorldOrigin;
         private float _reactionCellSize;
@@ -146,6 +164,16 @@ namespace Game.ElementField
         private int _predictPositionsKernel;
         private int _commitPositionsKernel;
         private int _packGameplaySamplesKernel;
+        private int _lockArchiveCandidatesKernel;
+        private int _packArchiveSamplesKernel;
+        private int _cancelArchiveLockKernel;
+        private int _releaseArchiveLockedParticlesKernel;
+        private int _clearReleasedArchiveAuxiliaryKernel;
+        private int _reserveRestoreSlotsKernel;
+        private int _stageRestoreParticlesCoreKernel;
+        private int _stageRestoreParticlesAuxiliaryKernel;
+        private int _activateRestoredParticlesKernel;
+        private int _rollbackRestoredParticlesKernel;
         private int _clearActivityCountersKernel;
         private int _updateParticleActivityKernel;
         private int _writeSolverDispatchArgsKernel;
@@ -184,10 +212,25 @@ namespace Game.ElementField
         private float _debugReadbackElapsed;
         private bool _debugReadbackOutstanding;
         private bool _debugReadbackActivityNext = true;
+        private bool _debugReadbackIsActivity;
+        private double _debugReadbackRequestedAt;
+        private uint _poolDiagnosticsVersion;
+        private uint _activityDiagnosticsVersion;
         private bool _debugReleasePending;
+        private ulong _submittedParticleCount;
+        private ulong _droppedDebtFrameCount;
+        private bool _archiveReadbackLeaseHeld;
+        private uint _archiveTransactionId;
 
         public bool IsFluidInitialized => _resources != null
             && !_gameplayReadbackLeaseTracker.IsReleasePending;
+        public GpuFluidPoolDiagnostics PoolDiagnostics { get; private set; }
+        public GpuFluidActivityDiagnostics ActivityDiagnostics { get; private set; }
+        public int LastFrameTickCount { get; private set; }
+        public ulong DroppedDebtFrameCount => _droppedDebtFrameCount;
+        public ulong SubmittedParticleCount => _submittedParticleCount;
+        public int PendingSpawnRequestCount => _spawnQueue != null ? _spawnQueue.Count : 0;
+        public uint CounterReadbackErrorCount { get; private set; }
 
         /// <summary>
         /// ElementWorld 的初始化 Policy 在发布 PBF Route 前显式确认唯一 GPU Runtime 已就绪。
@@ -239,6 +282,7 @@ namespace Game.ElementField
 
         private void Update()
         {
+            LastFrameTickCount = 0;
             if (_resources == null)
                 return;
 
@@ -251,8 +295,14 @@ namespace Game.ElementField
                 return;
 
             int tickCount = _clock.Consume(Time.deltaTime);
+            LastFrameTickCount = tickCount;
+            if (_clock.DroppedDebtLastConsume)
+                _droppedDebtFrameCount++;
             for (int tick = 0; tick < tickCount; tick++)
-                RunFixedTick();
+            {
+                using (SubmitTickMarker.Auto())
+                    RunFixedTick();
+            }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             ScheduleDevelopmentCounterReadback(Time.unscaledDeltaTime);
@@ -329,7 +379,9 @@ namespace Game.ElementField
                     ? _residentBoundsTracker.Bounds
                     : _activeBounds,
                 FluidGpuLayout.LayoutVersion,
-                _topologyVersionTracker.PublishedVersion);
+                _topologyVersionTracker.PublishedVersion,
+                _simulationVersion,
+                _knownMaterialPresenceMask);
             return true;
         }
 
@@ -386,6 +438,143 @@ namespace Game.ElementField
                 TryFinishDeferredRelease();
         }
 
+        bool IFluidChunkTransferBackend.TryGetParticleCapacity(out int particleCapacity)
+        {
+            particleCapacity = _resources != null ? _settings.ParticleCapacity : 0;
+            return _resources != null;
+        }
+
+        bool IFluidChunkTransferBackend.TryGetFreeParticleCount(out uint freeParticleCount)
+        {
+            freeParticleCount = PoolDiagnostics.Valid
+                ? PoolDiagnostics.Free
+                : (uint)_settings.ParticleCapacity;
+            return _resources != null && PoolDiagnostics.Valid;
+        }
+
+        bool IFluidChunkTransferBackend.TryGetActivityCounts(
+            out uint awakeParticleCount, out uint sleepingParticleCount)
+        {
+            awakeParticleCount = ActivityDiagnostics.Valid ? ActivityDiagnostics.Awake : 0u;
+            sleepingParticleCount = ActivityDiagnostics.Valid ? ActivityDiagnostics.Sleeping : 0u;
+            return _resources != null && ActivityDiagnostics.Valid;
+        }
+
+        bool IFluidChunkTransferBackend.TryAcquireArchiveReadbackLease(
+            Bounds retainedBounds, Vector3 worldOrigin, float cellSize, int chunkSize,
+            bool includeSleepingRetained, uint transactionId, out FluidArchiveReadbackLease lease)
+        {
+            if (_resources == null || _archiveReadbackLeaseHeld || !IsPositiveFinite(cellSize)
+                || chunkSize <= 0 || transactionId == 0u)
+            {
+                lease = default;
+                return false;
+            }
+
+            _archiveReadbackLeaseHeld = true;
+            _archiveTransactionId = transactionId;
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.SetVector(ArchiveRetainedBoundsMinId, retainedBounds.min);
+            _particleLifecycleShader.SetVector(ArchiveRetainedBoundsMaxId, retainedBounds.max);
+            _particleLifecycleShader.SetInt(
+                ArchiveIncludeSleepingRetainedId, includeSleepingRetained ? 1 : 0);
+            _particleLifecycleShader.Dispatch(_lockArchiveCandidatesKernel, _particleGroupCount, 1, 1);
+            _particleLifecycleShader.Dispatch(_packArchiveSamplesKernel, _particleGroupCount, 1, 1);
+            lease = new FluidArchiveReadbackLease(_resources.ArchiveSamples, _settings.ParticleCapacity,
+                retainedBounds, worldOrigin, cellSize, chunkSize, transactionId,
+                FluidGpuLayout.LayoutVersion, _topologyVersionTracker.PublishedVersion,
+                _gameplayAmountScales);
+            return true;
+        }
+
+        void IFluidChunkTransferBackend.CommitArchiveAndRelease(uint transactionId)
+        {
+            EnsureArchiveTransaction(transactionId);
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.Dispatch(_releaseArchiveLockedParticlesKernel, _particleGroupCount, 1, 1);
+            _particleLifecycleShader.Dispatch(_clearReleasedArchiveAuxiliaryKernel, _particleGroupCount, 1, 1);
+            _topologyVersionTracker.PublishAfterConsumeDispatch(1);
+        }
+
+        void IFluidChunkTransferBackend.CancelArchive(uint transactionId)
+        {
+            EnsureArchiveTransaction(transactionId);
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.Dispatch(_cancelArchiveLockKernel, _particleGroupCount, 1, 1);
+        }
+
+        bool IFluidChunkTransferBackend.TryAcquireRestoreStatusLease(
+            NativeArray<FluidGpuRestoreParticle> particles,
+            int particleCount,
+            int gameplayReserveParticles,
+            uint transactionId,
+            out FluidRestoreStatusReadbackLease lease)
+        {
+            if (_resources == null || _archiveReadbackLeaseHeld || !particles.IsCreated
+                || particleCount <= 0 || particleCount > particles.Length
+                || particleCount > _settings.ParticleCapacity
+                || gameplayReserveParticles < 0 || transactionId == 0u)
+            {
+                lease = default;
+                return false;
+            }
+
+            _archiveReadbackLeaseHeld = true;
+            _archiveTransactionId = transactionId;
+            _resources.RestoreParticles.SetData(particles, 0, 0, particleCount);
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.SetInt(RestoreParticleCountId, particleCount);
+            _particleLifecycleShader.SetInt(GameplayReserveParticlesId, gameplayReserveParticles);
+            _particleLifecycleShader.SetInt(TransferTransactionIdId, unchecked((int)transactionId));
+            _particleLifecycleShader.Dispatch(_reserveRestoreSlotsKernel, 1, 1, 1);
+            int groups = DivideRoundUp(particleCount);
+            _particleLifecycleShader.Dispatch(_stageRestoreParticlesCoreKernel, groups, 1, 1);
+            _particleLifecycleShader.Dispatch(_stageRestoreParticlesAuxiliaryKernel, groups, 1, 1);
+            lease = new FluidRestoreStatusReadbackLease(
+                _resources.TransferStatus, particleCount, transactionId);
+            return true;
+        }
+
+        void IFluidChunkTransferBackend.CommitRestore(
+            uint transactionId, int particleCount, out uint publishedTopologyVersion)
+        {
+            EnsureArchiveTransaction(transactionId);
+            if (particleCount <= 0 || particleCount > _settings.ParticleCapacity)
+                throw new ArgumentOutOfRangeException(nameof(particleCount));
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.SetInt(TransferTransactionIdId, unchecked((int)transactionId));
+            _particleLifecycleShader.SetVector(ActiveBoundsMinId, _activeBounds.min);
+            _particleLifecycleShader.SetVector(ActiveBoundsMaxId, _activeBounds.max);
+            _particleLifecycleShader.Dispatch(
+                _activateRestoredParticlesKernel, DivideRoundUp(particleCount), 1, 1);
+            _topologyVersionTracker.PublishAfterSpawnDispatch(1);
+            publishedTopologyVersion = _topologyVersionTracker.PublishedVersion;
+        }
+
+        void IFluidChunkTransferBackend.RollbackRestore(uint transactionId, int particleCount)
+        {
+            EnsureArchiveTransaction(transactionId);
+            if (particleCount <= 0 || particleCount > _settings.ParticleCapacity)
+                throw new ArgumentOutOfRangeException(nameof(particleCount));
+            _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
+            _particleLifecycleShader.SetInt(TransferTransactionIdId, unchecked((int)transactionId));
+            _particleLifecycleShader.Dispatch(
+                _rollbackRestoredParticlesKernel, DivideRoundUp(particleCount), 1, 1);
+        }
+
+        void IFluidChunkTransferBackend.ReleaseTransferReadbackLease()
+        {
+            _archiveReadbackLeaseHeld = false;
+            _archiveTransactionId = 0u;
+            if (_debugReleasePending) TryFinishDeferredRelease();
+        }
+
+        private void EnsureArchiveTransaction(uint transactionId)
+        {
+            if (!_archiveReadbackLeaseHeld || transactionId == 0u || transactionId != _archiveTransactionId)
+                throw new InvalidOperationException("Fluid archive transaction does not own the active GPU lease.");
+        }
+
         private void ScheduleDevelopmentCounterReadback(float deltaTime)
         {
             if (_resources == null || _debugReadbackOutstanding)
@@ -395,7 +584,9 @@ namespace Game.ElementField
                 return;
 
             _debugReadbackElapsed = 0f;
-            GraphicsBuffer source = _debugReadbackActivityNext
+            _debugReadbackIsActivity = _debugReadbackActivityNext;
+            _debugReadbackRequestedAt = Time.realtimeSinceStartupAsDouble;
+            GraphicsBuffer source = _debugReadbackIsActivity
                 ? _resources.ActivityCounters
                 : _resources.Counters;
             try
@@ -406,6 +597,7 @@ namespace Game.ElementField
             catch (Exception)
             {
                 _debugReadbackOutstanding = false;
+                if (CounterReadbackErrorCount < uint.MaxValue) CounterReadbackErrorCount++;
             }
         }
 
@@ -414,22 +606,33 @@ namespace Game.ElementField
             if (!_debugReadbackOutstanding)
                 return;
             _debugReadbackOutstanding = false;
+            if (request.hasError && CounterReadbackErrorCount < uint.MaxValue) CounterReadbackErrorCount++;
             if (!request.hasError)
             {
                 var values = request.GetData<uint>();
-                if (_debugReadbackActivityNext && values.Length >= FluidGpuLayout.ActivityCounterCount)
+                double completedAt = Time.realtimeSinceStartupAsDouble;
+                if (_debugReadbackIsActivity && values.Length >= FluidGpuLayout.ActivityCounterCount)
                 {
                     _debugAwakeParticleCount = values[FluidGpuLayout.AwakeActivityCounterIndex];
                     _debugSleepingParticleCount = values[FluidGpuLayout.SleepingActivityCounterIndex];
                     _debugInterestParticleCount = values[FluidGpuLayout.InterestActivityCounterIndex];
+                    ActivityDiagnostics = new GpuFluidActivityDiagnostics(true,
+                        ++_activityDiagnosticsVersion, _debugAwakeParticleCount,
+                        _debugSleepingParticleCount, _debugInterestParticleCount,
+                        _debugReadbackRequestedAt, completedAt);
                 }
-                else if (!_debugReadbackActivityNext && values.Length >= FluidGpuLayout.CounterCount)
+                else if (!_debugReadbackIsActivity && values.Length >= FluidGpuLayout.CounterCount)
                 {
+                    _debugAliveParticleCount = values[FluidGpuLayout.ActiveCountCounterIndex];
+                    _debugFreeParticleCount = values[FluidGpuLayout.FreeCountCounterIndex];
                     _debugRejectedParticleCount = values[FluidGpuLayout.DroppedParticleCountCounterIndex];
+                    PoolDiagnostics = new GpuFluidPoolDiagnostics(true, ++_poolDiagnosticsVersion,
+                        _debugAliveParticleCount, _debugFreeParticleCount, _debugRejectedParticleCount,
+                        _debugReadbackRequestedAt, completedAt);
                 }
             }
 
-            _debugReadbackActivityNext = !_debugReadbackActivityNext;
+            _debugReadbackActivityNext = !_debugReadbackIsActivity;
             _debugSpawnRequestOverflow = _spawnQueue != null
                 ? _spawnQueue.RejectedRequestCount
                 : _debugSpawnRequestOverflow;
@@ -517,6 +720,7 @@ namespace Game.ElementField
                 BindPredictPositionsBuffers();
                 BindCommitPositionsBuffers();
                 BindGameplayPackingBuffers();
+                BindArchiveTransferBuffers();
                 BindActivityBuffers();
                 BindPbfSolverBuffers();
                 BindCollisionBuffers();
@@ -585,7 +789,17 @@ namespace Game.ElementField
                 || !_particleLifecycleShader.HasKernel("ApplyGravity")
                 || !_particleLifecycleShader.HasKernel("PredictPositions")
                 || !_particleLifecycleShader.HasKernel("CommitPositions")
-                || !_particleLifecycleShader.HasKernel("PackGameplaySamples"))
+                || !_particleLifecycleShader.HasKernel("PackGameplaySamples")
+                || !_particleLifecycleShader.HasKernel("LockArchiveCandidates")
+                || !_particleLifecycleShader.HasKernel("PackArchiveSamples")
+                || !_particleLifecycleShader.HasKernel("CancelArchiveLock")
+                || !_particleLifecycleShader.HasKernel("ReleaseArchiveLockedParticles")
+                || !_particleLifecycleShader.HasKernel("ClearReleasedArchiveAuxiliary")
+                || !_particleLifecycleShader.HasKernel("ReserveRestoreSlots")
+                || !_particleLifecycleShader.HasKernel("StageRestoreParticlesCore")
+                || !_particleLifecycleShader.HasKernel("StageRestoreParticlesAuxiliary")
+                || !_particleLifecycleShader.HasKernel("ActivateRestoredParticles")
+                || !_particleLifecycleShader.HasKernel("RollbackRestoredParticles"))
             {
                 throw new System.ArgumentException("PbfParticleLifecycle 缺少 Task 2 必需 Kernel。");
             }
@@ -600,6 +814,16 @@ namespace Game.ElementField
             _predictPositionsKernel = _particleLifecycleShader.FindKernel("PredictPositions");
             _commitPositionsKernel = _particleLifecycleShader.FindKernel("CommitPositions");
             _packGameplaySamplesKernel = _particleLifecycleShader.FindKernel("PackGameplaySamples");
+            _lockArchiveCandidatesKernel = _particleLifecycleShader.FindKernel("LockArchiveCandidates");
+            _packArchiveSamplesKernel = _particleLifecycleShader.FindKernel("PackArchiveSamples");
+            _cancelArchiveLockKernel = _particleLifecycleShader.FindKernel("CancelArchiveLock");
+            _releaseArchiveLockedParticlesKernel = _particleLifecycleShader.FindKernel("ReleaseArchiveLockedParticles");
+            _clearReleasedArchiveAuxiliaryKernel = _particleLifecycleShader.FindKernel("ClearReleasedArchiveAuxiliary");
+            _reserveRestoreSlotsKernel = _particleLifecycleShader.FindKernel("ReserveRestoreSlots");
+            _stageRestoreParticlesCoreKernel = _particleLifecycleShader.FindKernel("StageRestoreParticlesCore");
+            _stageRestoreParticlesAuxiliaryKernel = _particleLifecycleShader.FindKernel("StageRestoreParticlesAuxiliary");
+            _activateRestoredParticlesKernel = _particleLifecycleShader.FindKernel("ActivateRestoredParticles");
+            _rollbackRestoredParticlesKernel = _particleLifecycleShader.FindKernel("RollbackRestoredParticles");
             _clearActivityCountersKernel = _particleLifecycleShader.FindKernel("ClearActivityCounters");
             _updateParticleActivityKernel = _particleLifecycleShader.FindKernel("UpdateParticleActivity");
             _writeSolverDispatchArgsKernel = _particleLifecycleShader.FindKernel("WriteSolverDispatchArgs");
@@ -740,6 +964,8 @@ namespace Game.ElementField
             // 不放入每个 Solver Iteration，也不把它冒充“每 Substep 只 Sort 一次”的 Solver Hash。
             using (SpatialHashPublishMarker.Auto())
                 BuildSpatialHash();
+            // 所有本 Tick 的 GPU 命令已经按同一 Graphics Queue 顺序提交，LateUpdate 可安全消费最新 Buffer。
+            unchecked { _simulationVersion++; }
         }
 
         private void SetCollisionParameters()
@@ -878,6 +1104,13 @@ namespace Game.ElementField
             // Phase F 只有 Water，因此整批请求共享一个由质量/静止密度推导的 RestSpacing。
             // Phase H 若引入多液体，必须迁移为 per-request 字段，不能继续复用这个全局 uniform。
             _particleLifecycleShader.Dispatch(_spawnParticlesKernel, DivideRoundUp(requestCount), 1, 1);
+            // 累计的是 CPU 已提交的需求，满池时实际 Alive 增量仍可能更小；用 Pool 同时刻样本核实。
+            for (int i = 0; i < requestCount; i++)
+            {
+                _submittedParticleCount += _spawnRequestUploadBuffer[i].ParticleCount;
+                _knownMaterialPresenceMask = FluidMaterialPresenceMask.Include(
+                    _knownMaterialPresenceMask, _spawnRequestUploadBuffer[i].MaterialId);
+            }
             // Dispatch 调用已把 Spawn 写入同一 Graphics Queue；之后的 Renderer LateUpdate
             // 看到新版本时，其 Anisotropy Dispatch 会按 Queue 顺序消费 Spawn 后的粒子拓扑。
             _topologyVersionTracker.PublishAfterSpawnDispatch(requestCount);
@@ -921,6 +1154,12 @@ namespace Game.ElementField
             int commandCount = _reactionQueue.CopyConvertCommandsAndClear(_convertUploadBuffer);
             if (commandCount <= 0)
                 return 0;
+
+            // Convert 的实际命中数由 GPU 决定；将目标加入“可能存在”只会造成保守的额外渲染，
+            // 不会把真实新材质误判为空。该 Mask 只增不减，因此无需异步 readback。
+            for (int i = 0; i < commandCount; i++)
+                _knownMaterialPresenceMask = FluidMaterialPresenceMask.Include(
+                    _knownMaterialPresenceMask, _convertUploadBuffer[i].TargetMaterialId);
 
             _resources.ConvertRequests.SetData(_convertUploadBuffer, 0, 0, commandCount);
             _particleLifecycleShader.SetInt(ParticleCapacityId, _settings.ParticleCapacity);
@@ -1162,6 +1401,64 @@ namespace Game.ElementField
                 _packGameplaySamplesKernel,
                 GameplaySamplesId,
                 _resources.GameplaySamples);
+        }
+
+        private void BindArchiveTransferBuffers()
+        {
+            _particleLifecycleShader.SetBuffer(_lockArchiveCandidatesKernel, PositionsId, _resources.Positions);
+            _particleLifecycleShader.SetBuffer(_lockArchiveCandidatesKernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(_packArchiveSamplesKernel, PositionsId, _resources.Positions);
+            _particleLifecycleShader.SetBuffer(_packArchiveSamplesKernel, VelocitiesId, _resources.Velocities);
+            _particleLifecycleShader.SetBuffer(_packArchiveSamplesKernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(_packArchiveSamplesKernel, ArchiveSamplesId, _resources.ArchiveSamples);
+            _particleLifecycleShader.SetBuffer(_cancelArchiveLockKernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(_releaseArchiveLockedParticlesKernel, PositionsId, _resources.Positions);
+            _particleLifecycleShader.SetBuffer(_releaseArchiveLockedParticlesKernel, PredictedPositionsId, _resources.PredictedPositions);
+            _particleLifecycleShader.SetBuffer(_releaseArchiveLockedParticlesKernel, VelocitiesId, _resources.Velocities);
+            _particleLifecycleShader.SetBuffer(_releaseArchiveLockedParticlesKernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(_releaseArchiveLockedParticlesKernel, FreeIndicesId, _resources.FreeIndices);
+            _particleLifecycleShader.SetBuffer(_releaseArchiveLockedParticlesKernel, CountersId, _resources.Counters);
+            _particleLifecycleShader.SetBuffer(_clearReleasedArchiveAuxiliaryKernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(_clearReleasedArchiveAuxiliaryKernel, DensityLambdaId, _resources.DensityLambda);
+            _particleLifecycleShader.SetBuffer(_clearReleasedArchiveAuxiliaryKernel, DeltaPositionsId, _resources.DeltaPositions);
+            _particleLifecycleShader.SetBuffer(_clearReleasedArchiveAuxiliaryKernel, StableTickCountersId, _resources.StableTickCounters);
+            _particleLifecycleShader.SetBuffer(_clearReleasedArchiveAuxiliaryKernel, WakeRequestsId, _resources.WakeRequests);
+            _particleLifecycleShader.SetBuffer(_reserveRestoreSlotsKernel, CountersId, _resources.Counters);
+            _particleLifecycleShader.SetBuffer(_reserveRestoreSlotsKernel, TransferStatusId, _resources.TransferStatus);
+
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, RestoreParticlesId, _resources.RestoreParticles);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, RestoreReservedIndicesId, _resources.RestoreReservedIndices);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, TransferStatusId, _resources.TransferStatus);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, FreeIndicesId, _resources.FreeIndices);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, PositionsId, _resources.Positions);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, PredictedPositionsId, _resources.PredictedPositions);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, VelocitiesId, _resources.Velocities);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesCoreKernel, MetadataId, _resources.Metadata);
+
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesAuxiliaryKernel, RestoreReservedIndicesId, _resources.RestoreReservedIndices);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesAuxiliaryKernel, TransferStatusId, _resources.TransferStatus);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesAuxiliaryKernel, DensityLambdaId, _resources.DensityLambda);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesAuxiliaryKernel, DeltaPositionsId, _resources.DeltaPositions);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesAuxiliaryKernel, StableTickCountersId, _resources.StableTickCounters);
+            _particleLifecycleShader.SetBuffer(_stageRestoreParticlesAuxiliaryKernel, WakeRequestsId, _resources.WakeRequests);
+
+            BindRestoreFinalizeBuffers(_activateRestoredParticlesKernel);
+            BindRestoreFinalizeBuffers(_rollbackRestoredParticlesKernel);
+        }
+
+        private void BindRestoreFinalizeBuffers(int kernel)
+        {
+            _particleLifecycleShader.SetBuffer(kernel, RestoreReservedIndicesId, _resources.RestoreReservedIndices);
+            _particleLifecycleShader.SetBuffer(kernel, TransferStatusId, _resources.TransferStatus);
+            _particleLifecycleShader.SetBuffer(kernel, PositionsId, _resources.Positions);
+            _particleLifecycleShader.SetBuffer(kernel, PredictedPositionsId, _resources.PredictedPositions);
+            _particleLifecycleShader.SetBuffer(kernel, MetadataId, _resources.Metadata);
+            _particleLifecycleShader.SetBuffer(kernel, CountersId, _resources.Counters);
+            if (kernel == _rollbackRestoredParticlesKernel)
+            {
+                _particleLifecycleShader.SetBuffer(kernel, VelocitiesId, _resources.Velocities);
+                _particleLifecycleShader.SetBuffer(kernel, FreeIndicesId, _resources.FreeIndices);
+            }
         }
 
         private void BindPbfSolverBuffers()
@@ -1514,7 +1811,7 @@ namespace Game.ElementField
 
         private void TryFinishDeferredRelease()
         {
-            if (_debugReadbackOutstanding)
+            if (_debugReadbackOutstanding || _archiveReadbackLeaseHeld)
                 return;
             _debugReleasePending = false;
             ReleaseResourcesImmediately();
@@ -1542,7 +1839,12 @@ namespace Game.ElementField
             _reactionQueue = null;
             _colliderCollector = null;
             _debugReadbackOutstanding = false;
+            // Buffer 已释放后，旧 Counter 即使数值正确也不再描述当前资源，必须显式变为无效样本。
+            PoolDiagnostics = default;
+            ActivityDiagnostics = default;
             _gameplayReadbackLeaseTracker.Reset();
+            _archiveReadbackLeaseHeld = false;
+            _archiveTransactionId = 0u;
         }
 
         private static CommandBuffer ReleaseCommandBuffer(CommandBuffer commandBuffer)

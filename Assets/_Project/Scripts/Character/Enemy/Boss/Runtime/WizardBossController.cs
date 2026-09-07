@@ -3,6 +3,7 @@ using Game.Core;
 using Game.Run;
 using Game.Skills;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace Game.Character
 {
@@ -13,6 +14,7 @@ namespace Game.Character
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(CharacterController))]
+    [RequireComponent(typeof(NavMeshAgent))]
     [RequireComponent(typeof(HealthComponent))]
     [RequireComponent(typeof(StatusController))]
     [RequireComponent(typeof(SpellCaster))]
@@ -27,6 +29,7 @@ namespace Game.Character
         [SerializeField] private Vector3 _aimOffset = new Vector3(0f, 1f, 0f);
 
         private CharacterController _characterController;
+        private EnemyNavigationMotor _navigation;
         private Animator _animator;
         private HealthComponent _health;
         private StatusController _status;
@@ -50,6 +53,13 @@ namespace Game.Character
         private HealthComponent _targetHealth;
         private bool _isEncounterActive;
         private bool _isActionLocked;
+        private bool _isCombatEngaged;
+        private int _orbitSign = 1;
+        private float _orbitDirectionTimer;
+        private float _verticalVelocity;
+        private Vector3 _lastHorizontalVelocity;
+        private bool _hasMoveXParameter;
+        private bool _hasMoveZParameter;
         private BossPhase _currentPhase = BossPhase.Phase1;
         private BossPhase _pendingPhase = BossPhase.Phase1;
         private float _globalCastIntervalRemaining;
@@ -65,6 +75,10 @@ namespace Game.Character
 
         private static readonly int SpeedHash =
             Animator.StringToHash("speed");
+        private static readonly int MoveXHash =
+            Animator.StringToHash("moveX");
+        private static readonly int MoveZHash =
+            Animator.StringToHash("moveZ");
 
         public BossDefinition Definition => _definition;
         public HealthComponent Health => _health;
@@ -72,6 +86,7 @@ namespace Game.Character
         public bool HasTarget => _target != null;
         public bool IsEncounterActive => _isEncounterActive;
         public bool IsActionLocked => _isActionLocked;
+        public bool IsCombatEngaged => _isCombatEngaged;
         public BossPhase CurrentPhase => _currentPhase;
         public BossPhase PendingPhase => _pendingPhase;
         public BossRuntimeStateKind CurrentStateKind =>
@@ -117,7 +132,7 @@ namespace Game.Character
             HasTarget &&
             HorizontalDistanceToTarget <=
             (_definition != null
-                ? Mathf.Max(0f, _definition.StopDistance)
+                ? Mathf.Max(0f, _definition.AttackEnterDistance)
                 : 0f);
 
         private float HorizontalDistanceToTarget
@@ -138,6 +153,10 @@ namespace Game.Character
         private void Awake()
         {
             _characterController = GetComponent<CharacterController>();
+            _navigation = new EnemyNavigationMotor(
+                GetComponent<NavMeshAgent>(),
+                _definition,
+                transform);
             _animator = GetComponentInChildren<Animator>();
             _health = GetComponent<HealthComponent>();
             _status = GetComponent<StatusController>();
@@ -190,6 +209,7 @@ namespace Game.Character
                 _definition != null
                     ? _definition.PhaseTransitionAnimatorTrigger
                     : null);
+            CacheOptionalAnimatorParameters();
             _stateMachine.ChangeState(_inactiveState);
         }
 
@@ -209,6 +229,7 @@ namespace Game.Character
             EventBus<BossEncounterStartedEvent>.Unsubscribe(
                 OnBossEncounterStarted);
             _stateMachine?.ChangeState(null);
+            _navigation?.StopNavigation(true);
             _health?.SetInvulnerable(false);
             _isActionLocked = false;
         }
@@ -224,12 +245,14 @@ namespace Game.Character
             }
 
             float deltaTime = Time.deltaTime;
+            _lastHorizontalVelocity = Vector3.zero;
             _programRuntime.TickCooldowns(deltaTime);
             _teleportRuntime.Tick(deltaTime);
             _globalCastIntervalRemaining = Mathf.Max(
                 0f,
                 _globalCastIntervalRemaining - deltaTime);
             RefreshPendingPhase();
+            RefreshCombatEngagement();
 
             if (_pendingPhase > _currentPhase &&
                 !_isActionLocked &&
@@ -237,10 +260,13 @@ namespace Game.Character
                 BossRuntimeStateKind.PhaseTransition)
             {
                 _stateMachine.ChangeState(_phaseTransitionState);
-                return;
+            }
+            else
+            {
+                _stateMachine.Tick(deltaTime);
             }
 
-            _stateMachine.Tick(deltaTime);
+            ApplyVerticalMotion(deltaTime);
             SyncAnimator();
         }
 
@@ -263,6 +289,12 @@ namespace Game.Character
             _targetStatus = target.GetComponent<StatusController>();
             _targetHealth = target.GetComponent<HealthComponent>();
             _isEncounterActive = true;
+            _isCombatEngaged = false;
+            _orbitSign = (gameObject.GetInstanceID() & 1) == 0 ? 1 : -1;
+            _orbitDirectionTimer = _definition != null
+                ? Mathf.Max(0.1f, _definition.OrbitDirectionInterval)
+                : 2f;
+            RefreshCombatEngagement();
 
             _currentPhase = BossPhaseResolver.Resolve(
                 BossPhase.Phase1,
@@ -348,7 +380,7 @@ namespace Game.Character
             toTarget.y = 0f;
             float distance = toTarget.magnitude;
             float stopDistance =
-                Mathf.Max(0f, _definition.StopDistance);
+                Mathf.Max(0f, _definition.AttackEnterDistance);
             if (distance <= stopDistance ||
                 distance <= 1e-5f)
             {
@@ -356,17 +388,117 @@ namespace Game.Character
             }
 
             Vector3 direction = toTarget / distance;
+            float moveSpeed = ResolveMoveSpeed(1f);
+            EnemyNavigationResult navigationResult = _navigation != null
+                ? _navigation.NavigateTo(
+                    _target.position,
+                    stopDistance,
+                    moveSpeed,
+                    deltaTime)
+                : EnemyNavigationResult.Unavailable;
+            MoveUsingNavigationOrFallback(
+                direction,
+                moveSpeed,
+                deltaTime,
+                navigationResult);
+
+            Vector3 facingDirection = EnemyNavigationMath.SelectFacingDirection(
+                _lastHorizontalVelocity,
+                direction);
+            FacePoint(transform.position + facingDirection, deltaTime);
+        }
+
+        /// <summary>
+        /// Decision 与 Cast 共用同一套战斗移动：理想距离内环绕，过近后撤，过远接近。
+        /// Cast 只锁定瞄准快照，不锁定位移，所以施法计时与走位可以并行推进。
+        /// </summary>
+        internal void MoveInCombat(float deltaTime, bool isCasting)
+        {
+            if (_target == null || _definition == null)
+                return;
+
+            if (!_isCombatEngaged)
+            {
+                MoveTowardTarget(deltaTime);
+                return;
+            }
+
+            _orbitDirectionTimer -= Mathf.Max(0f, deltaTime);
+            if (_orbitDirectionTimer <= 0f)
+            {
+                _orbitSign = -_orbitSign;
+                _orbitDirectionTimer = Mathf.Max(
+                    0.1f,
+                    _definition.OrbitDirectionInterval);
+            }
+
+            Vector3 direction = BossCombatMovementMath.ResolveCombatDirection(
+                transform.position,
+                _target.position,
+                _definition.PreferredCombatMinDistance,
+                _definition.PreferredCombatMaxDistance,
+                _orbitSign);
+            float speedMultiplier = isCasting
+                ? _definition.CastMoveSpeedMultiplier
+                : _definition.CombatMoveSpeedMultiplier;
+            float moveSpeed = ResolveMoveSpeed(speedMultiplier);
+            Vector3 navigationTarget = transform.position +
+                direction * Mathf.Max(0.1f, _definition.CombatNavigationStepDistance);
+            EnemyNavigationResult navigationResult = _navigation != null
+                ? _navigation.NavigateTo(
+                    navigationTarget,
+                    0.05f,
+                    moveSpeed,
+                    deltaTime)
+                : EnemyNavigationResult.Unavailable;
+            MoveUsingNavigationOrFallback(
+                direction,
+                moveSpeed,
+                deltaTime,
+                navigationResult);
+        }
+
+        internal void StopNavigation()
+        {
+            _lastHorizontalVelocity = Vector3.zero;
+            _navigation?.StopNavigation(true);
+        }
+
+        private float ResolveMoveSpeed(float stateMultiplier)
+        {
             float statusMultiplier =
                 _status != null ? _status.MoveSpeedMultiplier : 1f;
-            float maxStep =
-                Mathf.Max(0f, _definition.MoveSpeed) *
-                Mathf.Max(0f, statusMultiplier) *
-                Mathf.Max(0f, deltaTime);
-            float step = Mathf.Min(
-                maxStep,
-                distance - stopDistance);
-            _characterController.Move(direction * step);
-            FacePoint(_target.position, deltaTime);
+            return Mathf.Max(0f, _definition.MoveSpeed) *
+                   Mathf.Max(0f, statusMultiplier) *
+                   Mathf.Max(0f, stateMultiplier);
+        }
+
+        private void MoveUsingNavigationOrFallback(
+            Vector3 fallbackDirection,
+            float moveSpeed,
+            float deltaTime,
+            EnemyNavigationResult navigationResult)
+        {
+            Vector3 velocity = _navigation != null
+                ? _navigation.DesiredVelocity
+                : Vector3.zero;
+            velocity.y = 0f;
+
+            // PlayMode 单元测试或漏配 NavMesh 时仍保留可诊断的直线降级；正式 P8 使用 Agent Steering 绕障碍。
+            bool navigationUnavailable =
+                navigationResult == EnemyNavigationResult.Unavailable ||
+                navigationResult == EnemyNavigationResult.Invalid;
+            if (navigationUnavailable && velocity.sqrMagnitude <= 1e-6f)
+            {
+                fallbackDirection.y = 0f;
+                if (fallbackDirection.sqrMagnitude > 1e-6f)
+                    velocity = fallbackDirection.normalized * moveSpeed;
+            }
+
+            _characterController.Move(velocity * Mathf.Max(0f, deltaTime));
+            _lastHorizontalVelocity = _characterController.velocity;
+            _lastHorizontalVelocity.y = 0f;
+            _navigation?.SyncToCharacter();
         }
 
         internal void FaceTarget(float deltaTime)
@@ -510,11 +642,15 @@ namespace Game.Character
             }
 
             transform.position = _teleportDestination;
+            // Teleport 是一次离散的位置重置；不能把传送前积累的下落速度带到新落点。
+            _verticalVelocity = 0f;
 
             if (wasEnabled)
             {
                 _characterController.enabled = true;
             }
+
+            _navigation?.SyncToCharacter();
 
             PublishTeleportEvent(BossTeleportStage.Arrived);
         }
@@ -640,6 +776,40 @@ namespace Game.Character
             }
         }
 
+        /// <summary>
+        /// CharacterController 只解析 Move 给出的位移，不会像 Rigidbody 一样自动受 Gravity 影响。
+        /// 水平 Steering 可能因台阶、斜坡或碰撞穿透修正把胶囊抬高，因此所有参战状态在同一处
+        /// 追加垂直运动；落地时保留轻微向下速度，让 isGrounded 在连续帧中稳定保持接触。
+        /// </summary>
+        private void ApplyVerticalMotion(float deltaTime)
+        {
+            if (_characterController == null ||
+                !_characterController.enabled ||
+                _definition == null)
+            {
+                return;
+            }
+
+            if (_characterController.isGrounded &&
+                _verticalVelocity <= 0f)
+            {
+                _verticalVelocity = -Mathf.Max(
+                    0f,
+                    _definition.GroundedStickSpeed);
+            }
+            else
+            {
+                _verticalVelocity -= Mathf.Max(
+                    0f,
+                    _definition.GravityAcceleration) * Mathf.Max(0f, deltaTime);
+            }
+
+            _characterController.Move(
+                Vector3.up * _verticalVelocity * Mathf.Max(0f, deltaTime));
+            // 垂直 Move 也改变了真实 Transform；Agent 使用手动同步模式，必须在最终位置后再对齐。
+            _navigation?.SyncToCharacter();
+        }
+
         private void SyncAnimator()
         {
             if (_animator == null ||
@@ -648,19 +818,33 @@ namespace Game.Character
                 return;
             }
 
-            // Boss 只有 Approach 会主动位移。先按状态归零，可以避免停止
-            // 调用 Move 后 CharacterController 仍保留上一笔 velocity 时卡在 Run。
-            if (CurrentStateKind != BossRuntimeStateKind.Approach)
-            {
-                _animator.SetFloat(SpeedHash, 0f);
-                return;
-            }
-
-            // CharacterController.velocity 是 Move 产生的实际速度；只取水平
-            // 分量，避免未来加入重力后把下落速度误判为 Run。
-            Vector3 velocity = _characterController.velocity;
-            velocity.y = 0f;
+            Vector3 velocity = _lastHorizontalVelocity;
             _animator.SetFloat(SpeedHash, velocity.magnitude);
+            Vector3 localVelocity = transform.InverseTransformDirection(velocity);
+            float denominator = _definition != null
+                ? Mathf.Max(0.01f, _definition.MoveSpeed)
+                : 1f;
+            if (_hasMoveXParameter)
+                _animator.SetFloat(MoveXHash, Mathf.Clamp(localVelocity.x / denominator, -1f, 1f));
+            if (_hasMoveZParameter)
+                _animator.SetFloat(MoveZHash, Mathf.Clamp(localVelocity.z / denominator, -1f, 1f));
+        }
+
+        private void CacheOptionalAnimatorParameters()
+        {
+            if (_animator == null)
+                return;
+
+            AnimatorControllerParameter[] parameters = _animator.parameters;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (parameters[i].type != AnimatorControllerParameterType.Float)
+                    continue;
+                if (parameters[i].nameHash == MoveXHash)
+                    _hasMoveXParameter = true;
+                else if (parameters[i].nameHash == MoveZHash)
+                    _hasMoveZParameter = true;
+            }
         }
 
         private float HealthRatio =>
@@ -698,6 +882,21 @@ namespace Game.Character
             }
         }
 
+        private void RefreshCombatEngagement()
+        {
+            if (_definition == null || !HasTarget)
+            {
+                _isCombatEngaged = false;
+                return;
+            }
+
+            _isCombatEngaged = BossCombatMovementMath.ResolveCombatEngagement(
+                _isCombatEngaged,
+                HorizontalDistanceToTarget,
+                _definition.AttackEnterDistance,
+                _definition.AttackExitDistance);
+        }
+
         private void RouteAfterAction()
         {
             if (_stateMachine == null)
@@ -718,7 +917,7 @@ namespace Game.Character
             }
 
             _stateMachine.ChangeState(
-                IsWithinStopDistance
+                _isCombatEngaged
                     ? _decisionState
                     : _approachState);
         }

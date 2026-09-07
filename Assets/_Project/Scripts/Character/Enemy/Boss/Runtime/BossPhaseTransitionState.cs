@@ -18,6 +18,7 @@ namespace Game.Character
 
         public override void Enter()
         {
+            Boss.StopNavigation();
             if (!Boss.TryAcquireActionLock())
             {
                 Boss.EnterDecision();

@@ -34,6 +34,7 @@ namespace Game.Character
         public override void Tick(float deltaTime)
         {
             _elapsed += deltaTime;
+            Boss.MoveInCombat(deltaTime, isCasting: true);
             Boss.FacePoint(Boss.LockedAimPoint, deltaTime);
 
             if (!_released &&

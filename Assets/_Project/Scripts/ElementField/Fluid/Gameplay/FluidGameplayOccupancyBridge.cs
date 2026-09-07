@@ -3,6 +3,7 @@ using System;
 using Game.Core;
 using Unity.Collections;
 using UnityEngine;
+using Unity.Profiling;
 using UnityEngine.Rendering;
 
 namespace Game.ElementField
@@ -13,8 +14,13 @@ namespace Game.ElementField
     /// </summary>
     [DefaultExecutionOrder(100)]
     [DisallowMultipleComponent]
-    public sealed class FluidGameplayOccupancyBridge : MonoBehaviour, ILiquidOccupancyReadOnly
+    public sealed class FluidGameplayOccupancyBridge : MonoBehaviour, ILiquidOccupancyReadOnly,
+        IFluidGameplayTopologyReadOnly
     {
+        private static readonly ProfilerMarker RequestMarker =
+            new ProfilerMarker("GpuFluid.Gameplay.Request");
+        private static readonly ProfilerMarker AggregateMarker =
+            new ProfilerMarker("GpuFluid.Gameplay.Aggregate");
         [SerializeField] private MonoBehaviour _fluidSourceComponent;
         [SerializeField] private ElementWorldRuntime _elementWorldRuntime;
         [SerializeField, Min(0.05f)] private float _readbackInterval = 0.25f;
@@ -34,6 +40,8 @@ namespace Game.ElementField
         private int _lastReportedErrorCount;
         private bool _supported;
         private bool _destroyed;
+        private double _requestStartedAt;
+        private double _requestCompletedAt;
 
         public bool HasValidSnapshot => _publishedSnapshot != null
             && _publishedSnapshot.HasValidSnapshot;
@@ -43,7 +51,11 @@ namespace Game.ElementField
         public uint SnapshotVersion => HasValidSnapshot
             ? _publishedSnapshot.SnapshotVersion
             : 0u;
+        public uint TopologyVersion => HasValidSnapshot
+            ? _publishedSnapshot.TopologyVersion
+            : 0u;
         public float SnapshotIntervalSeconds => _readbackInterval;
+        public FluidGameplayDiagnostics Diagnostics { get; private set; }
 
         private void Awake()
         {
@@ -105,6 +117,7 @@ namespace Game.ElementField
             {
                 // 只允许在最终 Teardown 等待一次；正常 LateUpdate 路径绝不阻塞 CPU/GPU Pipeline。
                 _request.WaitForCompletion();
+                _requestCompletedAt = Time.realtimeSinceStartupAsDouble;
                 _requestState.RecordCompletion(_request.hasError);
             }
 
@@ -148,6 +161,7 @@ namespace Game.ElementField
 
         private void TryStartReadback()
         {
+            using var marker = RequestMarker.Auto();
             if (!_elementWorldRuntime.IsInitialized
                 || !_source.TryAcquireGameplayReadbackLease(
                     _elementWorldRuntime.Origin,
@@ -170,6 +184,7 @@ namespace Game.ElementField
                 _source.ReleaseGameplayReadbackLease();
                 return;
             }
+            _requestStartedAt = Time.realtimeSinceStartupAsDouble;
             try
             {
                 if (_writeBufferIndex == 0)
@@ -192,12 +207,16 @@ namespace Game.ElementField
                 _requestState.TryCancelBeforeSubmission();
                 ReleaseSourceLeaseOnce();
                 _readbackErrorCount++;
+                Diagnostics = Diagnostics.WithReadbackErrorCount((uint)_readbackErrorCount);
                 ReportReadbackErrorRateLimited();
             }
         }
 
         private void OnReadbackCompleted(AsyncGPUReadbackRequest request)
         {
+            // Teardown 可能再走一次完成入口；与 Lease 状态机一致，仅第一次完成更新时间。
+            if (_requestState.IsInFlight && !_requestState.IsCompleted)
+                _requestCompletedAt = Time.realtimeSinceStartupAsDouble;
             _requestState.RecordCompletion(request.hasError);
             // Unity 的 AsyncGPUReadback callback 到达时 Request 已完成，source Buffer 不再被 GPU 读取。
             // 这里解除 lease；若 source 已先 Disable/Destroy，它才会执行延迟释放。Binning 仍留在 LateUpdate。
@@ -213,6 +232,7 @@ namespace Game.ElementField
             if (hasError)
             {
                 _readbackErrorCount++;
+                Diagnostics = Diagnostics.WithReadbackErrorCount((uint)_readbackErrorCount);
                 ReportReadbackErrorRateLimited();
                 return;
             }
@@ -220,7 +240,9 @@ namespace Game.ElementField
             NativeArray<Vector4> completed = _writeBufferIndex == 0
                 ? _readbackA
                 : _readbackB;
-            bool rebuilt = _stagingSnapshot.TryRebuild(completed, in _frozenLease.Metadata);
+            bool rebuilt;
+            using (AggregateMarker.Auto())
+                rebuilt = _stagingSnapshot.TryRebuild(completed, in _frozenLease.Metadata);
             if (FluidSnapshotPublishPolicy.ShouldPublish(hasError, rebuilt))
             {
                 // 只交换已经完整 Binning 的对象；失败路径完全保留旧 data/bounds/version。
@@ -228,6 +250,9 @@ namespace Game.ElementField
                 _publishedSnapshot = _stagingSnapshot;
                 _stagingSnapshot = previous;
                 _writeBufferIndex ^= 1;
+                Diagnostics = new FluidGameplayDiagnostics(true, SnapshotVersion,
+                    _requestStartedAt, _requestCompletedAt, Time.realtimeSinceStartupAsDouble,
+                    (uint)_readbackErrorCount);
             }
         }
 

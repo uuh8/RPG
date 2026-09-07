@@ -12,7 +12,7 @@ namespace Game.ElementField.Tests
             "Assets/_Project/ScriptableObjects/ElementField/Fluid/LiquidSimulationProfile_Water.asset";
 
         [Test]
-        public void DefaultTableContainsIndependentWaterAndPoisonRows()
+        public void ProductionLiquidsUseOneAmountScaleButKeepIndependentPhysicalBehavior()
         {
             LiquidSimulationProfile profile = AssetDatabase.LoadAssetAtPath<LiquidSimulationProfile>(SimulationPath);
             Assert.That(profile, Is.Not.Null);
@@ -20,8 +20,10 @@ namespace Game.ElementField.Tests
 
             Assert.That(table.TryGet(MaterialId.Water, out LiquidMaterialSettings water), Is.True);
             Assert.That(table.TryGet(MaterialId.Poison, out LiquidMaterialSettings poison), Is.True);
+            Assert.That(table.TryGet(MaterialId.Sticky, out LiquidMaterialSettings sticky), Is.True);
             Assert.That(water.AmountUnitsPerParticle, Is.EqualTo(8u));
-            Assert.That(poison.AmountUnitsPerParticle, Is.EqualTo(4u));
+            Assert.That(poison.AmountUnitsPerParticle, Is.EqualTo(8u));
+            Assert.That(sticky.AmountUnitsPerParticle, Is.EqualTo(8u));
             Assert.That(poison.Viscosity, Is.GreaterThan(water.Viscosity));
             Assert.That(poison.RestSpacing, Is.Not.EqualTo(water.RestSpacing));
             Assert.That(Marshal.SizeOf<FluidGpuLiquidMaterialParameters>(), Is.EqualTo(32));
@@ -42,7 +44,7 @@ namespace Game.ElementField.Tests
             var requests = new FluidSpawnRequest[2];
             Assert.That(queue.CopyAndClear(requests), Is.EqualTo(2));
             Assert.That(requests[0].ParticleCount, Is.EqualTo(2u));
-            Assert.That(requests[1].ParticleCount, Is.EqualTo(4u));
+            Assert.That(requests[1].ParticleCount, Is.EqualTo(2u));
             Assert.That(requests[0].RestSpacing, Is.GreaterThan(0f));
             Assert.That(requests[1].RestSpacing, Is.GreaterThan(0f));
             Assert.That(requests[0].RestSpacing, Is.Not.EqualTo(requests[1].RestSpacing));

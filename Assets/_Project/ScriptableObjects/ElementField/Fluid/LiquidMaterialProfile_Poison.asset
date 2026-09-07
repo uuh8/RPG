@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: LiquidMaterialProfile_Poison
   m_EditorClassIdentifier: Game.ElementField::Game.ElementField.LiquidMaterialProfile
   _material: 3
-  _amountUnitsPerParticle: 4
+  _amountUnitsPerParticle: 8
   _particleMass: 1.1
   _restDensity: 1050
   _viscosity: 0.32

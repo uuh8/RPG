@@ -174,6 +174,8 @@ namespace Game.Character.Tests
 
             Animator animator = boss.GetComponentInChildren<Animator>();
             Assert.That(animator, Is.Not.Null);
+            Assert.That(HasFloatParameter(animator, "moveX"), Is.True);
+            Assert.That(HasFloatParameter(animator, "moveZ"), Is.True);
             Assert.That(
                 animator.GetFloat(Animator.StringToHash("speed")),
                 Is.GreaterThan(0.1f));
@@ -236,6 +238,88 @@ namespace Game.Character.Tests
             yield return WaitForPhase(boss, BossPhase.Phase2, 1f);
             Assert.That(boss.Health.IsInvulnerable, Is.False);
             Assert.That(boss.Health.CurrentHp, Is.EqualTo(60f));
+        }
+
+        [UnityTest]
+        public IEnumerator CombatEngagement_UsesDifferentEnterAndExitDistances()
+        {
+            BossDefinition definition = CreateDefinition();
+            definition.AttackEnterDistance = 5f;
+            definition.AttackExitDistance = 8f;
+            WizardBossController boss = CreateBoss(definition);
+            Transform target =
+                CreateTarget("Hysteresis Target", new Vector3(4f, 0f, 0f));
+
+            Assert.That(boss.TryActivate(target), Is.True);
+            yield return null;
+            Assert.That(boss.IsCombatEngaged, Is.True);
+            Assert.That(boss.CurrentStateKind, Is.EqualTo(BossRuntimeStateKind.Decision));
+
+            target.position = new Vector3(7f, 0f, 0f);
+            yield return null;
+            Assert.That(boss.IsCombatEngaged, Is.True,
+                "已进入战斗后，玩家尚未越过较大的追击边界时不能退回 Approach。");
+
+            target.position = new Vector3(9f, 0f, 0f);
+            yield return null;
+            Assert.That(boss.IsCombatEngaged, Is.False);
+            Assert.That(boss.CurrentStateKind, Is.EqualTo(BossRuntimeStateKind.Approach));
+        }
+
+        [UnityTest]
+        public IEnumerator Approach_WhileUnsupported_FallsInsteadOfKeepingRaisedHeight()
+        {
+            BossDefinition definition = CreateDefinition();
+            definition.AttackEnterDistance = 1f;
+            definition.MoveSpeed = 3.5f;
+            WizardBossController boss = CreateBoss(definition);
+            boss.transform.position = new Vector3(0f, 5f, 0f);
+            Transform target =
+                CreateTarget("Unsupported Target", new Vector3(10f, 5f, 0f));
+
+            Assert.That(boss.TryActivate(target), Is.True);
+            float heightBefore = boss.transform.position.y;
+
+            yield return null;
+            yield return null;
+
+            Assert.That(
+                boss.transform.position.y,
+                Is.LessThan(heightBefore),
+                "Boss 的水平追击必须同时施加向下速度；CharacterController 不会自动处理 Gravity。");
+        }
+
+        [UnityTest]
+        public IEnumerator Cast_ContinuesMovingWhileActionIsLocked()
+        {
+            BossDefinition definition = CreateDefinition();
+            definition.AttackEnterDistance = 20f;
+            definition.AttackExitDistance = 25f;
+            definition.PreferredCombatMinDistance = 8f;
+            definition.PreferredCombatMaxDistance = 14f;
+            definition.CastTelegraphDuration = 0.3f;
+            definition.CastRecoveryDuration = 0.3f;
+            definition.Phase1.CastInterval = 0.01f;
+            definition.Programs = new[]
+            {
+                CreateProgram(CreateProjectileWand())
+            };
+            WizardBossController boss = CreateBoss(definition);
+            Transform target =
+                CreateTarget("Moving Cast Target", new Vector3(10f, 0f, 0f));
+
+            Assert.That(boss.TryActivate(target), Is.True);
+            yield return WaitForState(boss, BossRuntimeStateKind.Cast, 1f);
+            Vector3 positionBefore = boss.transform.position;
+
+            yield return new WaitForSeconds(0.1f);
+
+            Assert.That(boss.CurrentStateKind, Is.EqualTo(BossRuntimeStateKind.Cast));
+            Assert.That(boss.IsActionLocked, Is.True);
+            Assert.That(
+                Vector3.Distance(positionBefore, boss.transform.position),
+                Is.GreaterThan(0.01f),
+                "Cast 的 Action Lock 只串行化技能释放，不应冻结战斗走位。");
         }
 
         private WizardBossController CreateBoss(
@@ -350,6 +434,22 @@ namespace Game.Character.Tests
             }
 
             Assert.That(boss.CurrentStateKind, Is.EqualTo(expected));
+        }
+
+        private static bool HasFloatParameter(Animator animator, string parameterName)
+        {
+            int parameterHash = Animator.StringToHash(parameterName);
+            AnimatorControllerParameter[] parameters = animator.parameters;
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                if (parameters[i].nameHash == parameterHash &&
+                    parameters[i].type == AnimatorControllerParameterType.Float)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static IEnumerator WaitForPhase(
